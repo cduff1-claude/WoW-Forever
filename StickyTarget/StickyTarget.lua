@@ -12,17 +12,22 @@ end
 local function SetSticky(sticky, event)
     local value = sticky and "0" or "1"
     local before = C_CVar.GetCVar(CVAR)
-    local ok, err
+    local ok, err, method = true, nil, "unchanged"
     if before ~= value then
+        -- On the WoW Forever client C_CVar.SetCVar is silently ignored for this CVar,
+        -- but the console command ("/console deselectOnClick 0") works, so fall back to it.
+        method = "SetCVar"
         ok, err = pcall(C_CVar.SetCVar, CVAR, value)
-    else
-        ok = true
+        if C_CVar.GetCVar(CVAR) ~= value and ConsoleExec then
+            method = "ConsoleExec"
+            ok, err = pcall(ConsoleExec, CVAR .. " " .. value)
+        end
     end
     local after = C_CVar.GetCVar(CVAR)
 
     lastEvent = event
-    lastResult = string.format("wanted %s, before %s, after %s, lockdown %s%s",
-        value, tostring(before), tostring(after), tostring(InCombatLockdown()),
+    lastResult = string.format("wanted %s, before %s, after %s, via %s, lockdown %s%s",
+        value, tostring(before), tostring(after), method, tostring(InCombatLockdown()),
         ok and "" or (", error: " .. tostring(err)))
 
     if debug or after ~= value then
