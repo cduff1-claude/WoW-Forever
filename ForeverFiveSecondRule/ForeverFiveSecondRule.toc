@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Forever Five Second Rule
+## Notes: Shows the 5-second rule on the Blizzard Player Frame mana bar for all mana users. Based on Druid Forever Manabar by antisnake.
+## Version: 1.0.0
+## SavedVariables: ForeverFiveSecondRuleDB
+
+ForeverFiveSecondRule.lua

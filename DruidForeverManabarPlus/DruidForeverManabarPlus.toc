@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: Druid Forever Manabar Plus
+## Notes: Druid mana bar with 5-second-rule tracker and Cat/Bear shift-cost marker for WoW Forever. Based on Druid Forever Manabar by antisnake.
+## Author: antisnake (original), modified
+## Version: 1.0.4-plus1
+## SavedVariables: DruidForeverManabarPlusDB
+
+DruidForeverManabarPlus.lua

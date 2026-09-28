@@ -1,0 +1,20 @@
+# WoW Forever addons
+
+Copy each folder into `World of Warcraft/_retail_/Interface/AddOns/` (or wherever your WoW Forever client keeps addons).
+
+## DruidForeverManabarPlus
+A copy of *Druid Forever Manabar* (by antisnake) with:
+- A white vertical line at the mana cost of Cat/Bear Form, measured from the left of the bar (cost / max mana).
+  The cost is read live from `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
+- An optional lighter shade over the part of the filled bar that a shift would spend.
+- Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
+- Settings now persist between sessions.
+
+Slash command: `/dfmp` (options), `/dfmp debug` (shows the detected shift cost), `/dfmp test`.
+Uses its own saved variables, so disable the original *Druid Forever Manabar* to avoid two bars.
+
+## ForeverFiveSecondRule
+Draws the 5-second-rule marker on the standard Blizzard Player Frame mana bar for any mana user.
+Hidden while the Player Frame bar shows something other than mana (e.g. Druid Cat/Bear Form).
+
+Slash command: `/ffsr` (help), `/ffsr on|off`, `/ffsr text`, `/ffsr width <1-6>`, `/ffsr test`, `/ffsr debug`.
