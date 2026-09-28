@@ -271,10 +271,10 @@ local DRUID_BAR_COLORS = {
 -- with the blue underneath.
 local PLAYER_FRAME_COLORS = {
     blue = { 1.0, 1.0, 1.0, 0.3 },
-    paleOrange = { 1.0, 0.8, 0.5, 0.8 },
-    boldOrange = { 1.0, 0.55, 0.1, 0.75 },
-    paleRed = { 1.0, 0.66, 0.66, 0.79 },
-    darkRed = { 1.0, 0.45, 0.45, 0.7 },
+    paleOrange = { 1.0, 0.55, 0.1, 0.75 },
+    boldOrange = { 1.0, 0.4, 0.0, 0.92 },
+    paleRed = { 1.0, 0.45, 0.45, 0.7 },
+    darkRed = { 0.7, 0.05, 0.05, 0.92 },
 }
 
 local pfShade = nil
