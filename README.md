@@ -8,6 +8,7 @@ A copy of *Druid Forever Manabar* (by antisnake) with:
   The cost is read live from `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
 - An optional lighter shade over the part of the filled bar that a shift would spend.
 - Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
+- Also draws the shift-cost line (and a lighter wash) on the standard Blizzard Player Frame mana bar whenever it is showing mana (caster form, Moonkin, etc.). Can be turned off in options.
 - Settings now persist between sessions.
 
 Slash command: `/dfmp` (options), `/dfmp debug` (shows the detected shift cost), `/dfmp test`.

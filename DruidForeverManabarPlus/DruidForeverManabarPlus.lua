@@ -41,6 +41,7 @@ local DEFAULTS = {
     fontSize = 10,
     showShiftLine = true,
     showShiftShade = true,
+    showShiftOnPlayerFrame = true,
 }
 
 local function EnsureDB()
@@ -430,10 +431,97 @@ local function RefreshShiftCost()
     end
 end
 
+-- Second copy of the shift-cost line/shade that sits on the Blizzard Player Frame mana bar,
+-- used whenever that bar is showing mana (caster form, Moonkin, etc.). Built the same way as
+-- the one on our own bar; the shade is a translucent white wash so it lightens whatever
+-- texture Blizzard uses for the bar.
+local pfOverlay = nil
+local pfOverlayActive = false
+
+local function EnsurePlayerFrameOverlay()
+    local resourceBar = GetPlayerResourceBar()
+    if not resourceBar or not resourceBar.GetStatusBarTexture then
+        return nil
+    end
+
+    if pfOverlay and pfOverlay.bar == resourceBar then
+        return pfOverlay
+    end
+
+    local o = pfOverlay or {}
+    o.bar = resourceBar
+
+    if not o.clip then
+        o.clip = CreateFrame("Frame", nil, resourceBar)
+        o.clip:SetClipsChildren(true)
+
+        o.shiftBar = CreateFrame("StatusBar", nil, o.clip)
+        o.shiftBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        o.shiftBar:SetMinMaxValues(0, 1)
+        o.shiftBar:SetValue(0)
+
+        o.lineFrame = CreateFrame("Frame", nil, resourceBar)
+
+        o.line = o.lineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
+        o.line:SetColorTexture(1, 1, 1, 1)
+        o.line:SetWidth(2)
+        o.line:SetPoint("TOP", o.shiftBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+        o.line:SetPoint("BOTTOM", o.shiftBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    else
+        o.clip:SetParent(resourceBar)
+        o.lineFrame:SetParent(resourceBar)
+    end
+
+    o.shiftBar:ClearAllPoints()
+    o.shiftBar:SetAllPoints(resourceBar)
+    o.lineFrame:ClearAllPoints()
+    o.lineFrame:SetAllPoints(resourceBar)
+
+    o.clip:Hide()
+    o.lineFrame:Hide()
+
+    pfOverlay = o
+    return o
+end
+
+local function HidePlayerFrameOverlay()
+    pfOverlayActive = false
+    if pfOverlay then
+        pfOverlay.clip:Hide()
+        pfOverlay.lineFrame:Hide()
+    end
+end
+
+local function ShowPlayerFrameOverlay()
+    local o = EnsurePlayerFrameOverlay()
+    if not o then
+        HidePlayerFrameOverlay()
+        return
+    end
+
+    local bar = o.bar
+
+    -- Re-anchor every time: Blizzard may swap the fill texture when the power type changes.
+    o.clip:ClearAllPoints()
+    o.clip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+    o.clip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    o.clip:SetFrameStrata(bar:GetFrameStrata())
+    o.clip:SetFrameLevel(bar:GetFrameLevel() + 1)
+    o.shiftBar:SetFrameLevel(bar:GetFrameLevel() + 2)
+    o.lineFrame:SetFrameStrata(bar:GetFrameStrata())
+    o.lineFrame:SetFrameLevel(bar:GetFrameLevel() + 8)
+
+    pfOverlayActive = true
+end
+
 local function UpdateShiftCostVisual(maxMana)
     if shiftCost == nil or (not db.showShiftLine and not db.showShiftShade) then
         shiftBar:Hide()
         shiftLine:Hide()
+        if pfOverlay then
+            pfOverlay.clip:Hide()
+            pfOverlay.lineFrame:Hide()
+        end
         return
     end
 
@@ -445,6 +533,21 @@ local function UpdateShiftCostVisual(maxMana)
         shiftLine:Show()
     else
         shiftLine:Hide()
+    end
+
+    if pfOverlayActive and pfOverlay then
+        pfOverlay.shiftBar:SetMinMaxValues(0, maxMana)
+        pfOverlay.shiftBar:SetValue(shiftCost)
+        pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, db.showShiftShade and 0.3 or 0)
+        pfOverlay.clip:Show()
+        if db.showShiftLine then
+            pfOverlay.lineFrame:Show()
+        else
+            pfOverlay.lineFrame:Hide()
+        end
+    elseif pfOverlay then
+        pfOverlay.clip:Hide()
+        pfOverlay.lineFrame:Hide()
     end
 end
 
@@ -505,21 +608,41 @@ local function SpellSpendsMana(spellID)
     return false
 end
 
+local function PlayerFrameBarShowsMana()
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return false
+    end
+    return powerType == MANA_POWER_TYPE
+end
+
 local function UpdateFormState()
     local formID = GetShapeshiftFormID()
     local tracked = isDruid and IsTrackedForm(formID)
     local shouldShow = isDruid and (tracked or db.showOutsideForms)
 
+    if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
+        ShowPlayerFrameOverlay()
+    else
+        HidePlayerFrameOverlay()
+    end
+
     if shouldShow then
         manaFrame:Show()
         ApplyAnchor()
-        RefreshShiftCost()
-        UpdateManaBar()
-
-        ResumeFiveSecondRuleVisual()
     else
         manaFrame:Hide()
         HideFiveSecondRuleVisual()
+    end
+
+    if isDruid then
+        RefreshShiftCost()
+        UpdateManaBar()
+    end
+
+    if shouldShow then
+        ResumeFiveSecondRuleVisual()
+    else
         manaText:ClearText()
     end
 end
@@ -676,7 +799,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "Druid Forever Manabar Plus"
-panel:SetSize(460, 650)
+panel:SetSize(460, 690)
 
 local settingsCategory
 
@@ -753,6 +876,15 @@ shiftShadeCheckbox:SetScript("OnClick", function(self)
     UpdateManaBar()
 end)
 
+local playerFrameShiftCheckbox = CreateFrame("CheckButton", "DFMPPlayerFrameShiftCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
+playerFrameShiftCheckbox:SetPoint("TOPLEFT", shiftShadeCheckbox, "BOTTOMLEFT", 0, -10)
+_G[playerFrameShiftCheckbox:GetName() .. "Text"]:SetText("Also show shift cost on the Player Frame mana bar (caster form)")
+playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
+playerFrameShiftCheckbox:SetScript("OnClick", function(self)
+    db.showShiftOnPlayerFrame = self:GetChecked()
+    UpdateFormState()
+end)
+
 local function CreateSlider(name, parent, minVal, maxVal, step, labelText, valueKey, callback)
     local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
     slider:SetMinMaxValues(minVal, maxVal)
@@ -789,7 +921,7 @@ local widthSlider = CreateSlider("DFMPWidthSlider", panel, 50, 400, 10, "Bar Wid
         fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
     end
 end)
-widthSlider:SetPoint("TOPLEFT", shiftShadeCheckbox, "BOTTOMLEFT", 0, -35)
+widthSlider:SetPoint("TOPLEFT", playerFrameShiftCheckbox, "BOTTOMLEFT", 0, -35)
 
 local heightSlider = CreateSlider("DFMPHeightSlider", panel, 6, 30, 2, "Bar Height (Manual)", "height", function(val)
     if not db.attachToPlayerFrame then
@@ -896,6 +1028,7 @@ panel:SetScript("OnShow", function()
     outsideFormsCheckbox:SetChecked(db.showOutsideForms)
     shiftLineCheckbox:SetChecked(db.showShiftLine)
     shiftShadeCheckbox:SetChecked(db.showShiftShade)
+    playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
     widthSlider:SetValue(db.width)
     heightSlider:SetValue(db.height)
     scaleSlider:SetValue(db.scale)
@@ -939,6 +1072,7 @@ local function PrintDebugInfo()
     else
         print("Shift cost:", tostring(shiftCost), "mana, from spell ID", tostring(shiftCostSpellID))
     end
+    print("Player Frame shift overlay active:", tostring(pfOverlayActive), "bar shows mana:", tostring(PlayerFrameBarShowsMana()))
     local fontChoice = FONT_CHOICES[db.fontKey] or FONT_CHOICES.arial
     print("Font:", fontChoice.label, "size", tostring(db.fontSize), "show outside forms:", tostring(db.showOutsideForms))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
