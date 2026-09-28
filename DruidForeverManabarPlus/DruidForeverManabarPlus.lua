@@ -89,59 +89,64 @@ manaBar:SetValue(0)
 
 -- Shade over the part of the filled bar that a Cat/Bear shift would spend.
 --
--- The client may not let addons read mana values (they come back "secret"), so nothing
+-- The client does not let addons read mana values (they come back "secret"), so nothing
 -- here compares mana in Lua. Instead StatusBar widgets, which accept secret values, do the
 -- work and the other pieces are anchored to the edges of their fill textures:
 --
 --   fillClip  : clips to [bar left .. right edge of the mana fill], so shades never draw
 --               past current mana.
---   stepBar   : invisible. Range [threshold - 1, threshold], value = current mana, so its
---               fill is either empty (mana below threshold) or full-width (at/above it).
---   okClip    : clips to [bar left .. right edge of stepBar's fill], i.e. the whole bar
---               when there is enough mana and nothing when there isn't.
---   lowClip   : clips to [right edge of stepBar's fill .. bar right], the opposite: the
---               whole bar when mana is too low and nothing otherwise.
---   okBar     : blue shade inside okClip, value = shift cost over max mana.
---   lowBar    : red shade inside lowClip, same geometry.
+--   stepNow   : invisible. Range [cost - 1, cost], value = current mana, so its fill is
+--               either empty (mana below shift cost) or full-width (at/above it).
+--   stepCast  : the same, but the threshold also includes the cost of the spell being cast.
+--               It is never fuller than stepNow.
+--   okClip    : [bar left .. stepCast edge]      - whole bar only when mana stays >= cost
+--                                                  after the current cast.
+--   castClip  : [stepCast edge .. stepNow edge]  - whole bar only when mana is >= cost now
+--                                                  but the current cast would take it below.
+--   lowClip   : [stepNow edge .. bar right]      - whole bar only when mana is below cost.
 --
--- Only one of the two is ever visible, so a translucent shade never lets the other show
--- through. Blue when current mana >= threshold, otherwise red.
--- threshold = shift cost + mana cost of the spell being cast.
+-- Each clip holds a StatusBar (value = shift cost over max mana) in its own colour. Exactly
+-- one of the three clips has any width at a time, so only one colour is ever visible.
+local function CreateStepBar(bar)
+    local step = CreateFrame("StatusBar", nil, bar)
+    step:SetAllPoints(bar)
+    step:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    step:SetStatusBarColor(0, 0, 0, 0)
+    step:SetMinMaxValues(0, 1)
+    step:SetValue(1)
+    return step
+end
+
+local function CreateClippedShade(parent, bar, texturePath, left, leftPoint, right, rightPoint)
+    local clip = CreateFrame("Frame", nil, parent)
+    clip:SetClipsChildren(true)
+    clip:SetPoint("TOPLEFT", left, "TOP" .. leftPoint, 0, 0)
+    clip:SetPoint("BOTTOMRIGHT", right, "BOTTOM" .. rightPoint, 0, 0)
+
+    local shade = CreateFrame("StatusBar", nil, clip)
+    shade:SetAllPoints(bar)
+    shade:SetStatusBarTexture(texturePath)
+    shade:SetMinMaxValues(0, 1)
+    shade:SetValue(0)
+    return clip, shade
+end
+
 local function CreateShiftShade(bar, texturePath)
     local set = { bar = bar }
 
     set.fillClip = CreateFrame("Frame", nil, bar)
     set.fillClip:SetClipsChildren(true)
 
-    set.stepBar = CreateFrame("StatusBar", nil, bar)
-    set.stepBar:SetAllPoints(bar)
-    set.stepBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    set.stepBar:SetStatusBarColor(0, 0, 0, 0)
-    set.stepBar:SetMinMaxValues(0, 1)
-    set.stepBar:SetValue(1)
+    set.stepNow = CreateStepBar(bar)
+    set.stepCast = CreateStepBar(bar)
+    local nowEdge = set.stepNow:GetStatusBarTexture()
+    local castEdge = set.stepCast:GetStatusBarTexture()
 
-    set.lowClip = CreateFrame("Frame", nil, set.fillClip)
-    set.lowClip:SetClipsChildren(true)
-    set.lowClip:SetPoint("TOPLEFT", set.stepBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-    set.lowClip:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+    set.okClip, set.okBar = CreateClippedShade(set.fillClip, bar, texturePath, bar, "LEFT", castEdge, "RIGHT")
+    set.castClip, set.castBar = CreateClippedShade(set.fillClip, bar, texturePath, castEdge, "RIGHT", nowEdge, "RIGHT")
+    set.lowClip, set.lowBar = CreateClippedShade(set.fillClip, bar, texturePath, nowEdge, "RIGHT", bar, "RIGHT")
 
-    set.lowBar = CreateFrame("StatusBar", nil, set.lowClip)
-    set.lowBar:SetAllPoints(bar)
-    set.lowBar:SetStatusBarTexture(texturePath)
-    set.lowBar:SetMinMaxValues(0, 1)
-    set.lowBar:SetValue(0)
-
-    set.okClip = CreateFrame("Frame", nil, set.fillClip)
-    set.okClip:SetClipsChildren(true)
-    set.okClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
-    set.okClip:SetPoint("BOTTOMRIGHT", set.stepBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-
-    set.okBar = CreateFrame("StatusBar", nil, set.okClip)
-    set.okBar:SetAllPoints(bar)
-    set.okBar:SetStatusBarTexture(texturePath)
-    set.okBar:SetMinMaxValues(0, 1)
-    set.okBar:SetValue(0)
-
+    set.shades = { set.okBar, set.castBar, set.lowBar }
     return set
 end
 
@@ -156,20 +161,29 @@ local function AnchorShiftShade(set)
     set.fillClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
     set.fillClip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
 
-    for _, frame in ipairs({ set.fillClip, set.stepBar, set.lowClip, set.lowBar, set.okClip, set.okBar }) do
+    local frames = {
+        set.fillClip, set.stepNow, set.stepCast,
+        set.okClip, set.castClip, set.lowClip,
+        set.okBar, set.castBar, set.lowBar,
+    }
+    for _, frame in ipairs(frames) do
         frame:SetFrameStrata(strata)
     end
-    set.stepBar:SetFrameLevel(level + 1)
+    set.stepNow:SetFrameLevel(level + 1)
+    set.stepCast:SetFrameLevel(level + 1)
     set.fillClip:SetFrameLevel(level + 1)
-    set.lowClip:SetFrameLevel(level + 2)
     set.okClip:SetFrameLevel(level + 2)
-    set.lowBar:SetFrameLevel(level + 3)
+    set.castClip:SetFrameLevel(level + 2)
+    set.lowClip:SetFrameLevel(level + 2)
     set.okBar:SetFrameLevel(level + 3)
+    set.castBar:SetFrameLevel(level + 3)
+    set.lowBar:SetFrameLevel(level + 3)
 end
 
 local function ShowShiftShade(set, shown)
     set.fillClip:SetShown(shown)
-    set.stepBar:SetShown(shown)
+    set.stepNow:SetShown(shown)
+    set.stepCast:SetShown(shown)
 end
 
 local druidShade = CreateShiftShade(manaBar, "Interface\\TargetingFrame\\UI-StatusBar")
@@ -218,13 +232,15 @@ end
 
 ApplyFont()
 
--- Shade colours. "Low" is shown when current mana (minus any cast in progress) is below
--- the shift cost.
-local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 1.0, 0.45, 0.45
-local PF_SHADE_OK_ALPHA = 0.3
-local PF_SHADE_LOW_ALPHA = 0.85
--- Paler red for the Player Frame, since it is blended over Blizzard's darker blue texture.
-local PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B = 1.0, 0.6, 0.6
+-- Shade colours: pale red = the current cast will take mana below the shift cost,
+-- dark red = mana is below the shift cost now.
+local SHADE_CAST_R, SHADE_CAST_G, SHADE_CAST_B = 1.0, 0.66, 0.66
+local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 0.85, 0.25, 0.25
+-- The Player Frame bar uses Blizzard's own texture, so it gets translucent washes that blend
+-- with the blue underneath.
+local PF_SHADE_OK_R, PF_SHADE_OK_G, PF_SHADE_OK_B, PF_SHADE_OK_A = 1.0, 1.0, 1.0, 0.3
+local PF_SHADE_CAST_R, PF_SHADE_CAST_G, PF_SHADE_CAST_B, PF_SHADE_CAST_A = 1.0, 0.66, 0.66, 0.79
+local PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, PF_SHADE_LOW_A = 1.0, 0.45, 0.45, 0.7
 
 local pfShade = nil
 
@@ -237,12 +253,13 @@ local function ApplyShiftShadeColor()
     local g = db.colorG + (1 - db.colorG) * lighten
     local b = db.colorB + (1 - db.colorB) * lighten
     druidShade.okBar:SetStatusBarColor(r, g, b, shown and 1 or 0)
+    druidShade.castBar:SetStatusBarColor(SHADE_CAST_R, SHADE_CAST_G, SHADE_CAST_B, shown and 1 or 0)
     druidShade.lowBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, shown and 1 or 0)
 
-    -- The Player Frame bar uses Blizzard's own texture, so wash it with white / red instead.
     if pfShade then
-        pfShade.okBar:SetStatusBarColor(1, 1, 1, shown and PF_SHADE_OK_ALPHA or 0)
-        pfShade.lowBar:SetStatusBarColor(PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, shown and PF_SHADE_LOW_ALPHA or 0)
+        pfShade.okBar:SetStatusBarColor(PF_SHADE_OK_R, PF_SHADE_OK_G, PF_SHADE_OK_B, shown and PF_SHADE_OK_A or 0)
+        pfShade.castBar:SetStatusBarColor(PF_SHADE_CAST_R, PF_SHADE_CAST_G, PF_SHADE_CAST_B, shown and PF_SHADE_CAST_A or 0)
+        pfShade.lowBar:SetStatusBarColor(PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, shown and PF_SHADE_LOW_A or 0)
     end
 end
 
@@ -600,19 +617,25 @@ local function GetShiftThreshold()
     return shiftCost + pendingCastCost
 end
 
-local function UpdateShiftShade(set, maxMana, currentMana, threshold)
-    set.lowBar:SetMinMaxValues(0, maxMana)
-    set.lowBar:SetValue(shiftCost)
-    set.okBar:SetMinMaxValues(0, maxMana)
-    set.okBar:SetValue(shiftCost)
-
+local function SetStep(step, threshold, currentMana)
     if threshold then
-        set.stepBar:SetMinMaxValues(threshold - 1, threshold)
-        set.stepBar:SetValue(currentMana)
+        step:SetMinMaxValues(threshold - 1, threshold)
+        step:SetValue(currentMana)
     else
-        set.stepBar:SetMinMaxValues(0, 1)
-        set.stepBar:SetValue(1)
+        -- No readable threshold: always "enough mana", so the shade stays blue.
+        step:SetMinMaxValues(0, 1)
+        step:SetValue(1)
     end
+end
+
+local function UpdateShiftShade(set, maxMana, currentMana, threshold)
+    for _, shade in ipairs(set.shades) do
+        shade:SetMinMaxValues(0, maxMana)
+        shade:SetValue(shiftCost)
+    end
+
+    SetStep(set.stepNow, threshold and shiftCost, currentMana)
+    SetStep(set.stepCast, threshold, currentMana)
 
     ShowShiftShade(set, true)
 end
