@@ -1,0 +1,7 @@
+## Interface: 99999
+## Title: StickyTarget
+## Notes: Toggles sticky targeting when entering/exiting combat.
+## Author: SatPagle#1178 (@SatPagle on Twitter), updated for WoW Forever
+## Version: 1.1.0
+
+StickyTarget.lua

@@ -23,3 +23,8 @@ Draws the 5-second-rule marker on the standard Blizzard Player Frame mana bar fo
 Hidden while the Player Frame bar shows something other than mana (e.g. Druid Cat/Bear Form).
 
 Slash command: `/ffsr` (help), `/ffsr on|off`, `/ffsr text`, `/ffsr width <1-6>`, `/ffsr test`, `/ffsr debug`.
+
+## StickyTarget
+A copy of *StickyTarget* (by SatPagle) updated for WoW Forever: turns Sticky Targeting on when you enter combat
+and back off when you leave it. Also syncs on login/reload so it never gets stuck on out of combat.
+No options or slash commands.
