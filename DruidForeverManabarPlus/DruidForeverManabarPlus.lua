@@ -95,14 +95,17 @@ manaBar:SetValue(0)
 --
 --   fillClip  : clips to [bar left .. right edge of the mana fill], so shades never draw
 --               past current mana.
---   lowBar    : red shade, value = shift cost over max mana. Always drawn (inside fillClip).
 --   stepBar   : invisible. Range [threshold - 1, threshold], value = current mana, so its
 --               fill is either empty (mana below threshold) or full-width (at/above it).
 --   okClip    : clips to [bar left .. right edge of stepBar's fill], i.e. the whole bar
 --               when there is enough mana and nothing when there isn't.
---   okBar     : blue shade, same geometry as lowBar, drawn on top of it inside okClip.
+--   lowClip   : clips to [right edge of stepBar's fill .. bar right], the opposite: the
+--               whole bar when mana is too low and nothing otherwise.
+--   okBar     : blue shade inside okClip, value = shift cost over max mana.
+--   lowBar    : red shade inside lowClip, same geometry.
 --
--- So the shade shows blue when current mana >= threshold, otherwise the red underneath.
+-- Only one of the two is ever visible, so a translucent shade never lets the other show
+-- through. Blue when current mana >= threshold, otherwise red.
 -- threshold = shift cost + mana cost of the spell being cast.
 local function CreateShiftShade(bar, texturePath)
     local set = { bar = bar }
@@ -110,18 +113,23 @@ local function CreateShiftShade(bar, texturePath)
     set.fillClip = CreateFrame("Frame", nil, bar)
     set.fillClip:SetClipsChildren(true)
 
-    set.lowBar = CreateFrame("StatusBar", nil, set.fillClip)
-    set.lowBar:SetAllPoints(bar)
-    set.lowBar:SetStatusBarTexture(texturePath)
-    set.lowBar:SetMinMaxValues(0, 1)
-    set.lowBar:SetValue(0)
-
     set.stepBar = CreateFrame("StatusBar", nil, bar)
     set.stepBar:SetAllPoints(bar)
     set.stepBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     set.stepBar:SetStatusBarColor(0, 0, 0, 0)
     set.stepBar:SetMinMaxValues(0, 1)
     set.stepBar:SetValue(1)
+
+    set.lowClip = CreateFrame("Frame", nil, set.fillClip)
+    set.lowClip:SetClipsChildren(true)
+    set.lowClip:SetPoint("TOPLEFT", set.stepBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    set.lowClip:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+
+    set.lowBar = CreateFrame("StatusBar", nil, set.lowClip)
+    set.lowBar:SetAllPoints(bar)
+    set.lowBar:SetStatusBarTexture(texturePath)
+    set.lowBar:SetMinMaxValues(0, 1)
+    set.lowBar:SetValue(0)
 
     set.okClip = CreateFrame("Frame", nil, set.fillClip)
     set.okClip:SetClipsChildren(true)
@@ -148,14 +156,15 @@ local function AnchorShiftShade(set)
     set.fillClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
     set.fillClip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
 
-    for _, frame in ipairs({ set.fillClip, set.stepBar, set.lowBar, set.okClip, set.okBar }) do
+    for _, frame in ipairs({ set.fillClip, set.stepBar, set.lowClip, set.lowBar, set.okClip, set.okBar }) do
         frame:SetFrameStrata(strata)
     end
     set.stepBar:SetFrameLevel(level + 1)
     set.fillClip:SetFrameLevel(level + 1)
-    set.lowBar:SetFrameLevel(level + 2)
-    set.okClip:SetFrameLevel(level + 3)
-    set.okBar:SetFrameLevel(level + 4)
+    set.lowClip:SetFrameLevel(level + 2)
+    set.okClip:SetFrameLevel(level + 2)
+    set.lowBar:SetFrameLevel(level + 3)
+    set.okBar:SetFrameLevel(level + 3)
 end
 
 local function ShowShiftShade(set, shown)
@@ -213,7 +222,9 @@ ApplyFont()
 -- the shift cost.
 local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 1.0, 0.45, 0.45
 local PF_SHADE_OK_ALPHA = 0.3
-local PF_SHADE_LOW_ALPHA = 0.7
+local PF_SHADE_LOW_ALPHA = 0.85
+-- Paler red for the Player Frame, since it is blended over Blizzard's darker blue texture.
+local PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B = 1.0, 0.6, 0.6
 
 local pfShade = nil
 
@@ -231,7 +242,7 @@ local function ApplyShiftShadeColor()
     -- The Player Frame bar uses Blizzard's own texture, so wash it with white / red instead.
     if pfShade then
         pfShade.okBar:SetStatusBarColor(1, 1, 1, shown and PF_SHADE_OK_ALPHA or 0)
-        pfShade.lowBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, shown and PF_SHADE_LOW_ALPHA or 0)
+        pfShade.lowBar:SetStatusBarColor(PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, shown and PF_SHADE_LOW_ALPHA or 0)
     end
 end
 
