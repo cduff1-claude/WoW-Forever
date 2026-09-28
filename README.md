@@ -4,9 +4,10 @@ Copy each folder into `World of Warcraft/_retail_/Interface/AddOns/` (or whereve
 
 ## DruidForeverManabarPlus
 A copy of *Druid Forever Manabar* (by antisnake) with:
-- A white vertical line at the mana cost of Cat/Bear Form, measured from the left of the bar (cost / max mana).
+- A lighter shade over the part of the filled bar that a Cat/Bear shift would spend (cost / max mana, from the left).
   The cost is read live from `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
-- An optional lighter shade over the part of the filled bar that a shift would spend.
+- The shade turns pale red when current mana is below the shift cost, or when the spell being cast would take it below.
+- Optional white line at the shift cost (off by default).
 - Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
 - Also draws the shift-cost line (and a lighter wash) on the standard Blizzard Player Frame mana bar whenever it is showing mana (caster form, Moonkin, etc.). Can be turned off in options.
 - Settings now persist between sessions.

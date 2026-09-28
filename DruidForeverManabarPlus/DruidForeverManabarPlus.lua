@@ -39,7 +39,7 @@ local DEFAULTS = {
     showOutsideForms = false,
     fontKey = "arial",
     fontSize = 10,
-    showShiftLine = true,
+    showShiftMarker = false,
     showShiftShade = true,
     showShiftOnPlayerFrame = true,
 }
@@ -148,13 +148,27 @@ end
 
 ApplyFont()
 
+-- Shade colours. "Low" is used when current mana (minus any cast in progress) is below
+-- the shift cost.
+local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 1.0, 0.45, 0.45
+local PF_SHADE_OK_ALPHA = 0.3
+local PF_SHADE_LOW_ALPHA = 0.7
+
+local shadeIsLow = false
+
 local function ApplyShiftShadeColor()
+    local alpha = db.showShiftShade and 1 or 0
+    if shadeIsLow then
+        shiftBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, alpha)
+        return
+    end
+
     -- Lighten the configured bar colour towards white.
     local lighten = 0.45
     local r = db.colorR + (1 - db.colorR) * lighten
     local g = db.colorG + (1 - db.colorG) * lighten
     local b = db.colorB + (1 - db.colorB) * lighten
-    shiftBar:SetStatusBarColor(r, g, b, db.showShiftShade and 1 or 0)
+    shiftBar:SetStatusBarColor(r, g, b, alpha)
 end
 
 ApplyShiftShadeColor()
@@ -514,8 +528,28 @@ local function ShowPlayerFrameOverlay()
     pfOverlayActive = true
 end
 
-local function UpdateShiftCostVisual(maxMana)
-    if shiftCost == nil or (not db.showShiftLine and not db.showShiftShade) then
+-- Mana cost of the spell currently being cast, like the darker "cost prediction" section
+-- Blizzard draws on the Player Frame bar while casting.
+local pendingCastCost = 0
+local pendingCastGUID = nil
+
+local function IsReadableNumber(value)
+    return type(value) == "number" and not IsSecretValue(value)
+end
+
+-- Only compares readable numbers; if the client restricts mana values the shade stays blue.
+local function IsBelowShiftCost(currentMana)
+    if not IsReadableNumber(shiftCost) or not IsReadableNumber(currentMana) then
+        return false
+    end
+    return (currentMana - pendingCastCost) < shiftCost
+end
+
+local function UpdateShiftCostVisual(maxMana, currentMana)
+    shadeIsLow = IsBelowShiftCost(currentMana)
+    ApplyShiftShadeColor()
+
+    if shiftCost == nil or (not db.showShiftMarker and not db.showShiftShade) then
         shiftBar:Hide()
         shiftLine:Hide()
         if pfOverlay then
@@ -529,7 +563,7 @@ local function UpdateShiftCostVisual(maxMana)
     shiftBar:SetValue(shiftCost)
     shiftBar:Show()
 
-    if db.showShiftLine then
+    if db.showShiftMarker then
         shiftLine:Show()
     else
         shiftLine:Hide()
@@ -538,9 +572,15 @@ local function UpdateShiftCostVisual(maxMana)
     if pfOverlayActive and pfOverlay then
         pfOverlay.shiftBar:SetMinMaxValues(0, maxMana)
         pfOverlay.shiftBar:SetValue(shiftCost)
-        pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, db.showShiftShade and 0.3 or 0)
+        if not db.showShiftShade then
+            pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, 0)
+        elseif shadeIsLow then
+            pfOverlay.shiftBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, PF_SHADE_LOW_ALPHA)
+        else
+            pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, PF_SHADE_OK_ALPHA)
+        end
         pfOverlay.clip:Show()
-        if db.showShiftLine then
+        if db.showShiftMarker then
             pfOverlay.lineFrame:Show()
         else
             pfOverlay.lineFrame:Hide()
@@ -562,7 +602,33 @@ local function UpdateManaBar()
     manaBar:SetMinMaxValues(0, maxMana)
     manaBar:SetValue(currentMana)
     SetManaText(currentMana, maxMana)
-    UpdateShiftCostVisual(maxMana)
+    UpdateShiftCostVisual(maxMana, currentMana)
+end
+
+local function SetPendingCast(castGUID, spellID)
+    pendingCastGUID = castGUID
+    pendingCastCost = 0
+    if spellID ~= nil and not IsSecretValue(spellID) then
+        local cost = GetManaCostFromSpell(spellID)
+        if IsReadableNumber(cost) and cost > 0 then
+            pendingCastCost = cost
+        end
+    end
+    UpdateManaBar()
+end
+
+local function ClearPendingCast(castGUID)
+    if pendingCastCost == 0 and pendingCastGUID == nil then
+        return
+    end
+    -- Ignore failures for a different cast attempt (e.g. pressing a spell mid-cast).
+    if castGUID ~= nil and pendingCastGUID ~= nil and not IsSecretValue(castGUID)
+        and not IsSecretValue(pendingCastGUID) and castGUID ~= pendingCastGUID then
+        return
+    end
+    pendingCastGUID = nil
+    pendingCastCost = 0
+    UpdateManaBar()
 end
 
 local function HasPositiveReadableValue(value)
@@ -682,6 +748,8 @@ manaFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 manaFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
 manaFrame:RegisterEvent("UNIT_SPELLCAST_FAILED_QUIET")
 manaFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+manaFrame:RegisterEvent("UNIT_SPELLCAST_START")
+manaFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
 -- Events that can change the Cat/Bear shift cost (talents, gear, level, learning a form).
 manaFrame:RegisterEvent("SPELLS_CHANGED")
 manaFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
@@ -718,6 +786,8 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 
     if event == "PLAYER_ENTERING_WORLD" then
         wipe(pendingManaCasts)
+        pendingCastGUID = nil
+        pendingCastCost = 0
         ApplyAnchor()
         UpdateFormState()
         return
@@ -740,6 +810,16 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     end
 
     if unit ~= "player" then
+        return
+    end
+
+    if event == "UNIT_SPELLCAST_START" then
+        SetPendingCast(arg2, arg3)
+        return
+    end
+
+    if event == "UNIT_SPELLCAST_STOP" then
+        ClearPendingCast(arg2)
         return
     end
 
@@ -766,6 +846,8 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
             spendsMana = SpellSpendsMana(spellID)
         end
 
+        ClearPendingCast(castGUID)
+
         if spendsMana then
             lastManaSpellID = spellID
             StartFiveSecondRule()
@@ -780,6 +862,7 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         if castGUID ~= nil and not IsSecretValue(castGUID) then
             pendingManaCasts[castGUID] = nil
         end
+        ClearPendingCast(castGUID)
         return
     end
 
@@ -859,10 +942,10 @@ end)
 
 local shiftLineCheckbox = CreateFrame("CheckButton", "DFMPShiftLineCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
 shiftLineCheckbox:SetPoint("TOPLEFT", outsideFormsCheckbox, "BOTTOMLEFT", 0, -10)
-_G[shiftLineCheckbox:GetName() .. "Text"]:SetText("Show Cat/Bear shift cost line")
-shiftLineCheckbox:SetChecked(db.showShiftLine)
+_G[shiftLineCheckbox:GetName() .. "Text"]:SetText("Show white line at the Cat/Bear shift cost")
+shiftLineCheckbox:SetChecked(db.showShiftMarker)
 shiftLineCheckbox:SetScript("OnClick", function(self)
-    db.showShiftLine = self:GetChecked()
+    db.showShiftMarker = self:GetChecked()
     UpdateManaBar()
 end)
 
@@ -1026,7 +1109,7 @@ panel:SetScript("OnShow", function()
     unlockCheckbox:SetChecked(db.unlocked)
     timerTextCheckbox:SetChecked(db.showTimerText)
     outsideFormsCheckbox:SetChecked(db.showOutsideForms)
-    shiftLineCheckbox:SetChecked(db.showShiftLine)
+    shiftLineCheckbox:SetChecked(db.showShiftMarker)
     shiftShadeCheckbox:SetChecked(db.showShiftShade)
     playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
     widthSlider:SetValue(db.width)
