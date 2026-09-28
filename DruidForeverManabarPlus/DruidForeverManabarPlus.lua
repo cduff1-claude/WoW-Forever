@@ -11,6 +11,8 @@ local SHIFT_COST_SPELLS = {
 }
 local SHIFT_COST_SPELL_ORDER = { 768, 9634, 5487 }
 
+local TRAVEL_FORM_SPELL_ID = 783
+
 -- Bear and Dire Bear share form ID 5.
 local TRACKED_FORMS = {
     [1] = true, -- Cat Form
@@ -87,66 +89,104 @@ manaBar:SetStatusBarColor(db.colorR, db.colorG, db.colorB, 1)
 manaBar:SetMinMaxValues(0, 1)
 manaBar:SetValue(0)
 
--- Shade over the part of the filled bar that a Cat/Bear shift would spend.
+-- Shade over the part of the filled bar that a Bear/Cat shift would spend, split into a
+-- Travel Form section [0 .. travel cost] and a Bear section [travel cost .. bear cost].
+--
+--                         | travel section | bear section
+--   enough for bear       | blue           | blue
+--   cast -> below bear    | blue           | pale orange
+--   cast -> below travel  | pale red       | (unshaded)
+--   below bear now        | blue           | bold orange
+--   below travel now      | dark red       | (empty, fill ends before it)
+--
+-- Without Travel Form (or with its cost unknown) the travel section is empty and the bear
+-- section uses only blue / pale orange / bold orange.
 --
 -- The client does not let addons read mana values (they come back "secret"), so nothing
--- here compares mana in Lua. Instead StatusBar widgets, which accept secret values, do the
--- work and the other pieces are anchored to the edges of their fill textures:
+-- here compares mana in Lua. StatusBar widgets, which accept secret values, do the work and
+-- everything else is anchored to the right edges of their fill textures:
 --
---   fillClip  : clips to [bar left .. right edge of the mana fill], so shades never draw
---               past current mana.
---   stepNow   : invisible. Range [cost - 1, cost], value = current mana, so its fill is
---               either empty (mana below shift cost) or full-width (at/above it).
---   stepCast  : the same, but the threshold also includes the cost of the spell being cast.
---               It is never fuller than stepNow.
---   okClip    : [bar left .. stepCast edge]      - whole bar only when mana stays >= cost
---                                                  after the current cast.
---   castClip  : [stepCast edge .. stepNow edge]  - whole bar only when mana is >= cost now
---                                                  but the current cast would take it below.
---   lowClip   : [stepNow edge .. bar right]      - whole bar only when mana is below cost.
---
--- Each clip holds a StatusBar (value = shift cost over max mana) in its own colour. Exactly
--- one of the three clips has any width at a time, so only one colour is ever visible.
-local function CreateStepBar(bar)
-    local step = CreateFrame("StatusBar", nil, bar)
-    step:SetAllPoints(bar)
-    step:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    step:SetStatusBarColor(0, 0, 0, 0)
-    step:SetMinMaxValues(0, 1)
-    step:SetValue(1)
-    return step
+--   step bars : invisible. Range [threshold - 1, threshold], value = current mana, so the
+--               fill is either empty (mana below threshold) or full-width (at/above it).
+--               nowT / castT = travel cost (+ current cast), nowB / castB = bear cost (+ cast).
+--   edge bars : invisible. value = travel cost / bear cost over max mana; their fill edges
+--               mark where the sections end.
+--   clips     : frames that clip their children. A clip from the bar's left edge to a step
+--               bar's edge is full-width when there is enough mana and empty otherwise; a
+--               clip from a step bar's edge to the bar's right edge is the opposite. Nesting
+--               clips intersects them, so exactly one colour layer shows in each section.
+local function CreateInvisibleBar(set, bar)
+    local statusBar = CreateFrame("StatusBar", nil, bar)
+    statusBar:SetAllPoints(bar)
+    statusBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    statusBar:SetStatusBarColor(0, 0, 0, 0)
+    statusBar:SetMinMaxValues(0, 1)
+    statusBar:SetValue(1)
+    set.tree[#set.tree + 1] = { frame = statusBar, parent = bar }
+    set.topLevel[#set.topLevel + 1] = statusBar
+    return statusBar
 end
 
-local function CreateClippedShade(parent, bar, texturePath, left, leftPoint, right, rightPoint)
+local function CreateClip(set, parent, left, leftPoint, right, rightPoint)
     local clip = CreateFrame("Frame", nil, parent)
     clip:SetClipsChildren(true)
     clip:SetPoint("TOPLEFT", left, "TOP" .. leftPoint, 0, 0)
     clip:SetPoint("BOTTOMRIGHT", right, "BOTTOM" .. rightPoint, 0, 0)
+    set.tree[#set.tree + 1] = { frame = clip, parent = parent }
+    return clip
+end
 
-    local shade = CreateFrame("StatusBar", nil, clip)
-    shade:SetAllPoints(bar)
-    shade:SetStatusBarTexture(texturePath)
-    shade:SetMinMaxValues(0, 1)
-    shade:SetValue(0)
-    return clip, shade
+-- A full-bar texture inside a clip; only the part inside the clip is drawn.
+local function CreateLayer(set, clip, role)
+    local holder = CreateFrame("Frame", nil, clip)
+    holder:SetAllPoints(set.bar)
+    set.tree[#set.tree + 1] = { frame = holder, parent = clip }
+
+    local texture = holder:CreateTexture(nil, "ARTWORK")
+    texture:SetAllPoints(set.bar)
+    texture:SetTexture(set.texturePath)
+    set.layers[#set.layers + 1] = { texture = texture, role = role }
+    return texture
 end
 
 local function CreateShiftShade(bar, texturePath)
-    local set = { bar = bar }
+    local set = { bar = bar, texturePath = texturePath, tree = {}, topLevel = {}, layers = {} }
 
+    set.nowT = CreateInvisibleBar(set, bar)
+    set.castT = CreateInvisibleBar(set, bar)
+    set.nowB = CreateInvisibleBar(set, bar)
+    set.castB = CreateInvisibleBar(set, bar)
+    set.travelEdge = CreateInvisibleBar(set, bar)
+    set.bearEdge = CreateInvisibleBar(set, bar)
+
+    local nowT = set.nowT:GetStatusBarTexture()
+    local castT = set.castT:GetStatusBarTexture()
+    local nowB = set.nowB:GetStatusBarTexture()
+    local castB = set.castB:GetStatusBarTexture()
+    local travelEdge = set.travelEdge:GetStatusBarTexture()
+    local bearEdge = set.bearEdge:GetStatusBarTexture()
+    set.bearEdgeTexture = bearEdge
+
+    -- Everything is clipped to the current mana fill (anchored in AnchorShiftShade).
     set.fillClip = CreateFrame("Frame", nil, bar)
     set.fillClip:SetClipsChildren(true)
+    set.tree[#set.tree + 1] = { frame = set.fillClip, parent = bar }
+    set.topLevel[#set.topLevel + 1] = set.fillClip
 
-    set.stepNow = CreateStepBar(bar)
-    set.stepCast = CreateStepBar(bar)
-    local nowEdge = set.stepNow:GetStatusBarTexture()
-    local castEdge = set.stepCast:GetStatusBarTexture()
+    -- Travel section.
+    local travel = CreateClip(set, set.fillClip, bar, "LEFT", travelEdge, "RIGHT")
+    CreateLayer(set, CreateClip(set, travel, bar, "LEFT", castT, "RIGHT"), "blue")
+    CreateLayer(set, CreateClip(set, travel, castT, "RIGHT", nowT, "RIGHT"), "paleRed")
+    CreateLayer(set, CreateClip(set, travel, nowT, "RIGHT", bar, "RIGHT"), "darkRed")
 
-    set.okClip, set.okBar = CreateClippedShade(set.fillClip, bar, texturePath, bar, "LEFT", castEdge, "RIGHT")
-    set.castClip, set.castBar = CreateClippedShade(set.fillClip, bar, texturePath, castEdge, "RIGHT", nowEdge, "RIGHT")
-    set.lowClip, set.lowBar = CreateClippedShade(set.fillClip, bar, texturePath, nowEdge, "RIGHT", bar, "RIGHT")
+    -- Bear section.
+    local bear = CreateClip(set, set.fillClip, travelEdge, "RIGHT", bearEdge, "RIGHT")
+    local aboveTravelAfterCast = CreateClip(set, bear, bar, "LEFT", castT, "RIGHT")
+    CreateLayer(set, CreateClip(set, aboveTravelAfterCast, bar, "LEFT", castB, "RIGHT"), "blue")
+    CreateLayer(set, CreateClip(set, aboveTravelAfterCast, castB, "RIGHT", nowB, "RIGHT"), "paleOrange")
+    CreateLayer(set, CreateClip(set, aboveTravelAfterCast, nowB, "RIGHT", bar, "RIGHT"), "boldOrange")
+    -- When the cast would take mana below the travel cost, the bear section is left unshaded.
 
-    set.shades = { set.okBar, set.castBar, set.lowBar }
     return set
 end
 
@@ -154,36 +194,23 @@ end
 -- Frame bar because Blizzard may swap the fill texture when the power type changes.
 local function AnchorShiftShade(set)
     local bar = set.bar
-    local level = bar:GetFrameLevel()
     local strata = bar:GetFrameStrata()
 
     set.fillClip:ClearAllPoints()
     set.fillClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
     set.fillClip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
 
-    local frames = {
-        set.fillClip, set.stepNow, set.stepCast,
-        set.okClip, set.castClip, set.lowClip,
-        set.okBar, set.castBar, set.lowBar,
-    }
-    for _, frame in ipairs(frames) do
-        frame:SetFrameStrata(strata)
+    -- Entries are in creation order, so each parent is levelled before its children.
+    for _, entry in ipairs(set.tree) do
+        entry.frame:SetFrameStrata(strata)
+        entry.frame:SetFrameLevel(entry.parent:GetFrameLevel() + 1)
     end
-    set.stepNow:SetFrameLevel(level + 1)
-    set.stepCast:SetFrameLevel(level + 1)
-    set.fillClip:SetFrameLevel(level + 1)
-    set.okClip:SetFrameLevel(level + 2)
-    set.castClip:SetFrameLevel(level + 2)
-    set.lowClip:SetFrameLevel(level + 2)
-    set.okBar:SetFrameLevel(level + 3)
-    set.castBar:SetFrameLevel(level + 3)
-    set.lowBar:SetFrameLevel(level + 3)
 end
 
 local function ShowShiftShade(set, shown)
-    set.fillClip:SetShown(shown)
-    set.stepNow:SetShown(shown)
-    set.stepCast:SetShown(shown)
+    for _, frame in ipairs(set.topLevel) do
+        frame:SetShown(shown)
+    end
 end
 
 local druidShade = CreateShiftShade(manaBar, "Interface\\TargetingFrame\\UI-StatusBar")
@@ -198,8 +225,8 @@ overlayFrame:SetFrameLevel(manaBar:GetFrameLevel() + 5)
 local shiftLine = overlayFrame:CreateTexture(nil, "OVERLAY", nil, 6)
 shiftLine:SetColorTexture(1, 1, 1, 1)
 shiftLine:SetWidth(2)
-shiftLine:SetPoint("TOP", druidShade.lowBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-shiftLine:SetPoint("BOTTOM", druidShade.lowBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+shiftLine:SetPoint("TOP", druidShade.bearEdgeTexture, "TOPRIGHT", 0, 0)
+shiftLine:SetPoint("BOTTOM", druidShade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
 shiftLine:Hide()
 
 local manaText = overlayFrame:CreateFontString(nil, "OVERLAY")
@@ -232,34 +259,48 @@ end
 
 ApplyFont()
 
--- Shade colours: pale red = the current cast will take mana below the shift cost,
--- dark red = mana is below the shift cost now.
-local SHADE_CAST_R, SHADE_CAST_G, SHADE_CAST_B = 1.0, 0.66, 0.66
-local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 0.85, 0.25, 0.25
+-- Shade colours. Orange = Bear/Cat cost, red = Travel Form cost; pale = the current cast
+-- will take mana below that cost, bold/dark = already below it.
+local DRUID_BAR_COLORS = {
+    paleOrange = { 1.0, 0.8, 0.55, 1 },
+    boldOrange = { 1.0, 0.55, 0.1, 1 },
+    paleRed = { 1.0, 0.66, 0.66, 1 },
+    darkRed = { 0.85, 0.25, 0.25, 1 },
+}
 -- The Player Frame bar uses Blizzard's own texture, so it gets translucent washes that blend
 -- with the blue underneath.
-local PF_SHADE_OK_R, PF_SHADE_OK_G, PF_SHADE_OK_B, PF_SHADE_OK_A = 1.0, 1.0, 1.0, 0.3
-local PF_SHADE_CAST_R, PF_SHADE_CAST_G, PF_SHADE_CAST_B, PF_SHADE_CAST_A = 1.0, 0.66, 0.66, 0.79
-local PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, PF_SHADE_LOW_A = 1.0, 0.45, 0.45, 0.7
+local PLAYER_FRAME_COLORS = {
+    blue = { 1.0, 1.0, 1.0, 0.3 },
+    paleOrange = { 1.0, 0.8, 0.5, 0.8 },
+    boldOrange = { 1.0, 0.55, 0.1, 0.75 },
+    paleRed = { 1.0, 0.66, 0.66, 0.79 },
+    darkRed = { 1.0, 0.45, 0.45, 0.7 },
+}
 
 local pfShade = nil
+
+local function ColorShiftShade(set, colors, shown)
+    for _, layer in ipairs(set.layers) do
+        local c = colors[layer.role]
+        layer.texture:SetVertexColor(c[1], c[2], c[3], shown and c[4] or 0)
+    end
+end
 
 local function ApplyShiftShadeColor()
     local shown = db.showShiftShade
 
     -- Lighten the configured bar colour towards white.
     local lighten = 0.45
-    local r = db.colorR + (1 - db.colorR) * lighten
-    local g = db.colorG + (1 - db.colorG) * lighten
-    local b = db.colorB + (1 - db.colorB) * lighten
-    druidShade.okBar:SetStatusBarColor(r, g, b, shown and 1 or 0)
-    druidShade.castBar:SetStatusBarColor(SHADE_CAST_R, SHADE_CAST_G, SHADE_CAST_B, shown and 1 or 0)
-    druidShade.lowBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, shown and 1 or 0)
+    DRUID_BAR_COLORS.blue = {
+        db.colorR + (1 - db.colorR) * lighten,
+        db.colorG + (1 - db.colorG) * lighten,
+        db.colorB + (1 - db.colorB) * lighten,
+        1,
+    }
+    ColorShiftShade(druidShade, DRUID_BAR_COLORS, shown)
 
     if pfShade then
-        pfShade.okBar:SetStatusBarColor(PF_SHADE_OK_R, PF_SHADE_OK_G, PF_SHADE_OK_B, shown and PF_SHADE_OK_A or 0)
-        pfShade.castBar:SetStatusBarColor(PF_SHADE_CAST_R, PF_SHADE_CAST_G, PF_SHADE_CAST_B, shown and PF_SHADE_CAST_A or 0)
-        pfShade.lowBar:SetStatusBarColor(PF_SHADE_LOW_R, PF_SHADE_LOW_G, PF_SHADE_LOW_B, shown and PF_SHADE_LOW_A or 0)
+        ColorShiftShade(pfShade, PLAYER_FRAME_COLORS, shown)
     end
 end
 
@@ -521,11 +562,49 @@ local function FindShiftCostSpells()
     return found
 end
 
+local travelCost = nil
+local travelCostOverride = nil -- set with /dfmp testtravel, for testing without Travel Form
+
+local function IsReadableNumber(value)
+    return type(value) == "number" and not IsSecretValue(value)
+end
+
+local function PlayerHasTravelForm()
+    if GetNumShapeshiftForms and GetShapeshiftFormInfo then
+        for index = 1, GetNumShapeshiftForms() or 0 do
+            local _, _, _, spellID = GetShapeshiftFormInfo(index)
+            if spellID == TRAVEL_FORM_SPELL_ID then
+                return true
+            end
+        end
+    end
+    return PlayerKnowsSpell(TRAVEL_FORM_SPELL_ID)
+end
+
+local function RefreshTravelCost()
+    travelCost = nil
+
+    if travelCostOverride then
+        travelCost = travelCostOverride
+    elseif isDruid and PlayerHasTravelForm() then
+        local cost = GetManaCostFromSpell(TRAVEL_FORM_SPELL_ID)
+        if IsReadableNumber(cost) and cost > 0 then
+            travelCost = cost
+        end
+    end
+
+    -- Only useful when it is cheaper than a Bear/Cat shift.
+    if travelCost and IsReadableNumber(shiftCost) and travelCost >= shiftCost then
+        travelCost = nil
+    end
+end
+
 local function RefreshShiftCost()
     shiftCost = nil
     shiftCostSpellID = nil
 
     if not isDruid then
+        travelCost = nil
         return
     end
 
@@ -536,10 +615,12 @@ local function RefreshShiftCost()
             if IsSecretValue(cost) or cost > 0 then
                 shiftCost = cost
                 shiftCostSpellID = spellID
-                return
+                break
             end
         end
     end
+
+    RefreshTravelCost()
 end
 
 -- Second copy of the shift-cost shade/line on the Blizzard Player Frame mana bar, used
@@ -570,8 +651,8 @@ local function EnsurePlayerFrameOverlay()
     pfLine = pfLineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
     pfLine:SetColorTexture(1, 1, 1, 1)
     pfLine:SetWidth(2)
-    pfLine:SetPoint("TOP", pfShade.lowBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-    pfLine:SetPoint("BOTTOM", pfShade.lowBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    pfLine:SetPoint("TOP", pfShade.bearEdgeTexture, "TOPRIGHT", 0, 0)
+    pfLine:SetPoint("BOTTOM", pfShade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
 
     ShowShiftShade(pfShade, false)
     pfLineFrame:Hide()
@@ -604,10 +685,6 @@ end
 local pendingCastCost = 0
 local pendingCastGUID = nil
 
-local function IsReadableNumber(value)
-    return type(value) == "number" and not IsSecretValue(value)
-end
-
 -- Mana needed after the current cast for the shade to stay blue. Needs a readable shift
 -- cost to add to; if the cost itself is restricted, returns nil and the shade stays blue.
 local function GetShiftThreshold()
@@ -629,13 +706,15 @@ local function SetStep(step, threshold, currentMana)
 end
 
 local function UpdateShiftShade(set, maxMana, currentMana, threshold)
-    for _, shade in ipairs(set.shades) do
-        shade:SetMinMaxValues(0, maxMana)
-        shade:SetValue(shiftCost)
-    end
+    set.bearEdge:SetMinMaxValues(0, maxMana)
+    set.bearEdge:SetValue(shiftCost)
+    set.travelEdge:SetMinMaxValues(0, maxMana)
+    set.travelEdge:SetValue(travelCost or 0)
 
-    SetStep(set.stepNow, threshold and shiftCost, currentMana)
-    SetStep(set.stepCast, threshold, currentMana)
+    SetStep(set.nowB, threshold and shiftCost, currentMana)
+    SetStep(set.castB, threshold, currentMana)
+    SetStep(set.nowT, travelCost, currentMana)
+    SetStep(set.castT, travelCost and (travelCost + pendingCastCost), currentMana)
 
     ShowShiftShade(set, true)
 end
@@ -1231,8 +1310,10 @@ local function PrintDebugInfo()
     end
     print("Player Frame shift overlay active:", tostring(pfOverlayActive), "bar shows mana:", tostring(PlayerFrameBarShowsMana()))
     local threshold = GetShiftThreshold()
-    print("Red/blue threshold:", threshold and tostring(threshold) or "unavailable (shift cost restricted)",
+    print("Bear threshold (incl. cast):", threshold and tostring(threshold) or "unavailable (shift cost restricted)",
         "pending cast cost:", tostring(pendingCastCost))
+    print("Travel Form cost:", travelCost and tostring(travelCost) or "none (not learned or not readable)",
+        travelCostOverride and "(test override)" or "")
     local fontChoice = FONT_CHOICES[db.fontKey] or FONT_CHOICES.arial
     print("Font:", fontChoice.label, "size", tostring(db.fontSize), "show outside forms:", tostring(db.showOutsideForms))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
@@ -1249,8 +1330,21 @@ SLASH_DRUIDFOREVERMANABARPLUS1 = "/dfmp"
 SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
 
+    local testTravel = msg:match("^testtravel%s*(.*)$")
+
     if msg == "debug" then
         PrintDebugInfo()
+    elseif testTravel then
+        local value = tonumber(testTravel)
+        if value and value > 0 then
+            travelCostOverride = value
+            print("|cff55ff55DFMP:|r pretending Travel Form costs " .. value .. " mana until /reload or /dfmp testtravel off.")
+        else
+            travelCostOverride = nil
+            print("|cff55ff55DFMP:|r Travel Form test cost cleared.")
+        end
+        RefreshShiftCost()
+        UpdateManaBar()
     elseif msg == "test" or msg == "testtimer" then
         manaFrame:Show()
         StartFiveSecondRule()

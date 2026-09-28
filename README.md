@@ -6,7 +6,10 @@ Copy each folder into `World of Warcraft/_retail_/Interface/AddOns/` (or whereve
 A copy of *Druid Forever Manabar* (by antisnake) with:
 - A lighter shade over the part of the filled bar that a Cat/Bear shift would spend (cost / max mana, from the left).
   The cost is read live from `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
-- The shade turns pale red while casting a spell that would take mana below the shift cost, and dark red when mana is already below it.
+- Colours: blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
+  cast will take you below that cost, bold/dark = already below it. Once below Bear cost, the shade splits into a
+  Travel Form section and a Bear section.
+- `/dfmp testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/dfmp testtravel off` clears it.
 - Optional white line at the shift cost (off by default).
 - Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
 - Also draws the shift-cost line (and a lighter wash) on the standard Blizzard Player Frame mana bar whenever it is showing mana (caster form, Moonkin, etc.). Can be turned off in options.
