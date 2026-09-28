@@ -87,24 +87,85 @@ manaBar:SetStatusBarColor(db.colorR, db.colorG, db.colorB, 1)
 manaBar:SetMinMaxValues(0, 1)
 manaBar:SetValue(0)
 
--- Lighter shade over the part of the filled bar that a Cat/Bear shift would spend.
--- shiftClip is stretched from the bar's left edge to the right edge of the mana fill and
--- clips its children, so the shade never draws past the player's current mana. shiftBar
--- spans the whole bar with max = max mana and value = shift cost, so the right edge of its
--- fill texture sits exactly at the shift-cost position. This keeps all of the maths inside
--- the StatusBar widgets, which also works when mana values are restricted (secret) in combat.
-local shiftClip = CreateFrame("Frame", nil, manaBar)
-shiftClip:SetClipsChildren(true)
-shiftClip:SetPoint("TOPLEFT", manaBar, "TOPLEFT", 0, 0)
-shiftClip:SetPoint("BOTTOMRIGHT", manaBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-shiftClip:SetFrameLevel(manaBar:GetFrameLevel() + 1)
+-- Shade over the part of the filled bar that a Cat/Bear shift would spend.
+--
+-- The client may not let addons read mana values (they come back "secret"), so nothing
+-- here compares mana in Lua. Instead StatusBar widgets, which accept secret values, do the
+-- work and the other pieces are anchored to the edges of their fill textures:
+--
+--   fillClip  : clips to [bar left .. right edge of the mana fill], so shades never draw
+--               past current mana.
+--   lowBar    : red shade, value = shift cost over max mana. Always drawn (inside fillClip).
+--   stepBar   : invisible. Range [threshold - 1, threshold], value = current mana, so its
+--               fill is either empty (mana below threshold) or full-width (at/above it).
+--   okClip    : clips to [bar left .. right edge of stepBar's fill], i.e. the whole bar
+--               when there is enough mana and nothing when there isn't.
+--   okBar     : blue shade, same geometry as lowBar, drawn on top of it inside okClip.
+--
+-- So the shade shows blue when current mana >= threshold, otherwise the red underneath.
+-- threshold = shift cost + mana cost of the spell being cast.
+local function CreateShiftShade(bar, texturePath)
+    local set = { bar = bar }
 
-local shiftBar = CreateFrame("StatusBar", nil, shiftClip)
-shiftBar:SetAllPoints(manaBar)
-shiftBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-shiftBar:SetMinMaxValues(0, 1)
-shiftBar:SetValue(0)
-shiftBar:Hide()
+    set.fillClip = CreateFrame("Frame", nil, bar)
+    set.fillClip:SetClipsChildren(true)
+
+    set.lowBar = CreateFrame("StatusBar", nil, set.fillClip)
+    set.lowBar:SetAllPoints(bar)
+    set.lowBar:SetStatusBarTexture(texturePath)
+    set.lowBar:SetMinMaxValues(0, 1)
+    set.lowBar:SetValue(0)
+
+    set.stepBar = CreateFrame("StatusBar", nil, bar)
+    set.stepBar:SetAllPoints(bar)
+    set.stepBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    set.stepBar:SetStatusBarColor(0, 0, 0, 0)
+    set.stepBar:SetMinMaxValues(0, 1)
+    set.stepBar:SetValue(1)
+
+    set.okClip = CreateFrame("Frame", nil, set.fillClip)
+    set.okClip:SetClipsChildren(true)
+    set.okClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+    set.okClip:SetPoint("BOTTOMRIGHT", set.stepBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+
+    set.okBar = CreateFrame("StatusBar", nil, set.okClip)
+    set.okBar:SetAllPoints(bar)
+    set.okBar:SetStatusBarTexture(texturePath)
+    set.okBar:SetMinMaxValues(0, 1)
+    set.okBar:SetValue(0)
+
+    return set
+end
+
+-- (Re)anchor to the bar's fill and put the pieces above it. Called again for the Player
+-- Frame bar because Blizzard may swap the fill texture when the power type changes.
+local function AnchorShiftShade(set)
+    local bar = set.bar
+    local level = bar:GetFrameLevel()
+    local strata = bar:GetFrameStrata()
+
+    set.fillClip:ClearAllPoints()
+    set.fillClip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+    set.fillClip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+
+    for _, frame in ipairs({ set.fillClip, set.stepBar, set.lowBar, set.okClip, set.okBar }) do
+        frame:SetFrameStrata(strata)
+    end
+    set.stepBar:SetFrameLevel(level + 1)
+    set.fillClip:SetFrameLevel(level + 1)
+    set.lowBar:SetFrameLevel(level + 2)
+    set.okClip:SetFrameLevel(level + 3)
+    set.okBar:SetFrameLevel(level + 4)
+end
+
+local function ShowShiftShade(set, shown)
+    set.fillClip:SetShown(shown)
+    set.stepBar:SetShown(shown)
+end
+
+local druidShade = CreateShiftShade(manaBar, "Interface\\TargetingFrame\\UI-StatusBar")
+AnchorShiftShade(druidShade)
+ShowShiftShade(druidShade, false)
 
 -- Text and markers live on their own frame so they draw above the shift shade.
 local overlayFrame = CreateFrame("Frame", nil, manaFrame)
@@ -114,8 +175,8 @@ overlayFrame:SetFrameLevel(manaBar:GetFrameLevel() + 5)
 local shiftLine = overlayFrame:CreateTexture(nil, "OVERLAY", nil, 6)
 shiftLine:SetColorTexture(1, 1, 1, 1)
 shiftLine:SetWidth(2)
-shiftLine:SetPoint("TOP", shiftBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-shiftLine:SetPoint("BOTTOM", shiftBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+shiftLine:SetPoint("TOP", druidShade.lowBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+shiftLine:SetPoint("BOTTOM", druidShade.lowBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
 shiftLine:Hide()
 
 local manaText = overlayFrame:CreateFontString(nil, "OVERLAY")
@@ -148,27 +209,30 @@ end
 
 ApplyFont()
 
--- Shade colours. "Low" is used when current mana (minus any cast in progress) is below
+-- Shade colours. "Low" is shown when current mana (minus any cast in progress) is below
 -- the shift cost.
 local SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B = 1.0, 0.45, 0.45
 local PF_SHADE_OK_ALPHA = 0.3
 local PF_SHADE_LOW_ALPHA = 0.7
 
-local shadeIsLow = false
+local pfShade = nil
 
 local function ApplyShiftShadeColor()
-    local alpha = db.showShiftShade and 1 or 0
-    if shadeIsLow then
-        shiftBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, alpha)
-        return
-    end
+    local shown = db.showShiftShade
 
     -- Lighten the configured bar colour towards white.
     local lighten = 0.45
     local r = db.colorR + (1 - db.colorR) * lighten
     local g = db.colorG + (1 - db.colorG) * lighten
     local b = db.colorB + (1 - db.colorB) * lighten
-    shiftBar:SetStatusBarColor(r, g, b, alpha)
+    druidShade.okBar:SetStatusBarColor(r, g, b, shown and 1 or 0)
+    druidShade.lowBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, shown and 1 or 0)
+
+    -- The Player Frame bar uses Blizzard's own texture, so wash it with white / red instead.
+    if pfShade then
+        pfShade.okBar:SetStatusBarColor(1, 1, 1, shown and PF_SHADE_OK_ALPHA or 0)
+        pfShade.lowBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, shown and PF_SHADE_LOW_ALPHA or 0)
+    end
 end
 
 ApplyShiftShadeColor()
@@ -232,6 +296,11 @@ local function ApplyAnchor()
     end
 
     fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
+
+    -- Re-layer after reparenting so the shade stays between the bar and the text.
+    AnchorShiftShade(druidShade)
+    overlayFrame:SetFrameStrata(manaBar:GetFrameStrata())
+    overlayFrame:SetFrameLevel(manaBar:GetFrameLevel() + 5)
 end
 
 local function HideFiveSecondRuleVisual()
@@ -445,86 +514,60 @@ local function RefreshShiftCost()
     end
 end
 
--- Second copy of the shift-cost line/shade that sits on the Blizzard Player Frame mana bar,
--- used whenever that bar is showing mana (caster form, Moonkin, etc.). Built the same way as
--- the one on our own bar; the shade is a translucent white wash so it lightens whatever
--- texture Blizzard uses for the bar.
-local pfOverlay = nil
+-- Second copy of the shift-cost shade/line on the Blizzard Player Frame mana bar, used
+-- whenever that bar is showing mana (caster form, Moonkin, etc.).
+local pfLineFrame = nil
+local pfLine = nil
 local pfOverlayActive = false
 
 local function EnsurePlayerFrameOverlay()
     local resourceBar = GetPlayerResourceBar()
     if not resourceBar or not resourceBar.GetStatusBarTexture then
-        return nil
+        return false
     end
 
-    if pfOverlay and pfOverlay.bar == resourceBar then
-        return pfOverlay
+    if pfShade and pfShade.bar == resourceBar then
+        return true
     end
 
-    local o = pfOverlay or {}
-    o.bar = resourceBar
-
-    if not o.clip then
-        o.clip = CreateFrame("Frame", nil, resourceBar)
-        o.clip:SetClipsChildren(true)
-
-        o.shiftBar = CreateFrame("StatusBar", nil, o.clip)
-        o.shiftBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        o.shiftBar:SetMinMaxValues(0, 1)
-        o.shiftBar:SetValue(0)
-
-        o.lineFrame = CreateFrame("Frame", nil, resourceBar)
-
-        o.line = o.lineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-        o.line:SetColorTexture(1, 1, 1, 1)
-        o.line:SetWidth(2)
-        o.line:SetPoint("TOP", o.shiftBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-        o.line:SetPoint("BOTTOM", o.shiftBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-    else
-        o.clip:SetParent(resourceBar)
-        o.lineFrame:SetParent(resourceBar)
+    if pfShade then
+        ShowShiftShade(pfShade, false)
+        pfLineFrame:Hide()
     end
 
-    o.shiftBar:ClearAllPoints()
-    o.shiftBar:SetAllPoints(resourceBar)
-    o.lineFrame:ClearAllPoints()
-    o.lineFrame:SetAllPoints(resourceBar)
+    pfShade = CreateShiftShade(resourceBar, "Interface\\Buttons\\WHITE8X8")
 
-    o.clip:Hide()
-    o.lineFrame:Hide()
+    pfLineFrame = CreateFrame("Frame", nil, resourceBar)
+    pfLineFrame:SetAllPoints(resourceBar)
+    pfLine = pfLineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
+    pfLine:SetColorTexture(1, 1, 1, 1)
+    pfLine:SetWidth(2)
+    pfLine:SetPoint("TOP", pfShade.lowBar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    pfLine:SetPoint("BOTTOM", pfShade.lowBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
 
-    pfOverlay = o
-    return o
+    ShowShiftShade(pfShade, false)
+    pfLineFrame:Hide()
+    ApplyShiftShadeColor()
+    return true
 end
 
 local function HidePlayerFrameOverlay()
     pfOverlayActive = false
-    if pfOverlay then
-        pfOverlay.clip:Hide()
-        pfOverlay.lineFrame:Hide()
+    if pfShade then
+        ShowShiftShade(pfShade, false)
+        pfLineFrame:Hide()
     end
 end
 
 local function ShowPlayerFrameOverlay()
-    local o = EnsurePlayerFrameOverlay()
-    if not o then
+    if not EnsurePlayerFrameOverlay() then
         HidePlayerFrameOverlay()
         return
     end
 
-    local bar = o.bar
-
-    -- Re-anchor every time: Blizzard may swap the fill texture when the power type changes.
-    o.clip:ClearAllPoints()
-    o.clip:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
-    o.clip:SetPoint("BOTTOMRIGHT", bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-    o.clip:SetFrameStrata(bar:GetFrameStrata())
-    o.clip:SetFrameLevel(bar:GetFrameLevel() + 1)
-    o.shiftBar:SetFrameLevel(bar:GetFrameLevel() + 2)
-    o.lineFrame:SetFrameStrata(bar:GetFrameStrata())
-    o.lineFrame:SetFrameLevel(bar:GetFrameLevel() + 8)
-
+    AnchorShiftShade(pfShade)
+    pfLineFrame:SetFrameStrata(pfShade.bar:GetFrameStrata())
+    pfLineFrame:SetFrameLevel(pfShade.bar:GetFrameLevel() + 8)
     pfOverlayActive = true
 end
 
@@ -537,57 +580,54 @@ local function IsReadableNumber(value)
     return type(value) == "number" and not IsSecretValue(value)
 end
 
--- Only compares readable numbers; if the client restricts mana values the shade stays blue.
-local function IsBelowShiftCost(currentMana)
-    if not IsReadableNumber(shiftCost) or not IsReadableNumber(currentMana) then
-        return false
+-- Mana needed after the current cast for the shade to stay blue. Needs a readable shift
+-- cost to add to; if the cost itself is restricted, returns nil and the shade stays blue.
+local function GetShiftThreshold()
+    if not IsReadableNumber(shiftCost) then
+        return nil
     end
-    return (currentMana - pendingCastCost) < shiftCost
+    return shiftCost + pendingCastCost
+end
+
+local function UpdateShiftShade(set, maxMana, currentMana, threshold)
+    set.lowBar:SetMinMaxValues(0, maxMana)
+    set.lowBar:SetValue(shiftCost)
+    set.okBar:SetMinMaxValues(0, maxMana)
+    set.okBar:SetValue(shiftCost)
+
+    if threshold then
+        set.stepBar:SetMinMaxValues(threshold - 1, threshold)
+        set.stepBar:SetValue(currentMana)
+    else
+        set.stepBar:SetMinMaxValues(0, 1)
+        set.stepBar:SetValue(1)
+    end
+
+    ShowShiftShade(set, true)
 end
 
 local function UpdateShiftCostVisual(maxMana, currentMana)
-    shadeIsLow = IsBelowShiftCost(currentMana)
-    ApplyShiftShadeColor()
-
     if shiftCost == nil or (not db.showShiftMarker and not db.showShiftShade) then
-        shiftBar:Hide()
+        ShowShiftShade(druidShade, false)
         shiftLine:Hide()
-        if pfOverlay then
-            pfOverlay.clip:Hide()
-            pfOverlay.lineFrame:Hide()
+        if pfShade then
+            ShowShiftShade(pfShade, false)
+            pfLineFrame:Hide()
         end
         return
     end
 
-    shiftBar:SetMinMaxValues(0, maxMana)
-    shiftBar:SetValue(shiftCost)
-    shiftBar:Show()
+    local threshold = GetShiftThreshold()
 
-    if db.showShiftMarker then
-        shiftLine:Show()
-    else
-        shiftLine:Hide()
-    end
+    UpdateShiftShade(druidShade, maxMana, currentMana, threshold)
+    shiftLine:SetShown(db.showShiftMarker)
 
-    if pfOverlayActive and pfOverlay then
-        pfOverlay.shiftBar:SetMinMaxValues(0, maxMana)
-        pfOverlay.shiftBar:SetValue(shiftCost)
-        if not db.showShiftShade then
-            pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, 0)
-        elseif shadeIsLow then
-            pfOverlay.shiftBar:SetStatusBarColor(SHADE_LOW_R, SHADE_LOW_G, SHADE_LOW_B, PF_SHADE_LOW_ALPHA)
-        else
-            pfOverlay.shiftBar:SetStatusBarColor(1, 1, 1, PF_SHADE_OK_ALPHA)
-        end
-        pfOverlay.clip:Show()
-        if db.showShiftMarker then
-            pfOverlay.lineFrame:Show()
-        else
-            pfOverlay.lineFrame:Hide()
-        end
-    elseif pfOverlay then
-        pfOverlay.clip:Hide()
-        pfOverlay.lineFrame:Hide()
+    if pfOverlayActive and pfShade then
+        UpdateShiftShade(pfShade, maxMana, currentMana, threshold)
+        pfLineFrame:SetShown(db.showShiftMarker)
+    elseif pfShade then
+        ShowShiftShade(pfShade, false)
+        pfLineFrame:Hide()
     end
 end
 
@@ -1156,6 +1196,9 @@ local function PrintDebugInfo()
         print("Shift cost:", tostring(shiftCost), "mana, from spell ID", tostring(shiftCostSpellID))
     end
     print("Player Frame shift overlay active:", tostring(pfOverlayActive), "bar shows mana:", tostring(PlayerFrameBarShowsMana()))
+    local threshold = GetShiftThreshold()
+    print("Red/blue threshold:", threshold and tostring(threshold) or "unavailable (shift cost restricted)",
+        "pending cast cost:", tostring(pendingCastCost))
     local fontChoice = FONT_CHOICES[db.fontKey] or FONT_CHOICES.arial
     print("Font:", fontChoice.label, "size", tostring(db.fontSize), "show outside forms:", tostring(db.showOutsideForms))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
