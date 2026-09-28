@@ -1,6 +1,8 @@
 -- deselectOnClick is the inverse of the "Sticky Targeting" option:
 -- "0" = sticky (clicking empty ground keeps your target), "1" = clicking empty ground clears it.
 local CVAR = "deselectOnClick"
+-- The Settings entry behind the Options > Controls "Sticky Targeting" checkbox (true = sticky).
+local SETTING = "PROXY_STICKY_TARGETING"
 
 local debug = false
 local lastEvent, lastResult = "none", "none"
@@ -14,13 +16,24 @@ local function SetSticky(sticky, event)
     local before = C_CVar.GetCVar(CVAR)
     local ok, err, method = true, nil, "unchanged"
     if before ~= value then
-        -- On the WoW Forever client C_CVar.SetCVar is silently ignored for this CVar,
-        -- but the console command ("/console deselectOnClick 0") works, so fall back to it.
-        method = "SetCVar"
-        ok, err = pcall(C_CVar.SetCVar, CVAR, value)
+        -- On the WoW Forever client, C_CVar.SetCVar and /console writes to this CVar are
+        -- often ignored, but the Options > Controls "Sticky Targeting" checkbox works.
+        -- So go through the same Settings entry the checkbox uses first.
+        local setting = Settings and Settings.GetSetting and Settings.GetSetting(SETTING)
+        if setting then
+            method = "Settings"
+            ok, err = pcall(setting.SetValue, setting, sticky)
+        end
+        if C_CVar.GetCVar(CVAR) ~= value then
+            method = "SetCVar"
+            ok, err = pcall(C_CVar.SetCVar, CVAR, value)
+        end
         if C_CVar.GetCVar(CVAR) ~= value and ConsoleExec then
             method = "ConsoleExec"
             ok, err = pcall(ConsoleExec, CVAR .. " " .. value)
+        end
+        if C_CVar.GetCVar(CVAR) ~= value then
+            method = "none worked" .. (setting and "" or " (no Settings entry " .. SETTING .. ")")
         end
     end
     local after = C_CVar.GetCVar(CVAR)
@@ -62,6 +75,8 @@ SlashCmdList.STICKYTARGET = function(msg)
         Print(string.format("loaded. %s = %s, in combat: %s",
             CVAR, tostring(C_CVar.GetCVar(CVAR)), tostring(UnitAffectingCombat("player"))))
         Print("last event: " .. lastEvent .. " (" .. lastResult .. ")")
+        local setting = Settings and Settings.GetSetting and Settings.GetSetting(SETTING)
+        Print(SETTING .. (setting and (" = " .. tostring(setting:GetValue())) or " not found"))
     end
 end
 
