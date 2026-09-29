@@ -1,0 +1,8 @@
+## Interface: 99999
+## Title: Forever Quest Complete Sound
+## Notes: Plays a sound when a quest's objectives are done and it is ready to turn in. Based on Drash_QuestCompleteSound by Drashnar.
+## Author: Drashnar (original), modified
+## Version: 2.0
+## SavedVariables: ForeverQuestCompleteSoundDB
+
+ForeverQuestCompleteSound.lua
