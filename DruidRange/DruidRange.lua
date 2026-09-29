@@ -14,6 +14,8 @@
       red    = out of Faerie Fire range
     Cat / Bear / Dire Bear, friendly: teal/grey while the target is hurt or in combat, hidden
       otherwise. If neither can be read (secret values), behaves as in caster form.
+    Friendly NPCs: hidden unless you're in combat and the NPC can be healed.
+    No target: hidden.
 
     Range is only ever a yes/no answer from the game for a spell; unlearned spells give no
     answer (nil), so any rule that needs one just does not apply until it is learned.
@@ -240,7 +242,17 @@ local function GetEnemyColor(formID, s)
     return (r == true) and COLOR_GREEN or COLOR_RED
 end
 
+-- Friendly NPCs (not players or their pets) only show when you're in combat and the NPC can
+-- be healed (Healing Touch gives a range answer for it).
+local function FriendlyNPCAllowed()
+    if UnitPlayerControlled("target") then return true end
+    if not PlayerInCombat() then return false end
+    if UnitCanAssist and not UnitCanAssist("player", "target") then return false end
+    return InRange(SPELL_HEAL, "target") ~= nil
+end
+
 local function GetFriendlyColor(formID)
+    if not FriendlyNPCAllowed() then return nil end
     if IsFeralForm(formID) then
         local known, attention = FriendlyNeedsAttention("target")
         if known and not attention then return nil end
@@ -361,6 +373,8 @@ end
 
 local panel = CreateFrame("Frame", "DruidRangeOptionsPanel", UIParent)
 panel.name = "DruidRange"
+-- Start hidden so the "options open" preview only runs while the panel is really showing.
+panel:Hide()
 
 local settingsCategory
 
@@ -600,6 +614,9 @@ local function PrintDebug()
             tostring(not IsSecret(health) and not IsSecret(maxHealth)), tostring(not IsSecret(combat))))
         local known, attention = FriendlyNeedsAttention("target")
         p(string.format("  friendly: known = %s, hurt or in combat = %s", tostring(known), tostring(attention)))
+        p(string.format("  friendly: player-controlled = %s, can assist = %s, shown as NPC = %s",
+            tostring(UnitPlayerControlled("target")), tostring(UnitCanAssist and UnitCanAssist("player", "target")),
+            tostring(FriendlyNPCAllowed())))
     end
 end
 
