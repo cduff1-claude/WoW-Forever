@@ -6,7 +6,7 @@
       enemy:    green = in Wrath range, red = out of range
       friendly: teal  = in Healing Touch range, grey = out of range
     Cat / Bear / Dire Bear, enemy (checked in this order):
-      green  = in melee range (Bash in Bear, Claw in Cat; Claw/Rake/Bash/Growl as fallbacks)
+      green  = in melee range (Growl in Bear, Claw in Cat)
       brown  = in Feral Charge range (optional)
       yellow = in combat, has been in melee/charge range since targeted, now in neither
                but still in Faerie Fire range (the gap inside charge's minimum range)
@@ -45,7 +45,7 @@ local SPELL_BASH = "Bash"
 local SPELL_CLAW = "Claw"
 local SPELL_RAKE = "Rake"
 
--- Growl (with Bear Form at 10) has the same range as Bash on Forever; last-resort melee check.
+-- Growl (learned with Bear Form) has the same range as Bash on Forever, so it is the Bear melee check.
 local function GetGrowlName()
     if C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(6795)
@@ -134,8 +134,8 @@ local function IsFeralForm(formID)
 end
 
 local function MeleeSpells(formID)
-    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_RAKE, SPELL_BASH, SPELL_GROWL } end
-    return { SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_GROWL }
+    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_RAKE, SPELL_GROWL } end
+    return { SPELL_GROWL, SPELL_BASH, SPELL_CLAW }
 end
 
 local function ChargeSpells(formID)
