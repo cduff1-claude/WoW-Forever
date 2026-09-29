@@ -14,6 +14,7 @@
       red    = out of Faerie Fire range
     Cat / Bear / Dire Bear, friendly: teal/grey while the target is hurt or in combat, hidden
       otherwise. If neither can be read (secret values), behaves as in caster form.
+    Dead friendly targets are treated the same (resurrection has heal range).
     Friendly NPCs: hidden unless you're in combat and the NPC can be healed.
     No target: hidden.
 
@@ -38,6 +39,9 @@ local FORM_BEAR = 5
 
 local SPELL_WRATH = "Wrath"
 local SPELL_HEAL = "Healing Touch"
+-- Dead friendly targets: Healing Touch may not answer for a corpse, so try resurrection spells
+-- (same range). Forever's out-of-combat res name isn't known yet; these are best guesses.
+local HEAL_SPELLS_DEAD = { SPELL_HEAL, "Revive", "Rebirth" }
 -- Maul is an on-next-swing ability and its range answer can't be trusted (it can say "in range"
 -- at any distance), so melee range uses normal melee attacks instead.
 local SPELL_MAUL = "Maul"
@@ -165,8 +169,9 @@ local function HasLivingEnemyTarget()
     return UnitExists("target") and not UnitIsDead("target") and UnitCanAttack("player", "target")
 end
 
-local function HasLivingFriendlyTarget()
-    return UnitExists("target") and not UnitIsDead("target") and not UnitCanAttack("player", "target")
+-- Dead friendly targets count too (for resurrection range).
+local function HasFriendlyTarget()
+    return UnitExists("target") and not UnitCanAttack("player", "target")
         and UnitIsFriend("player", "target")
 end
 
@@ -270,7 +275,12 @@ local function GetFriendlyColor(formID)
         local known, attention = FriendlyNeedsAttention("target")
         if known and not attention then return nil end
     end
-    local r = InRange(SPELL_HEAL, "target")
+    local r
+    if UnitIsDeadOrGhost("target") then
+        r = FirstInRange(HEAL_SPELLS_DEAD, "target")
+    else
+        r = InRange(SPELL_HEAL, "target")
+    end
     return (r == true) and COLOR_TEAL or COLOR_GREY
 end
 
@@ -370,7 +380,7 @@ local function UpdateBar()
         if not ShouldHide(s) or optionsPanelOpen then
             color = GetEnemyColor(formID, s)
         end
-    elseif HasLivingFriendlyTarget() then
+    elseif HasFriendlyTarget() then
         color = GetFriendlyColor(formID)
     end
 
@@ -614,13 +624,16 @@ local function PrintDebug()
     for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_GROWL }) do line(name) end
     for _, name in ipairs(CHARGE_SPELLS_BEAR) do line(name) end
     line(DruidRangeDB.faerieFireSpell)
+    if UnitIsDeadOrGhost("target") then
+        for i = 2, #HEAL_SPELLS_DEAD do line(HEAL_SPELLS_DEAD[i]) end
+    end
 
     if HasLivingEnemyTarget() then
         local s = GetEnemyState(formID)
         p(string.format("  enemy: melee (%s) = %s, charge (%s) = %s, faerie (%s) = %s, gap = %s, hidden = %s",
             tostring(s.meleeSpell), Answer(s.melee), tostring(s.chargeSpell), Answer(s.charge),
             tostring(s.faerieSpell), Answer(s.faerie), tostring(s.closeGap), tostring(ShouldHide(s))))
-    elseif HasLivingFriendlyTarget() then
+    elseif HasFriendlyTarget() then
         local health, maxHealth = UnitHealth("target"), UnitHealthMax("target")
         local combat = UnitAffectingCombat("target")
         p(string.format("  friendly: health readable = %s, combat readable = %s",
