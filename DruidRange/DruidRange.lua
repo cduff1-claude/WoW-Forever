@@ -6,7 +6,7 @@
       enemy:    green = in Wrath range, red = out of range
       friendly: teal  = in Healing Touch range, grey = out of range
     Cat / Bear / Dire Bear, enemy (checked in this order):
-      green  = in melee range (Bash in Bear, Claw in Cat; the other/Rake as fallback)
+      green  = in melee range (Bash in Bear, Claw in Cat; Claw/Rake/Bash/Growl as fallbacks)
       brown  = in Feral Charge range (optional)
       yellow = in combat, has been in melee/charge range since targeted, now in neither
                but still in Faerie Fire range (the gap inside charge's minimum range)
@@ -44,6 +44,16 @@ local SPELL_MAUL = "Maul"
 local SPELL_BASH = "Bash"
 local SPELL_CLAW = "Claw"
 local SPELL_RAKE = "Rake"
+
+-- Growl (with Bear Form at 10) has the same range as Bash on Forever; last-resort melee check.
+local function GetGrowlName()
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(6795)
+        if info and info.name then return info.name end
+    end
+    return "Growl"
+end
+local SPELL_GROWL = GetGrowlName()
 local DEFAULT_FAERIE_FIRE = "Faerie Fire"
 
 -- First name that the game answers for wins. The Cat charge is new in WoW Forever and its
@@ -124,8 +134,8 @@ local function IsFeralForm(formID)
 end
 
 local function MeleeSpells(formID)
-    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_RAKE, SPELL_BASH } end
-    return { SPELL_BASH, SPELL_CLAW, SPELL_RAKE }
+    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_RAKE, SPELL_BASH, SPELL_GROWL } end
+    return { SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_GROWL }
 end
 
 local function ChargeSpells(formID)
@@ -601,7 +611,7 @@ local function PrintDebug()
     local function line(name)
         p(string.format("  %s: %s", name, Answer(InRange(name, "target"))))
     end
-    for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE }) do line(name) end
+    for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_GROWL }) do line(name) end
     for _, name in ipairs(CHARGE_SPELLS_BEAR) do line(name) end
     line(DruidRangeDB.faerieFireSpell)
 

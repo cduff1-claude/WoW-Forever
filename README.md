@@ -28,7 +28,7 @@ Slash command: `/ffsr` (help), `/ffsr on|off`, `/ffsr text`, `/ffsr width <1-6>`
 A druid-only take on *RangeBar*: one bar whose colour depends on form and target. Range is only ever the game's
 yes/no answer for a spell, and unlearned spells give no answer, so each rule starts working once its spell is learned.
 - Caster, Travel, Aquatic and Moonkin: enemy green/red on Wrath range; friendly teal/grey on Healing Touch range.
-- Cat, Bear and Dire Bear, enemy (first match wins): green = melee (Bash in Bear, Claw in Cat); brown = in Feral Charge
+- Cat, Bear and Dire Bear, enemy (first match wins): green = melee (Bash in Bear, Claw in Cat, Growl until those are learned); brown = in Feral Charge
   range; yellow = in combat, the target has been in melee/charge range, and is now in neither but still in Faerie Fire
   range (i.e. inside charge's minimum range); purple = in Faerie Fire range; red = out of Faerie Fire range.
   Brown and yellow can be turned off. Faerie Fire's name is editable (Wrath is used until it answers).
