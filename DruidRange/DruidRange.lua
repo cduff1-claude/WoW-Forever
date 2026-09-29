@@ -6,7 +6,7 @@
       enemy:    green = in Wrath range, red = out of range
       friendly: teal  = in Healing Touch range, grey = out of range
     Cat / Bear / Dire Bear, enemy (checked in this order):
-      green  = in melee range (Claw in Cat, Maul in Bear)
+      green  = in melee range (Bash in Bear, Claw in Cat; the other/Rake as fallback)
       brown  = in Feral Charge range (optional)
       yellow = in combat, has been in melee/charge range since targeted, now in neither
                but still in Faerie Fire range (the gap inside charge's minimum range)
@@ -38,8 +38,12 @@ local FORM_BEAR = 5
 
 local SPELL_WRATH = "Wrath"
 local SPELL_HEAL = "Healing Touch"
+-- Maul is an on-next-swing ability and its range answer can't be trusted (it can say "in range"
+-- at any distance), so melee range uses normal melee attacks instead.
 local SPELL_MAUL = "Maul"
+local SPELL_BASH = "Bash"
 local SPELL_CLAW = "Claw"
+local SPELL_RAKE = "Rake"
 local DEFAULT_FAERIE_FIRE = "Faerie Fire"
 
 -- First name that the game answers for wins. The Cat charge is new in WoW Forever and its
@@ -120,8 +124,8 @@ local function IsFeralForm(formID)
 end
 
 local function MeleeSpells(formID)
-    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_MAUL } end
-    return { SPELL_MAUL, SPELL_CLAW }
+    if formID == FORM_CAT then return { SPELL_CLAW, SPELL_RAKE, SPELL_BASH } end
+    return { SPELL_BASH, SPELL_CLAW, SPELL_RAKE }
 end
 
 local function ChargeSpells(formID)
@@ -214,9 +218,8 @@ local function ShouldHide(s)
     if DruidRangeDB.stealthNoHide and IsPlayerStealthed() then return false end
 
     if mode == HIDE_MELEE then
-        -- "Melee (5yd)" uses Maul (Claw if Maul gives no answer, e.g. in Cat Form).
-        local r = FirstInRange({ SPELL_MAUL, SPELL_CLAW }, "target")
-        return r == true
+        -- "Melee (5yd)": same melee spells as the green check for this form.
+        return s.melee == true
     elseif mode == HIDE_CHARGE_MIN then
         -- "Charge (8yd)": in melee, or inside charge's minimum range. Needs Feral Charge learned
         -- to tell the gap apart; without it only melee range hides.
@@ -598,7 +601,7 @@ local function PrintDebug()
     local function line(name)
         p(string.format("  %s: %s", name, Answer(InRange(name, "target"))))
     end
-    for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_CLAW }) do line(name) end
+    for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE }) do line(name) end
     for _, name in ipairs(CHARGE_SPELLS_BEAR) do line(name) end
     line(DruidRangeDB.faerieFireSpell)
 
