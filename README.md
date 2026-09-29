@@ -34,7 +34,7 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
   Brown and yellow can be turned off. Faerie Fire's name is editable (Wrath is used until it answers).
 - Cat, Bear and Dire Bear, friendly: teal/grey while the target is hurt or in combat, hidden otherwise
   (if neither can be read, behaves as in caster form).
-- Dead friendly targets behave like live ones (teal/grey on resurrection range).
+- Dead friendly targets behave like live ones (teal/grey on Revive range).
 - Hidden with no target, and on friendly NPCs unless you're in combat and the NPC can be healed.
 - "Hide based on what?": None, Melee (5yd, same melee check) or Charge (8yd, needs Feral Charge learned; melee only until then).
   Applies in every form, except while stealthed if "Don't hide while stealthed" is ticked (default).

@@ -39,9 +39,9 @@ local FORM_BEAR = 5
 
 local SPELL_WRATH = "Wrath"
 local SPELL_HEAL = "Healing Touch"
--- Dead friendly targets: Healing Touch may not answer for a corpse, so try resurrection spells
--- (same range). Forever's out-of-combat res name isn't known yet; these are best guesses.
-local HEAL_SPELLS_DEAD = { SPELL_HEAL, "Revive", "Rebirth" }
+-- Dead friendly targets: Revive (Forever's out-of-combat res, same range as heals), then
+-- Healing Touch until Revive is learned.
+local HEAL_SPELLS_DEAD = { "Revive", SPELL_HEAL }
 -- Maul is an on-next-swing ability and its range answer can't be trusted (it can say "in range"
 -- at any distance), so melee range uses normal melee attacks instead.
 local SPELL_MAUL = "Maul"
@@ -625,7 +625,7 @@ local function PrintDebug()
     for _, name in ipairs(CHARGE_SPELLS_BEAR) do line(name) end
     line(DruidRangeDB.faerieFireSpell)
     if UnitIsDeadOrGhost("target") then
-        for i = 2, #HEAL_SPELLS_DEAD do line(HEAL_SPELLS_DEAD[i]) end
+        line(HEAL_SPELLS_DEAD[1])
     end
 
     if HasLivingEnemyTarget() then
