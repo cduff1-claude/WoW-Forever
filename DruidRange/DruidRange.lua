@@ -2,20 +2,22 @@
     DruidRange
     One solid-colour bar showing whether your target is in range, based on form and target.
 
-    Caster / Travel / Aquatic / Moonkin:
-      enemy:    green = in Wrath range, red = out of range
-      friendly: teal  = in Healing Touch range, grey = out of range
-    Cat / Bear / Dire Bear, enemy (checked in this order):
-      green  = in melee range (Growl in Bear, Claw in Cat)
-      brown  = in Feral Charge range (optional)
-      yellow = in combat, has been in melee/charge range since targeted, now in neither
-               but still in Faerie Fire range (the gap inside charge's minimum range)
-      purple = in Faerie Fire range
-      red    = out of Faerie Fire range
-    Cat / Bear / Dire Bear, friendly: teal/grey while the target is hurt or in combat, hidden
-      otherwise. If neither can be read (secret values), behaves as in caster form.
-    Dead friendly targets: teal/grey on Revive range; hidden until Revive is learned.
-    Friendly NPCs: hidden unless you're in combat and the NPC can be healed.
+    Enemy (all forms, checked in this order):
+      hidden = the "Hide based on what?" option applies (checked before any colour, so no flicker)
+      green  = in melee range (Growl in Bear/caster, Claw in Cat)
+      Cat / Bear only, with "Feral Charge colours" on:
+        green  = inside charge's minimum range: in combat, has been in melee/charge range since
+                 targeted, now in neither but still within 30 yd (needs Feral Charge learned)
+        yellow = in Feral Charge range (8-25 yd)
+      purple = within 30 yd (Faerie Fire, or Wrath until Faerie Fire is learned)
+      grey   = out of range
+    Friendly (all forms):
+      purple = within 30 yd (Mark of the Wild, or Thorns)
+      teal   = within 40 yd (Healing Touch)
+      grey   = out of range
+      Cat / Bear: only while the target is hurt or in combat (if neither can be read because of
+      secret values, always). Friendly NPCs: only while you're in combat and the NPC can be healed.
+    Dead friendly target: purple in Revive range (30 yd), grey out of it, hidden until Revive is learned.
     No target: hidden.
 
     Range is only ever a yes/no answer from the game for a spell; unlearned spells give no
@@ -37,13 +39,20 @@ local isDruid = (playerClass == "DRUID")
 local FORM_CAT = 1
 local FORM_BEAR = 5
 
+-- 30 yd, same in and out of forms. Wrath stands in until Faerie Fire is learned.
+local SPELL_FAERIE_FIRE = "Faerie Fire"
 local SPELL_WRATH = "Wrath"
+-- Friendly 30 yd and 40 yd.
+local SPELL_MARK = "Mark of the Wild"
+local SPELL_THORNS = "Thorns"
 local SPELL_HEAL = "Healing Touch"
--- Dead friendly targets use Revive (Forever's out-of-combat res, same range as heals). Unlearned
--- spells give no range answer, so the bar stays hidden on corpses until Revive is learned.
+-- Dead friendly targets: Revive (Forever's out-of-combat res, 30 yd). Unlearned spells give no
+-- range answer, so the bar stays hidden on corpses until Revive is learned.
 local SPELL_REVIVE = "Revive"
+-- Same name and range in Cat and Bear Form on Forever.
+local SPELL_CHARGE = "Feral Charge"
 -- Maul is an on-next-swing ability and its range answer can't be trusted (it can say "in range"
--- at any distance), so melee range uses normal melee attacks instead.
+-- at any distance), so melee range uses normal melee attacks instead. Debug output only.
 local SPELL_MAUL = "Maul"
 local SPELL_BASH = "Bash"
 local SPELL_CLAW = "Claw"
@@ -58,24 +67,16 @@ local function GetGrowlName()
     return "Growl"
 end
 local SPELL_GROWL = GetGrowlName()
-local DEFAULT_FAERIE_FIRE = "Faerie Fire"
-
--- First name that the game answers for wins. The Cat charge is new in WoW Forever and its
--- name is not known yet, so both likely names are tried.
-local CHARGE_SPELLS_BEAR = { "Feral Charge", "Feral Charge - Bear", "Feral Charge - Cat" }
-local CHARGE_SPELLS_CAT = { "Feral Charge - Cat", "Feral Charge", "Feral Charge - Bear" }
 
 local HIDE_NONE = "none"
 local HIDE_MELEE = "melee"
 local HIDE_CHARGE_MIN = "chargemin"
 
 local COLOR_GREEN  = { 0, 1, 0 }
-local COLOR_RED    = { 1, 0, 0 }
-local COLOR_TEAL   = { 0, 1, 1 }
-local COLOR_GREY   = { 0.5, 0.5, 0.5 }
-local COLOR_BROWN  = { 0.6, 0.4, 0.2 }
 local COLOR_YELLOW = { 1, 0.85, 0 }
 local COLOR_PURPLE = { 0.6, 0.2, 0.9 }
+local COLOR_TEAL   = { 0, 1, 1 }
+local COLOR_GREY   = { 0.5, 0.5, 0.5 }
 
 --------------------------------------------------------------------------
 -- Defaults
@@ -91,7 +92,7 @@ local function InitDefaults()
     if db.hideMode ~= HIDE_NONE and db.hideMode ~= HIDE_MELEE and db.hideMode ~= HIDE_CHARGE_MIN then
         db.hideMode = HIDE_NONE
     end
-    if not db.faerieFireSpell or db.faerieFireSpell == "" then db.faerieFireSpell = DEFAULT_FAERIE_FIRE end
+    db.faerieFireSpell = nil -- old setting, no longer used
     db.width = db.width or 100
     db.height = db.height or 75
     db.opacity = db.opacity or 75
@@ -142,16 +143,6 @@ local function MeleeSpells(formID)
     return { SPELL_GROWL, SPELL_BASH, SPELL_CLAW }
 end
 
-local function ChargeSpells(formID)
-    if formID == FORM_CAT then return CHARGE_SPELLS_CAT end
-    return CHARGE_SPELLS_BEAR
-end
-
--- Faerie Fire, falling back to Wrath (same 30 yd) until Faerie Fire answers.
-local function FaerieFireInRange(unit)
-    return FirstInRange({ DruidRangeDB.faerieFireSpell, SPELL_WRATH }, unit)
-end
-
 local function PlayerInCombat()
     local c = UnitAffectingCombat("player")
     if IsSecret(c) then return false end
@@ -169,7 +160,7 @@ local function HasLivingEnemyTarget()
     return UnitExists("target") and not UnitIsDead("target") and UnitCanAttack("player", "target")
 end
 
--- Dead friendly targets count too (for resurrection range).
+-- Dead friendly targets count too (for Revive range).
 local function HasFriendlyTarget()
     return UnitExists("target") and not UnitCanAttack("player", "target")
         and UnitIsFriend("player", "target")
@@ -195,7 +186,7 @@ local function FriendlyNeedsAttention(unit)
 end
 
 --------------------------------------------------------------------------
--- Engagement memory (for yellow)
+-- Engagement memory (for the gap inside charge's minimum range)
 -- Set once the current target has been in melee or charge range; cleared on target
 -- change and on leaving combat.
 --------------------------------------------------------------------------
@@ -207,23 +198,25 @@ local function ResetEngaged()
 end
 
 --------------------------------------------------------------------------
--- Enemy range state
+-- Enemy
 --------------------------------------------------------------------------
 
--- melee / charge / faerie are true/false/nil. closeGap = the target is inside charge's
--- minimum range (best guess, see header) and not in melee range.
+-- melee / charge / far are true/false/nil. closeGap = best guess that the target is inside
+-- charge's minimum range: only with Feral Charge learned (otherwise "not in charge range" can't
+-- be told apart from "anywhere out to 30 yd").
 local function GetEnemyState(formID)
     local s = {}
     s.melee, s.meleeSpell = FirstInRange(MeleeSpells(formID), "target")
-    s.charge, s.chargeSpell = FirstInRange(ChargeSpells(formID), "target")
-    s.faerie, s.faerieSpell = FaerieFireInRange("target")
+    s.charge = InRange(SPELL_CHARGE, "target")
+    s.far, s.farSpell = FirstInRange({ SPELL_FAERIE_FIRE, SPELL_WRATH }, "target")
 
     if s.melee == true or s.charge == true then
         engaged = true
     end
 
     s.inCombat = PlayerInCombat()
-    s.closeGap = s.inCombat and engaged and s.melee ~= true and s.charge ~= true and s.faerie == true
+    s.closeGap = s.charge ~= nil and s.inCombat and engaged
+        and s.melee ~= true and s.charge ~= true and s.far == true
     return s
 end
 
@@ -236,29 +229,26 @@ local function ShouldHide(s)
         -- "Melee (5yd)": same melee spells as the green check for this form.
         return s.melee == true
     elseif mode == HIDE_CHARGE_MIN then
-        -- "Charge (8yd)": in melee, or inside charge's minimum range. Needs Feral Charge learned
-        -- to tell the gap apart; without it only melee range hides.
-        if s.melee == true then return true end
-        return s.charge ~= nil and s.closeGap
+        -- "Charge (8yd)": in melee, or inside charge's minimum range (needs Feral Charge learned;
+        -- without it only melee range hides).
+        return s.melee == true or s.closeGap
     end
     return false
 end
 
--- Returns a colour, or nil to hide.
 local function GetEnemyColor(formID, s)
-    if IsFeralForm(formID) then
-        if s.melee == true then return COLOR_GREEN end
-        if DruidRangeDB.chargeEnabled then
-            if s.charge == true then return COLOR_BROWN end
-            if s.closeGap then return COLOR_YELLOW end
-        end
-        if s.faerie == true then return COLOR_PURPLE end
-        return COLOR_RED
+    if s.melee == true then return COLOR_GREEN end
+    if IsFeralForm(formID) and DruidRangeDB.chargeEnabled then
+        if s.closeGap then return COLOR_GREEN end
+        if s.charge == true then return COLOR_YELLOW end
     end
-
-    local r = InRange(SPELL_WRATH, "target")
-    return (r == true) and COLOR_GREEN or COLOR_RED
+    if s.far == true then return COLOR_PURPLE end
+    return COLOR_GREY
 end
+
+--------------------------------------------------------------------------
+-- Friendly
+--------------------------------------------------------------------------
 
 -- Friendly NPCs (not players or their pets) only show when you're in combat and the NPC can
 -- be healed (Healing Touch gives a range answer for it).
@@ -269,20 +259,23 @@ local function FriendlyNPCAllowed()
     return InRange(SPELL_HEAL, "target") ~= nil
 end
 
+-- Returns a colour, or nil to hide.
 local function GetFriendlyColor(formID)
     if not FriendlyNPCAllowed() then return nil end
     if IsFeralForm(formID) then
         local known, attention = FriendlyNeedsAttention("target")
         if known and not attention then return nil end
     end
-    local r
+
     if UnitIsDeadOrGhost("target") then
-        r = InRange(SPELL_REVIVE, "target")
+        local r = InRange(SPELL_REVIVE, "target")
         if r == nil then return nil end
-    else
-        r = InRange(SPELL_HEAL, "target")
+        return r and COLOR_PURPLE or COLOR_GREY
     end
-    return (r == true) and COLOR_TEAL or COLOR_GREY
+
+    if FirstInRange({ SPELL_MARK, SPELL_THORNS }, "target") == true then return COLOR_PURPLE end
+    if InRange(SPELL_HEAL, "target") == true then return COLOR_TEAL end
+    return COLOR_GREY
 end
 
 --------------------------------------------------------------------------
@@ -489,42 +482,15 @@ local opacitySlider = CreatePercentSlider("DruidRangeOpacitySlider", "Bar Opacit
 
 -- Right column: behaviour
 
-local chargeCB = CreateCheck("DruidRangeChargeCheck", "Feral Charge colours (brown / yellow)")
+local chargeCB = CreateCheck("DruidRangeChargeCheck", "Feral Charge colour (yellow)")
 chargeCB:SetPoint("TOPLEFT", title, "TOPLEFT", 260, -8)
 chargeCB:SetScript("OnClick", function(self)
     DruidRangeDB.chargeEnabled = self:GetChecked() and true or false
     UpdateBar()
 end)
 
-local ffLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-ffLabel:SetPoint("TOPLEFT", chargeCB, "BOTTOMLEFT", 0, -10)
-ffLabel:SetText("Faerie Fire spell name (Cat/Bear purple range):")
-
-local ffEdit = CreateFrame("EditBox", "DruidRangeFaerieFireEdit", panel, "InputBoxTemplate")
-ffEdit:SetSize(180, 20)
-ffEdit:SetAutoFocus(false)
-ffEdit:SetPoint("TOPLEFT", ffLabel, "BOTTOMLEFT", 6, -4)
-ffEdit:SetScript("OnEnterPressed", function(self)
-    local text = strtrim(self:GetText() or "")
-    DruidRangeDB.faerieFireSpell = (text ~= "") and text or DEFAULT_FAERIE_FIRE
-    self:SetText(DruidRangeDB.faerieFireSpell)
-    self:ClearFocus()
-    UpdateBar()
-end)
-ffEdit:SetScript("OnEscapePressed", function(self)
-    self:SetText(DruidRangeDB.faerieFireSpell)
-    self:ClearFocus()
-end)
-ffEdit:SetScript("OnEditFocusLost", function(self)
-    self:SetText(DruidRangeDB.faerieFireSpell)
-end)
-
-local ffHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-ffHint:SetPoint("TOPLEFT", ffEdit, "BOTTOMLEFT", -6, -4)
-ffHint:SetText("Press Enter to save. Uses Wrath until this spell answers.")
-
 local hideLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-hideLabel:SetPoint("TOPLEFT", ffHint, "BOTTOMLEFT", 0, -16)
+hideLabel:SetPoint("TOPLEFT", chargeCB, "BOTTOMLEFT", 0, -16)
 hideLabel:SetText("Hide based on what?")
 
 local hideButtons = {}
@@ -574,7 +540,6 @@ local function RefreshOptionsUI()
     heightSlider.valText:SetText(db.height .. "%")
     opacitySlider.valText:SetText(db.opacity .. "%")
     chargeCB:SetChecked(db.chargeEnabled)
-    ffEdit:SetText(db.faerieFireSpell)
     stealthCB:SetChecked(db.stealthNoHide)
     RefreshHideButtons()
 end
@@ -622,18 +587,17 @@ local function PrintDebug()
     local function line(name)
         p(string.format("  %s: %s", name, Answer(InRange(name, "target"))))
     end
-    for _, name in ipairs({ SPELL_WRATH, SPELL_HEAL, SPELL_MAUL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_GROWL }) do line(name) end
-    for _, name in ipairs(CHARGE_SPELLS_BEAR) do line(name) end
-    line(DruidRangeDB.faerieFireSpell)
+    for _, name in ipairs({ SPELL_FAERIE_FIRE, SPELL_WRATH, SPELL_MARK, SPELL_THORNS, SPELL_HEAL, SPELL_CHARGE,
+        SPELL_GROWL, SPELL_BASH, SPELL_CLAW, SPELL_RAKE, SPELL_MAUL }) do line(name) end
     if UnitIsDeadOrGhost("target") then
         line(SPELL_REVIVE)
     end
 
     if HasLivingEnemyTarget() then
         local s = GetEnemyState(formID)
-        p(string.format("  enemy: melee (%s) = %s, charge (%s) = %s, faerie (%s) = %s, gap = %s, hidden = %s",
-            tostring(s.meleeSpell), Answer(s.melee), tostring(s.chargeSpell), Answer(s.charge),
-            tostring(s.faerieSpell), Answer(s.faerie), tostring(s.closeGap), tostring(ShouldHide(s))))
+        p(string.format("  enemy: melee (%s) = %s, charge = %s, 30yd (%s) = %s, gap = %s, hidden = %s",
+            tostring(s.meleeSpell), Answer(s.melee), Answer(s.charge),
+            tostring(s.farSpell), Answer(s.far), tostring(s.closeGap), tostring(ShouldHide(s))))
     elseif HasFriendlyTarget() then
         local health, maxHealth = UnitHealth("target"), UnitHealthMax("target")
         local combat = UnitAffectingCombat("target")
