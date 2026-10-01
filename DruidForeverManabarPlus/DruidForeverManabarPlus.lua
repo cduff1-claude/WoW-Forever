@@ -835,9 +835,19 @@ local function PlayerFrameBarShowsMana()
     return powerType == MANA_POWER_TYPE
 end
 
+-- Cat and Bear switch the primary power away from mana, so a non-mana power type also
+-- means "in a tracked form". This helps when the form ID lags behind the real form.
+local function PrimaryPowerIsNotMana()
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return false
+    end
+    return powerType ~= MANA_POWER_TYPE
+end
+
 local function UpdateFormState()
     local formID = GetShapeshiftFormID()
-    local tracked = isDruid and IsTrackedForm(formID)
+    local tracked = isDruid and (IsTrackedForm(formID) or PrimaryPowerIsNotMana())
     local shouldShow = isDruid and (tracked or db.showOutsideForms)
 
     if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
@@ -865,6 +875,87 @@ local function UpdateFormState()
         manaText:ClearText()
     end
 end
+
+-- Form watcher.
+--
+-- On Forever, re-casting the current form (e.g. "/cast !Cat Form" in Cat to break roots)
+-- drops to caster and back, and the client's form state can lag the server by a few
+-- seconds. The last UPDATE_SHAPESHIFT_FORM may arrive while the client still reports
+-- caster, with no event when the form ID later settles. So also poll the cheap form/power
+-- readings a few times a second and refresh whenever they change.
+local FORM_POLL_INTERVAL = 0.1
+local formWatcher = CreateFrame("Frame")
+local formPollElapsed = 0
+local lastFormSignature = nil
+
+local function GetFormSignature()
+    local powerType = UnitPowerType("player")
+    if IsSecretValue(powerType) then
+        powerType = "secret"
+    end
+    return tostring(GetShapeshiftFormID()) .. ":" .. tostring(powerType)
+end
+
+-- /dfmp formlog: print every change in the form-related readings, with timings, so we can
+-- see which signal updates first after a shift.
+local formLogEnabled = false
+local formLogStart = 0
+local lastFormLogLine = nil
+
+local function FormAuraName()
+    if not (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) then
+        return "n/a"
+    end
+    local names = { [768] = "Cat", [5487] = "Bear", [9634] = "DireBear", [783] = "Travel", [1066] = "Aquatic" }
+    for spellID, name in pairs(names) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+        if ok and aura then
+            return name
+        end
+    end
+    return "none"
+end
+
+local function LogFormReadings(source)
+    if not formLogEnabled then
+        return
+    end
+    local powerID, powerToken = UnitPowerType("player")
+    if IsSecretValue(powerID) then powerID = "secret" end
+    if IsSecretValue(powerToken) then powerToken = "secret" end
+    local bonusBar = GetBonusBarOffset and GetBonusBarOffset() or "n/a"
+    local line = string.format("formID=%s stance=%s bonusbar=%s power=%s(%s) aura=%s shown=%s",
+        tostring(GetShapeshiftFormID()), tostring(GetShapeshiftForm()), tostring(bonusBar),
+        tostring(powerID), tostring(powerToken), FormAuraName(), tostring(manaFrame:IsShown()))
+    if line == lastFormLogLine and source == "poll" then
+        return
+    end
+    lastFormLogLine = line
+    local now = GetTime()
+    if formLogStart == 0 or now - formLogStart > 10 then
+        formLogStart = now
+    end
+    print(string.format("|cff55ff55DFMP|r +%.2fs [%s] %s", now - formLogStart, source, line))
+end
+
+formWatcher:SetScript("OnUpdate", function(_, elapsed)
+    formPollElapsed = formPollElapsed + elapsed
+    if formPollElapsed < FORM_POLL_INTERVAL then
+        return
+    end
+    formPollElapsed = 0
+
+    if not isDruid then
+        return
+    end
+
+    local signature = GetFormSignature()
+    if signature ~= lastFormSignature then
+        lastFormSignature = signature
+        UpdateFormState()
+    end
+    LogFormReadings("poll")
+end)
 
 local OpenOptions
 
@@ -947,7 +1038,9 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     end
 
     if event == "UPDATE_SHAPESHIFT_FORM" or (event == "UNIT_DISPLAYPOWER" and unit == "player") then
+        lastFormSignature = GetFormSignature()
         UpdateFormState()
+        LogFormReadings(event)
         return
     end
 
@@ -1334,6 +1427,16 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
+    elseif msg == "formlog" then
+        formLogEnabled = not formLogEnabled
+        formLogStart = 0
+        lastFormLogLine = nil
+        if formLogEnabled then
+            print("|cff55ff55DFMP:|r form log on. Shift forms, then /dfmp formlog again to stop.")
+            LogFormReadings("start")
+        else
+            print("|cff55ff55DFMP:|r form log off.")
+        end
     elseif testTravel then
         local value = tonumber(testTravel)
         if value and value > 0 then

@@ -9,6 +9,7 @@ A copy of *Druid Forever Manabar* (by antisnake) with:
 - Colours: blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
   cast will take you below that cost, bold/dark = already below it. Once below Bear cost, the shade splits into a
   Travel Form section and a Bear section.
+- `/dfmp formlog` toggles a log of form-related readings (form ID, stance, bonus bar, power type, form aura) with timings, for diagnosing shifts.
 - `/dfmp testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/dfmp testtravel off` clears it.
 - Optional white line at the shift cost (off by default).
 - Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
