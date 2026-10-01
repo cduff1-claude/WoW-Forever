@@ -57,6 +57,9 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
     higher alpha than expected: around 0.75 for pale colours and 0.9 for bold ones.
 - **SavedVariables** load *after* the addon's Lua runs. Re-read the settings table at `PLAYER_LOGIN`, and
   refresh options-panel widgets in the panel's `OnShow`. Otherwise settings never persist.
+- **Frame positions:** the client's own memory of dragged frames (layout cache / `SetUserPlaced`) survives
+  `/reload` but **not a client restart**. Save `frame:GetPoint(1)` to SavedVariables on drag stop, call
+  `SetUserPlaced(false)`, and restore with `SetPoint(..., UIParent, ...)` once settings are loaded.
 - **Shapeshift forms:** use `GetShapeshiftFormID()`, not the stance-bar index (the index shifts with learned
   forms). Cat = 1, Travel = 3, Aquatic = 4, Bear/Dire Bear = 5.
 - **Form state can lag.** Re-casting the current form (e.g. `/cast !Cat Form` in Cat, to break roots) drops to
