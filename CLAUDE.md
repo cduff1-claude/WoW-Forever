@@ -59,6 +59,12 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   refresh options-panel widgets in the panel's `OnShow`. Otherwise settings never persist.
 - **Shapeshift forms:** use `GetShapeshiftFormID()`, not the stance-bar index (the index shifts with learned
   forms). Cat = 1, Travel = 3, Aquatic = 4, Bear/Dire Bear = 5.
+- **Form state can lag.** Re-casting the current form (e.g. `/cast !Cat Form` in Cat, to break roots) drops to
+  caster and straight back. The client's form reading can lag the server by a few seconds, and the last
+  `UPDATE_SHAPESHIFT_FORM` may fire while it still reports caster, with no event when it settles. Don't rely
+  on form events alone: also poll `GetShapeshiftFormID()` / `UnitPowerType("player")` (~0.1s) and refresh
+  on change. The default action bar suffers the same bug. The user runs the FormBars addon for that, with a
+  `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
