@@ -19,8 +19,13 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
 
 ## Addon behaviour learned on Forever
 
-- **TOC:** always `## Interface: 99999`, so the client never flags these personal addons as out of date.
-  Give each addon its own `SavedVariables`.
+- **TOC:** use the client's real interface number, currently `## Interface: 16001`. A beta update started
+  marking addons with the old "always newer" `99999` as *Incompatible* (which can't be overridden).
+  - If addons show as incompatible after a patch, ask the user to run `/dump select(4, GetBuildInfo())` in
+    game and use that number.
+  - Some `.toc` files in the repo may still say `99999`. Change them to the current number whenever you next
+    edit that addon (the user has already fixed their installed copies).
+  - Give each addon its own `SavedVariables`.
 - **Secret values (Midnight):** some values come back "secret" and can't be compared or used in maths in Lua.
   - Always guard with `issecretvalue and issecretvalue(v)` before comparing, and have a fallback.
   - Player mana is secret. `StatusBar` widgets accept secret values, so do comparisons visually with status
