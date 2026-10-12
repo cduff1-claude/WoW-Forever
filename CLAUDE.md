@@ -19,7 +19,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
 
 ## Addon behaviour learned on Forever
 
-- **TOC:** always `## Interface: 99999`, so the client never flags these personal addons as out of date.
+- **TOC:** use `## Interface: 16001` for now (the user's instruction; it replaces the earlier 99999).
   Give each addon its own `SavedVariables`.
 - **Secret values (Midnight):** some values come back "secret" and can't be compared or used in maths in Lua.
   - Always guard with `issecretvalue and issecretvalue(v)` before comparing, and have a fallback.
