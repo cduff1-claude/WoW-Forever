@@ -1566,20 +1566,36 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
     if msg == "debug" then
         PrintDebugInfo()
     elseif msg == "prd" then
-        -- List every status bar found under the Personal Resource Display roots, so the
-        -- right mana bar can be identified on this client.
+        -- List every status bar found under the Personal Resource Display roots. Chat only
+        -- gets a short summary; the full list goes into the saved settings file
+        -- (WTF/Account/<account>/SavedVariables/DruidForeverManabarPlus.lua) after /reload.
+        local lines, manaBars, total = {}, {}, 0
         local roots = GetPersonalResourceRoots()
-        print("|cff55ff55DFMP|r Personal Resource Display: " .. #roots .. " root frame(s) found. Max mana:",
-            tostring(UnitPowerMax("player", MANA_POWER_TYPE)))
+        lines[#lines + 1] = string.format("%s | max mana %s | power type %s | form %s",
+            date("%Y-%m-%d %H:%M:%S"), tostring(UnitPowerMax("player", MANA_POWER_TYPE)),
+            tostring(UnitPowerType("player")), tostring(GetShapeshiftFormID()))
         for _, root in ipairs(roots) do
-            print("  root:", GetFrameLabel(root), "shown:", tostring(root:IsShown()))
+            lines[#lines + 1] = "root: " .. GetFrameLabel(root) .. " shown=" .. tostring(root:IsShown())
             for _, bar in ipairs(CollectStatusBars(root)) do
+                total = total + 1
                 local isMana, reason = StatusBarShowsMana(bar)
                 local overlay = blizzardOverlays[bar]
-                print(string.format("    %s | shown=%s | %s | %s%s", GetFrameLabel(bar), tostring(bar:IsShown()),
-                    isMana and "MANA" or "not mana", reason, overlay and overlay.active and " | overlay on" or ""))
+                lines[#lines + 1] = string.format("  %s | shown=%s | %s | %s%s", GetFrameLabel(bar),
+                    tostring(bar:IsShown()), isMana and "MANA" or "not mana", reason,
+                    overlay and overlay.active and " | overlay on" or "")
+                if isMana then
+                    manaBars[#manaBars + 1] = GetFrameLabel(bar)
+                end
             end
         end
+        db.prdDump = lines
+
+        print(string.format("|cff55ff55DFMP|r PRD: %d root(s), %d status bar(s), %d showing mana.",
+            #roots, total, #manaBars))
+        for _, name in ipairs(manaBars) do
+            print("  mana bar: " .. name)
+        end
+        print("  Full list saved. /reload, then send SavedVariables/DruidForeverManabarPlus.lua.")
     elseif msg == "formlog" then
         formLogEnabled = not formLogEnabled
         formLogStart = 0
