@@ -392,8 +392,84 @@ local function PrintDebugInfo()
     end
 end
 
+-- Options panel (Esc > Options > AddOns, or /ffsr).
+local panel = CreateFrame("Frame", "ForeverFiveSecondRuleOptionsPanel", UIParent)
+panel.name = "Forever Five Second Rule"
+panel:SetSize(460, 220)
+
+local settingsCategory
+
+local function OpenOptions()
+    if Settings and Settings.OpenToCategory and settingsCategory then
+        local ok = pcall(Settings.OpenToCategory, settingsCategory:GetID())
+        if not ok then
+            pcall(Settings.OpenToCategory, settingsCategory)
+        end
+    elseif InterfaceOptionsFrame_OpenToCategory then
+        InterfaceOptionsFrame_OpenToCategory(panel)
+    end
+end
+
+local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+title:SetPoint("TOPLEFT", 16, -16)
+title:SetText("Forever Five Second Rule")
+
+local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+subtitle:SetText("Shows the 5-second rule on Blizzard's mana bars. Type /ffsr to open this menu.")
+
+local function CreateCheckbox(name, anchor, label, key)
+    local checkbox = CreateFrame("CheckButton", name, panel, "InterfaceOptionsCheckButtonTemplate")
+    checkbox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
+    _G[name .. "Text"]:SetText(label)
+    checkbox:SetChecked(db[key])
+    checkbox:SetScript("OnClick", function(self)
+        db[key] = self:GetChecked() and true or false
+        ResumeFiveSecondRuleVisual()
+    end)
+    return checkbox
+end
+
+local playerFrameCheckbox = CreateCheckbox("FFSRPlayerFrameCheckbox", subtitle,
+    "Show on the Player Frame mana bar", "playerFrame")
+local personalResourceCheckbox = CreateCheckbox("FFSRPersonalResourceCheckbox", playerFrameCheckbox,
+    "Show on the Personal Resource Display", "personalResource")
+
+local widthSlider = CreateFrame("Slider", "FFSRWidthSlider", panel, "OptionsSliderTemplate")
+widthSlider:SetPoint("TOPLEFT", personalResourceCheckbox, "BOTTOMLEFT", 4, -30)
+widthSlider:SetWidth(200)
+widthSlider:SetMinMaxValues(1, 6)
+widthSlider:SetValueStep(1)
+widthSlider:SetObeyStepOnDrag(true)
+widthSlider:SetValue(db.markerWidth)
+_G[widthSlider:GetName() .. "Low"]:SetText("1")
+_G[widthSlider:GetName() .. "High"]:SetText("6")
+local widthLabel = _G[widthSlider:GetName() .. "Text"]
+widthLabel:SetText("Marker width: " .. db.markerWidth)
+widthSlider:SetScript("OnValueChanged", function(_, value)
+    value = math.floor(value + 0.5)
+    db.markerWidth = value
+    widthLabel:SetText("Marker width: " .. value)
+    ResumeFiveSecondRuleVisual()
+end)
+
+-- SavedVariables load after this file runs, so refresh the controls when shown.
+panel:SetScript("OnShow", function()
+    playerFrameCheckbox:SetChecked(db.playerFrame)
+    personalResourceCheckbox:SetChecked(db.personalResource)
+    widthSlider:SetValue(db.markerWidth)
+end)
+
+if Settings and Settings.RegisterCanvasLayoutCategory then
+    settingsCategory = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+    Settings.RegisterAddOnCategory(settingsCategory)
+elseif InterfaceOptions_AddCategory then
+    InterfaceOptions_AddCategory(panel)
+end
+
 local function PrintHelp()
     print("|cff55ff55ForeverFiveSecondRule|r commands:")
+    print("  /ffsr             - open the options")
     print("  /ffsr on | off    - enable or disable the marker")
     print("  /ffsr text        - toggle the countdown text")
     print("  /ffsr width <1-6> - marker width in pixels")
@@ -444,6 +520,8 @@ SlashCmdList["FOREVERFIVESECONDRULE"] = function(msg)
         end
     elseif cmd == "debug" then
         PrintDebugInfo()
+    elseif cmd == "" then
+        OpenOptions()
     else
         PrintHelp()
     end
