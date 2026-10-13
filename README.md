@@ -64,6 +64,14 @@ from left to right as you gain the mana to cast it **after** everything before i
   in proportion to how much of its cost you have. The rest are grey.
 - When an icon becomes affordable it gets a pulsing gold border for 2 seconds.
 - Costs come from `C_Spell.GetSpellPowerCost`, so talents and gear are included. The highest rank you know is used.
+- **Regen and cast time:** "the mana to cast it" means the mana you need *now* to start the sequence and still have
+  enough when each spell's cost is taken. Mana regained in the meantime counts. Each cost is taken when its cast ends
+  (instants: straight away), and the next spell starts when that cast or the 1.5s global cooldown ends. Regen comes from
+  `GetManaRegen()`, at the in-5-second-rule rate while the rule is running (from your last mana spell, or from earlier
+  spells in the sequence) and the normal rate otherwise. Regen that would overflow full mana isn't counted.
+- `/fseq regen ticks` (default) assumes mana arrives in 2-second ticks and takes the worst case for when they land,
+  so it never shows a spell as affordable too early. `/fseq regen smooth` treats regen as a steady flow, and
+  `/fseq regen off` ignores regen.
 - Mana is secret on Forever, so the comparisons are done with hidden status bars and clipping, not in Lua.
 
 The sequences are fixed for now (a UI to build them comes next):
@@ -71,5 +79,6 @@ The sequences are fixed for now (a UI to build them comes next):
 2. Entangling Roots > Rejuvenation > Travel Form
 
 Druids only. Commands: `/fseq unlock` (drag to move) / `/fseq lock`, `/fseq reset` (back to the default position),
-`/fseq test` (fake mana sweeping from empty to full, to check the visuals), `/fseq debug` (spell IDs, known ranks,
-costs, thresholds, and whether mana, `IsSpellUsable` and the fill width read as secret).
+`/fseq test` (fake mana sweeping from empty to full, to check the visuals), `/fseq regen ticks|smooth|off`,
+`/fseq debug` (spell IDs, known ranks, costs, cast times, thresholds, regen rates, time left on the 5-second rule,
+the gaps between recent mana updates, and whether mana, `IsSpellUsable` and the fill width read as secret).

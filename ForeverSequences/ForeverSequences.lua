@@ -4,6 +4,9 @@
 -- Player mana is a secret value on Forever, so Lua never compares it. Every comparison is
 -- done by StatusBars (which accept secret values) and frames that clip to their fill edges:
 --
+-- "Mana needed" for a spell counts the regen you'll get before its cost is taken, if you start
+-- the sequence now: cast times, the global cooldown and the 5-second rule are all included.
+--
 --   fill bar   : range [mana needed before this spell, mana needed up to and including it],
 --                value = current mana. Its fill edge is how far the colour icon is revealed.
 --   now switch : range [total - 1, total], value = current mana. Empty or full width.
@@ -22,6 +25,10 @@ local FLASH_HOLD = 2.0       -- seconds the highlight stays after a spell become
 local TICK = 0.05            -- how often mana is re-read
 local COST_REFRESH = 1.0     -- how often spell costs are re-read
 local TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
+local FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
+local GLOBAL_COOLDOWN = 1.5  -- seconds before the next spell after an instant
+local REGEN_TICK = 2.0       -- seconds between mana ticks in "ticks" regen mode
+local TICK_PHASE_STEPS = 20  -- tick timings tried when working out the worst case
 
 local GREY_SHADE = 0.5
 local GLOW_COLOR = { 1.0, 0.85, 0.2 }
@@ -51,6 +58,7 @@ local DEFAULTS = {
     x = 0,
     y = -150,
     locked = false,
+    regenMode = "ticks", -- "ticks" (safe: worst-case tick timing), "smooth" or "off"
 }
 
 local function Print(msg)
@@ -140,6 +148,18 @@ local function GetManaCost(spellID)
     end
     -- No mana entry: the spell is free.
     return 0
+end
+
+-- Cast time in seconds (0 for instants), or nil if unreadable.
+local function GetCastTime(spellID)
+    if not (spellID and C_Spell and C_Spell.GetSpellInfo) then
+        return nil
+    end
+    local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+    if ok and type(info) == "table" and IsReadableNumber(info.castTime) then
+        return math.max(0, info.castTime) / 1000
+    end
+    return nil
 end
 
 local function GetIcon(spellID)
@@ -317,6 +337,7 @@ local function CreateCell(row, index)
 end
 
 local rows = {}
+local fsrEndTime = 0
 
 local function BuildRows()
     local width = 0
@@ -342,10 +363,9 @@ end
 -- Updating
 ----------------------------------------------------------------------------------------------
 
--- Re-resolve spells and costs, and lay the thresholds out along each row.
+-- Re-resolve spells, their costs and cast times.
 local function RefreshCosts()
     for _, row in ipairs(rows) do
-        local running = 0
         for _, cell in ipairs(row.cells) do
             local spellID, known = ResolveSpell(cell.name)
             if spellID ~= cell.spellID then
@@ -356,19 +376,151 @@ local function RefreshCosts()
             end
             cell.known = known
             cell.cost = GetManaCost(spellID)
+            cell.castTime = GetCastTime(spellID)
+        end
+    end
+end
 
-            cell.start = running
-            running = running + (cell.cost or 0)
-            cell.total = running
+-- Mana regen per second outside and inside the 5-second rule, or nil when unreadable.
+local function ReadRegen()
+    if not GetManaRegen then
+        return nil, nil
+    end
+    local ok, base, casting = pcall(GetManaRegen)
+    if not ok or not IsReadableNumber(base) or not IsReadableNumber(casting) then
+        return nil, nil
+    end
+    return base, casting
+end
 
+-- Length of [0, T] covered by the 5-second-rule windows (each { start, finish }).
+local function TimeInside(windows, T)
+    local covered, reached = 0, 0
+    for _, w in ipairs(windows) do
+        local a = math.max(w[1], reached, 0)
+        local b = math.min(w[2], T)
+        if b > a then
+            covered = covered + (b - a)
+        end
+        reached = math.max(reached, math.min(w[2], T))
+    end
+    return covered
+end
+
+local function IsInside(windows, t)
+    for _, w in ipairs(windows) do
+        if t >= w[1] and t < w[2] then
+            return true
+        end
+    end
+    return false
+end
+
+-- Mana regained between now (0) and time T (seconds from now). Smooth: a constant flow.
+-- Ticks: REGEN_TICK-second ticks that land at `phase`, phase + REGEN_TICK, ..., before T.
+local function Gain(T, windows, base, casting, phase)
+    if T <= 0 then
+        return 0
+    end
+    if phase == nil then
+        local inside = TimeInside(windows, T)
+        return base * (T - inside) + casting * inside
+    end
+    local gained = 0
+    local t = phase
+    while t < T do
+        gained = gained + REGEN_TICK * (IsInside(windows, t) and casting or base)
+        t = t + REGEN_TICK
+    end
+    return gained
+end
+
+-- Mana thresholds for one row, given the regen model and tick phase: threshold[i] is how much
+-- mana you need now to start the sequence and still have the mana for spell i when it's due.
+-- Each spell's cost is taken when its cast ends (instants: at once), and the next spell starts
+-- when that cast or the global cooldown ends, whichever is later.
+local function RowThresholds(row, regen, phase, fsrRemaining, maxMana)
+    local base, casting = regen and regen[1], regen and regen[2]
+    local windows = {}
+    if fsrRemaining > 0 then
+        windows[1] = { -math.huge, fsrRemaining }
+    end
+    local thresholds = {}
+    local startTime, totalCost, highest = 0, 0, -math.huge
+    local firstGain = nil
+    for i, cell in ipairs(row.cells) do
+        local cost = cell.cost or 0
+        local castTime = cell.castTime or 0
+        local due = startTime + castTime
+        totalCost = totalCost + cost
+
+        local gain = 0
+        if base then
+            gain = Gain(due, windows, base, casting, phase)
+        end
+        firstGain = firstGain or gain
+
+        local need = totalCost - gain
+        -- Mana can't go above max, so regen before the first spell is wasted when you're full.
+        -- If even full mana isn't enough, the spell can never be reached.
+        if maxMana and maxMana - firstGain + gain < totalCost then
+            need = maxMana + 1
+        end
+        highest = math.max(highest, need)
+        thresholds[i] = highest
+
+        if cost > 0 then
+            windows[#windows + 1] = { due, due + FIVE_SECOND_RULE }
+        end
+        startTime = startTime + math.max(castTime, GLOBAL_COOLDOWN)
+    end
+    return thresholds
+end
+
+-- Lay the thresholds out along each row. Tick mode takes the worst case over every tick timing.
+local function UpdateThresholds(now)
+    local regen = nil
+    if db.regenMode ~= "off" then
+        local base, casting = ReadRegen()
+        if base then
+            regen = { base, casting }
+        end
+    end
+    local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
+    if not IsReadableNumber(maxMana) or maxMana <= 0 then
+        maxMana = nil
+    end
+    local fsrRemaining = math.max(0, fsrEndTime - now)
+
+    for _, row in ipairs(rows) do
+        local thresholds
+        if regen and db.regenMode == "ticks" then
+            thresholds = {}
+            for step = 0, TICK_PHASE_STEPS - 1 do
+                local phase = REGEN_TICK * step / TICK_PHASE_STEPS
+                for i, need in ipairs(RowThresholds(row, regen, phase, fsrRemaining, maxMana)) do
+                    thresholds[i] = math.max(thresholds[i] or -math.huge, need)
+                end
+            end
+        else
+            thresholds = RowThresholds(row, regen, nil, fsrRemaining, maxMana)
+        end
+
+        local previous = 0
+        for i, cell in ipairs(row.cells) do
+            -- Whole mana points: mana is an integer, so round the requirement up.
+            local need = math.ceil(thresholds[i])
+            cell.start = math.min(previous, need)
+            cell.total = need
             if cell.total > cell.start then
                 cell.fill:SetMinMaxValues(cell.start, cell.total)
             else
-                -- Free (or unreadable) spell: all or nothing on the mana before it.
-                cell.fill:SetMinMaxValues(cell.start - 1, cell.start)
+                -- Free spell: all or nothing on the mana before it.
+                cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
             end
             cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+            previous = need
         end
     end
 end
@@ -414,6 +566,7 @@ end
 
 local function UpdateMana()
     local now = GetTime()
+    UpdateThresholds(now)
     local mana = ReadMana()
     local previous = PreviousMana(now, mana)
     for _, row in ipairs(rows) do
@@ -459,8 +612,12 @@ driver:RegisterEvent("SPELLS_CHANGED")
 driver:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 driver:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 
-driver:SetScript("OnEvent", function(_, event)
+-- Times of recent mana updates, for /fseq debug: steady 2s gaps mean Forever regens in ticks.
+local manaEventTimes = {}
+
+driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "PLAYER_LOGIN" then
         -- SavedVariables are loaded by now; pick up the saved table.
         ForeverSequencesDB = ForeverSequencesDB or {}
@@ -482,6 +639,22 @@ driver:SetScript("OnEvent", function(_, event)
     elseif not active then
         return
     elseif event == "UNIT_POWER_FREQUENT" then
+        if arg2 == "MANA" then
+            manaEventTimes[#manaEventTimes + 1] = GetTime()
+            if #manaEventTimes > 9 then
+                table.remove(manaEventTimes, 1)
+            end
+        end
+        UpdateMana()
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- A spell that costs mana starts the 5-second rule.
+        local spellID = arg3
+        if spellID ~= nil and not IsSecret(spellID) then
+            local cost = GetManaCost(spellID)
+            if cost and cost > 0 then
+                fsrEndTime = GetTime() + FIVE_SECOND_RULE
+            end
+        end
         UpdateMana()
     else
         RefreshCosts()
@@ -499,6 +672,15 @@ local function PrintDebug()
     Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s",
         tostring(IsDruid()), Describe(mana), tostring(IsSecret(mana)), Describe(maxMana),
         tostring(testStartTime ~= nil)))
+    local okRegen, base, casting = pcall(GetManaRegen)
+    if not okRegen then base, casting = "error", "error" end
+    local gaps = {}
+    for i = 2, #manaEventTimes do
+        gaps[#gaps + 1] = string.format("%.2f", manaEventTimes[i] - manaEventTimes[i - 1])
+    end
+    Print(string.format("regen mode=%s, regen/s outside 5SR=%s, inside=%s, 5SR left=%.1fs, mana update gaps: %s",
+        db.regenMode, Describe(base), Describe(casting), math.max(0, fsrEndTime - GetTime()),
+        #gaps > 0 and table.concat(gaps, " ") or "none yet"))
     for rowIndex, row in ipairs(rows) do
         Print("Sequence " .. rowIndex .. ": " .. table.concat(row.names, " > "))
         for _, cell in ipairs(row.cells) do
@@ -509,9 +691,9 @@ local function PrintDebug()
             end
             local okWidth, fillWidth = pcall(cell.fill:GetStatusBarTexture().GetWidth, cell.fill:GetStatusBarTexture())
             if not okWidth then fillWidth = "error" end
-            print(string.format("   %s: id=%s known=%s cost=%s, needs %s-%s, usable=%s noMana=%s, fill width=%s",
+            print(string.format("   %s: id=%s known=%s cost=%s cast=%ss, needs %s-%s, usable=%s noMana=%s, fill width=%s",
                 cell.name, tostring(cell.spellID), tostring(cell.known),
-                tostring(cell.cost), tostring(cell.start), tostring(cell.total),
+                tostring(cell.cost), tostring(cell.castTime), tostring(cell.start), tostring(cell.total),
                 Describe(usable), Describe(noMana), Describe(fillWidth)))
         end
     end
@@ -546,9 +728,20 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
         if active then
             UpdateMana()
         end
+    elseif cmd == "regen" then
+        local mode = (msg or ""):lower():match("^%s*%S+%s+(%S+)")
+        if mode == "ticks" or mode == "smooth" or mode == "off" then
+            db.regenMode = mode
+            if active then
+                UpdateMana()
+            end
+            Print("regen mode: " .. mode .. ".")
+        else
+            Print("regen mode is " .. db.regenMode .. ". /fseq regen ticks | smooth | off")
+        end
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq lock | unlock | reset | test | debug")
+        Print("/fseq lock | unlock | reset | test | regen | debug")
     end
 end
