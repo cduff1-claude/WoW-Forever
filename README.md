@@ -52,14 +52,17 @@ ForeverForge Bags updates. Written against ForeverForge Bags 0.21.0.
   section-column setting), each cheapest first:
   - *Junk*: gray items, Junk, vendor-automated sections. Title shows the first item's value.
   - *Other*: everything else. Title shows the first item's value.
-  - *Protected* (icons desaturated): your `Core` section and anything with no sell value.
+  - *Protected* (icons desaturated): sections whose **Automate** dropdown is set to **Protected (Destroy mode)** (the add-on
+    adds that choice), your `Core` section, and anything with no sell value. These **always ask** before they're destroyed,
+    whatever the rarity setting says (`/ffdp ask off` to follow the rarity setting instead).
   - Quest items are left out, unless filed in Junk, a vendor section or Core (`/ffdp quest other` shows them in Other).
-  Precedence: Core, then filed in Junk / a vendor section, then quest, then gray, then no sell value.
-- How it works: wraps `ForeverForgeBags.Destroy.ItemValue` and `ForeverForgeBags.Window.Rebuild`, replaces
+  Precedence: Protected / Core, then filed in Junk / a vendor section, then quest, then gray, then no sell value.
+- How it works: wraps `ForeverForgeBags.Destroy.ItemValue`, `Destroy.AsksFirstFor` and `ForeverForgeBags.Window.Rebuild`,
+  adds an entry to `ForeverForgeBags.Automation.ACTIONS`, replaces
   `ForeverForgeBags.Window.CollectByValue`, hooks `ItemButton.RefreshState` (desaturating), and while the Destroy view is
   drawn makes `ForeverForge.Config:GetStore("bags")` answer 1 for `layout.sectionColumns`. If ForeverForge Bags changes,
   `/ffdp debug` shows the version mismatch and whether each hook is still in place.
 
-Slash command: `/ffdp` (help), `/ffdp vendor|sections|column|desat [on|off]`, `/ffdp quest hide|other`,
-`/ffdp core <section name>` (default `Core`), `/ffdp debug` (hook status, then each item outside Other with its value,
+Slash command: `/ffdp` (help), `/ffdp vendor|sections|column|desat|ask [on|off]`, `/ffdp quest hide|other`,
+`/ffdp core <section name>|none` (default `Core`), `/ffdp debug` (hook status, then each item outside Other with its value,
 original value, quality, filed section and why).
