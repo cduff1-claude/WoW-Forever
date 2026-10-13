@@ -56,3 +56,20 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - Snap to the main-hand swing timer or unlock and drag; width, height and opacity sliders.
 
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
+
+## ForeverSequences
+*Proof of concept.* Rows of spell icons, one row per spell sequence, stacked vertically. Each icon fills with colour
+from left to right as you gain the mana to cast it **after** everything before it in its row:
+- An icon you can afford (on top of the earlier ones) is in full colour. The next one is part colour, part grey,
+  in proportion to how much of its cost you have. The rest are grey.
+- When an icon becomes affordable it gets a pulsing gold border for 2 seconds.
+- Costs come from `C_Spell.GetSpellPowerCost`, so talents and gear are included. The highest rank you know is used.
+- Mana is secret on Forever, so the comparisons are done with hidden status bars and clipping, not in Lua.
+
+The sequences are fixed for now (a UI to build them comes next):
+1. Regrowth > Rejuvenation > Bear Form (Dire Bear Form once known)
+2. Entangling Roots > Rejuvenation > Travel Form
+
+Druids only. Commands: `/fseq unlock` (drag to move) / `/fseq lock`, `/fseq reset` (back to the default position),
+`/fseq test` (fake mana sweeping from empty to full, to check the visuals), `/fseq debug` (spell IDs, known ranks,
+costs, thresholds, and whether mana, `IsSpellUsable` and the fill width read as secret).
