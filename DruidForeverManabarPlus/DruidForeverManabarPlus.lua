@@ -44,6 +44,7 @@ local DEFAULTS = {
     showShiftMarker = false,
     showShiftShade = true,
     showShiftOnPlayerFrame = true,
+    showShiftOnPersonalResource = true,
 }
 
 local function EnsureDB()
@@ -277,7 +278,8 @@ local PLAYER_FRAME_COLORS = {
     darkRed = { 0.7, 0.05, 0.05, 0.92 },
 }
 
-local pfShade = nil
+-- Overlays on Blizzard's own mana bars (Player Frame, Personal Resource Display), keyed by bar.
+local blizzardOverlays = {}
 
 local function ColorShiftShade(set, colors, shown)
     for _, layer in ipairs(set.layers) do
@@ -299,8 +301,8 @@ local function ApplyShiftShadeColor()
     }
     ColorShiftShade(druidShade, DRUID_BAR_COLORS, shown)
 
-    if pfShade then
-        ColorShiftShade(pfShade, PLAYER_FRAME_COLORS, shown)
+    for _, overlay in pairs(blizzardOverlays) do
+        ColorShiftShade(overlay.shade, PLAYER_FRAME_COLORS, shown)
     end
 end
 
@@ -623,61 +625,182 @@ local function RefreshShiftCost()
     RefreshTravelCost()
 end
 
--- Second copy of the shift-cost shade/line on the Blizzard Player Frame mana bar, used
--- whenever that bar is showing mana (caster form, Moonkin, etc.).
-local pfLineFrame = nil
-local pfLine = nil
-local pfOverlayActive = false
+-- Copies of the shift-cost shade/line on Blizzard's own mana bars: the Player Frame bar
+-- whenever it shows mana, and the Personal Resource Display's mana bar(s). Both use
+-- Blizzard's blue texture, so they share the translucent PLAYER_FRAME_COLORS washes.
+local function EnsureBarOverlay(bar)
+    local overlay = blizzardOverlays[bar]
+    if overlay then
+        return overlay
+    end
 
-local function EnsurePlayerFrameOverlay()
-    local resourceBar = GetPlayerResourceBar()
-    if not resourceBar or not resourceBar.GetStatusBarTexture then
+    overlay = { bar = bar, active = false }
+    overlay.shade = CreateShiftShade(bar, "Interface\\Buttons\\WHITE8X8")
+
+    overlay.lineFrame = CreateFrame("Frame", nil, bar)
+    overlay.lineFrame:SetAllPoints(bar)
+    local line = overlay.lineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
+    line:SetColorTexture(1, 1, 1, 1)
+    line:SetWidth(2)
+    line:SetPoint("TOP", overlay.shade.bearEdgeTexture, "TOPRIGHT", 0, 0)
+    line:SetPoint("BOTTOM", overlay.shade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
+
+    ShowShiftShade(overlay.shade, false)
+    overlay.lineFrame:Hide()
+    ColorShiftShade(overlay.shade, PLAYER_FRAME_COLORS, db.showShiftShade)
+
+    blizzardOverlays[bar] = overlay
+    return overlay
+end
+
+local function SetBarOverlayActive(overlay, active)
+    overlay.active = active
+    if active then
+        AnchorShiftShade(overlay.shade)
+        overlay.lineFrame:SetFrameStrata(overlay.bar:GetFrameStrata())
+        overlay.lineFrame:SetFrameLevel(overlay.bar:GetFrameLevel() + 8)
+    else
+        ShowShiftShade(overlay.shade, false)
+        overlay.lineFrame:Hide()
+    end
+end
+
+-- Personal Resource Display. Frame names differ between client versions and aren't
+-- confirmed on Forever, so search the likely roots for status bars and pick the ones
+-- showing mana: max value equal to the player's max mana (which is readable), or a
+-- Blizzard powerType field of mana. Health bars are skipped by name.
+local function GetPersonalResourceRoots()
+    local roots = {}
+    local function add(frame)
+        if frame and type(frame) == "table" and frame.GetObjectType then
+            roots[#roots + 1] = frame
+        end
+    end
+    add(_G.PersonalResourceDisplayFrame)
+    add(_G.ClassNameplateManaBarFrame)
+    if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+        local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, "player")
+        if ok then add(plate) end
+    end
+    if NamePlateDriverFrame and NamePlateDriverFrame.GetClassNameplateAlternatePowerBar then
+        local ok, bar = pcall(NamePlateDriverFrame.GetClassNameplateAlternatePowerBar, NamePlateDriverFrame)
+        if ok then add(bar) end
+    end
+    return roots
+end
+
+local function GetFrameLabel(frame)
+    if frame.GetDebugName then
+        local ok, name = pcall(frame.GetDebugName, frame)
+        if ok and name and name ~= "" then
+            return name
+        end
+    end
+    return frame:GetName() or tostring(frame)
+end
+
+local function CollectStatusBars(root)
+    local bars, seen = {}, {}
+    local function visit(frame, depth)
+        if seen[frame] or depth > 5 then
+            return
+        end
+        seen[frame] = true
+        if frame:GetObjectType() == "StatusBar" then
+            bars[#bars + 1] = frame
+        end
+        local children = { pcall(frame.GetChildren, frame) }
+        if children[1] then
+            for i = 2, #children do
+                visit(children[i], depth + 1)
+            end
+        end
+    end
+    visit(root, 0)
+    return bars
+end
+
+-- Returns isMana, reason.
+local function StatusBarShowsMana(bar)
+    if GetFrameLabel(bar):lower():find("health") then
+        return false, "health bar"
+    end
+
+    local powerType = bar.powerType
+    if powerType ~= nil and not IsSecretValue(powerType) then
+        if powerType == MANA_POWER_TYPE or powerType == "MANA" then
+            return true, "powerType=mana"
+        end
+        return false, "powerType=" .. tostring(powerType)
+    end
+
+    local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
+    local _, barMax = bar:GetMinMaxValues()
+    if not IsReadableNumber(barMax) or not IsReadableNumber(maxMana) then
+        return false, "max unreadable"
+    end
+    if maxMana > 0 and barMax == maxMana then
+        return true, "max=" .. barMax
+    end
+    return false, "max=" .. tostring(barMax)
+end
+
+local function FindPersonalResourceManaBars()
+    local found = {}
+    for _, root in ipairs(GetPersonalResourceRoots()) do
+        for _, bar in ipairs(CollectStatusBars(root)) do
+            if bar.GetStatusBarTexture and StatusBarShowsMana(bar) then
+                found[#found + 1] = bar
+            end
+        end
+    end
+    return found
+end
+
+local function PlayerFrameBarShowsMana()
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
         return false
     end
-
-    if pfShade and pfShade.bar == resourceBar then
-        return true
-    end
-
-    if pfShade then
-        ShowShiftShade(pfShade, false)
-        pfLineFrame:Hide()
-    end
-
-    pfShade = CreateShiftShade(resourceBar, "Interface\\Buttons\\WHITE8X8")
-
-    pfLineFrame = CreateFrame("Frame", nil, resourceBar)
-    pfLineFrame:SetAllPoints(resourceBar)
-    pfLine = pfLineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-    pfLine:SetColorTexture(1, 1, 1, 1)
-    pfLine:SetWidth(2)
-    pfLine:SetPoint("TOP", pfShade.bearEdgeTexture, "TOPRIGHT", 0, 0)
-    pfLine:SetPoint("BOTTOM", pfShade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
-
-    ShowShiftShade(pfShade, false)
-    pfLineFrame:Hide()
-    ApplyShiftShadeColor()
-    return true
+    return powerType == MANA_POWER_TYPE
 end
 
-local function HidePlayerFrameOverlay()
-    pfOverlayActive = false
-    if pfShade then
-        ShowShiftShade(pfShade, false)
-        pfLineFrame:Hide()
+-- Work out which Blizzard bars should carry an overlay right now.
+local function RefreshBlizzardOverlays()
+    local wanted = {}
+
+    if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
+        local resourceBar = GetPlayerResourceBar()
+        if resourceBar and resourceBar.GetStatusBarTexture then
+            wanted[resourceBar] = true
+        end
+    end
+
+    if isDruid and db.showShiftOnPersonalResource then
+        for _, bar in ipairs(FindPersonalResourceManaBars()) do
+            wanted[bar] = true
+        end
+    end
+
+    for bar in pairs(wanted) do
+        local overlay = EnsureBarOverlay(bar)
+        if not overlay.active then
+            SetBarOverlayActive(overlay, true)
+        end
+    end
+    for bar, overlay in pairs(blizzardOverlays) do
+        if overlay.active and not wanted[bar] then
+            SetBarOverlayActive(overlay, false)
+        end
     end
 end
 
-local function ShowPlayerFrameOverlay()
-    if not EnsurePlayerFrameOverlay() then
-        HidePlayerFrameOverlay()
-        return
+local function CountActiveOverlays()
+    local count = 0
+    for _, overlay in pairs(blizzardOverlays) do
+        if overlay.active then count = count + 1 end
     end
-
-    AnchorShiftShade(pfShade)
-    pfLineFrame:SetFrameStrata(pfShade.bar:GetFrameStrata())
-    pfLineFrame:SetFrameLevel(pfShade.bar:GetFrameLevel() + 8)
-    pfOverlayActive = true
+    return count
 end
 
 -- Mana cost of the spell currently being cast, like the darker "cost prediction" section
@@ -723,9 +846,9 @@ local function UpdateShiftCostVisual(maxMana, currentMana)
     if shiftCost == nil or (not db.showShiftMarker and not db.showShiftShade) then
         ShowShiftShade(druidShade, false)
         shiftLine:Hide()
-        if pfShade then
-            ShowShiftShade(pfShade, false)
-            pfLineFrame:Hide()
+        for _, overlay in pairs(blizzardOverlays) do
+            ShowShiftShade(overlay.shade, false)
+            overlay.lineFrame:Hide()
         end
         return
     end
@@ -735,12 +858,14 @@ local function UpdateShiftCostVisual(maxMana, currentMana)
     UpdateShiftShade(druidShade, maxMana, currentMana, threshold)
     shiftLine:SetShown(db.showShiftMarker)
 
-    if pfOverlayActive and pfShade then
-        UpdateShiftShade(pfShade, maxMana, currentMana, threshold)
-        pfLineFrame:SetShown(db.showShiftMarker)
-    elseif pfShade then
-        ShowShiftShade(pfShade, false)
-        pfLineFrame:Hide()
+    for _, overlay in pairs(blizzardOverlays) do
+        if overlay.active then
+            UpdateShiftShade(overlay.shade, maxMana, currentMana, threshold)
+            overlay.lineFrame:SetShown(db.showShiftMarker)
+        else
+            ShowShiftShade(overlay.shade, false)
+            overlay.lineFrame:Hide()
+        end
     end
 end
 
@@ -827,14 +952,6 @@ local function SpellSpendsMana(spellID)
     return false
 end
 
-local function PlayerFrameBarShowsMana()
-    local powerType = UnitPowerType("player")
-    if powerType == nil or IsSecretValue(powerType) then
-        return false
-    end
-    return powerType == MANA_POWER_TYPE
-end
-
 -- Cat and Bear switch the primary power away from mana, so a non-mana power type also
 -- means "in a tracked form". This helps when the form ID lags behind the real form.
 local function PrimaryPowerIsNotMana()
@@ -850,11 +967,7 @@ local function UpdateFormState()
     local tracked = isDruid and (IsTrackedForm(formID) or PrimaryPowerIsNotMana())
     local shouldShow = isDruid and (tracked or db.showOutsideForms)
 
-    if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
-        ShowPlayerFrameOverlay()
-    else
-        HidePlayerFrameOverlay()
-    end
+    RefreshBlizzardOverlays()
 
     if shouldShow then
         manaFrame:Show()
@@ -886,6 +999,8 @@ end
 local FORM_POLL_INTERVAL = 0.1
 local formWatcher = CreateFrame("Frame")
 local formPollElapsed = 0
+local overlayRescanElapsed = 0
+local OVERLAY_RESCAN_INTERVAL = 1.0
 local lastFormSignature = nil
 
 local function GetFormSignature()
@@ -952,7 +1067,20 @@ formWatcher:SetScript("OnUpdate", function(_, elapsed)
     local signature = GetFormSignature()
     if signature ~= lastFormSignature then
         lastFormSignature = signature
+        overlayRescanElapsed = 0
         UpdateFormState()
+    else
+        -- The Personal Resource Display can appear (e.g. entering combat) or recycle its
+        -- bars without a form change, so look for its mana bar again now and then.
+        overlayRescanElapsed = overlayRescanElapsed + FORM_POLL_INTERVAL
+        if overlayRescanElapsed >= OVERLAY_RESCAN_INTERVAL then
+            overlayRescanElapsed = 0
+            local before = CountActiveOverlays()
+            RefreshBlizzardOverlays()
+            if CountActiveOverlays() ~= before then
+                UpdateManaBar()
+            end
+        end
     end
     LogFormReadings("poll")
 end)
@@ -1128,7 +1256,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "Druid Forever Manabar Plus"
-panel:SetSize(460, 690)
+panel:SetSize(460, 730)
 
 local settingsCategory
 
@@ -1214,6 +1342,15 @@ playerFrameShiftCheckbox:SetScript("OnClick", function(self)
     UpdateFormState()
 end)
 
+local personalResourceCheckbox = CreateFrame("CheckButton", "DFMPPersonalResourceCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
+personalResourceCheckbox:SetPoint("TOPLEFT", playerFrameShiftCheckbox, "BOTTOMLEFT", 0, -10)
+_G[personalResourceCheckbox:GetName() .. "Text"]:SetText("Also show shift cost on the Personal Resource Display mana bar")
+personalResourceCheckbox:SetChecked(db.showShiftOnPersonalResource)
+personalResourceCheckbox:SetScript("OnClick", function(self)
+    db.showShiftOnPersonalResource = self:GetChecked()
+    UpdateFormState()
+end)
+
 local function CreateSlider(name, parent, minVal, maxVal, step, labelText, valueKey, callback)
     local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
     slider:SetMinMaxValues(minVal, maxVal)
@@ -1250,7 +1387,7 @@ local widthSlider = CreateSlider("DFMPWidthSlider", panel, 50, 400, 10, "Bar Wid
         fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
     end
 end)
-widthSlider:SetPoint("TOPLEFT", playerFrameShiftCheckbox, "BOTTOMLEFT", 0, -35)
+widthSlider:SetPoint("TOPLEFT", personalResourceCheckbox, "BOTTOMLEFT", 0, -35)
 
 local heightSlider = CreateSlider("DFMPHeightSlider", panel, 6, 30, 2, "Bar Height (Manual)", "height", function(val)
     if not db.attachToPlayerFrame then
@@ -1358,6 +1495,7 @@ panel:SetScript("OnShow", function()
     shiftLineCheckbox:SetChecked(db.showShiftMarker)
     shiftShadeCheckbox:SetChecked(db.showShiftShade)
     playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
+    personalResourceCheckbox:SetChecked(db.showShiftOnPersonalResource)
     widthSlider:SetValue(db.width)
     heightSlider:SetValue(db.height)
     scaleSlider:SetValue(db.scale)
@@ -1401,7 +1539,7 @@ local function PrintDebugInfo()
     else
         print("Shift cost:", tostring(shiftCost), "mana, from spell ID", tostring(shiftCostSpellID))
     end
-    print("Player Frame shift overlay active:", tostring(pfOverlayActive), "bar shows mana:", tostring(PlayerFrameBarShowsMana()))
+    print("Blizzard bar overlays active:", tostring(CountActiveOverlays()), "Player Frame bar shows mana:", tostring(PlayerFrameBarShowsMana()))
     local threshold = GetShiftThreshold()
     print("Bear threshold (incl. cast):", threshold and tostring(threshold) or "unavailable (shift cost restricted)",
         "pending cast cost:", tostring(pendingCastCost))
@@ -1427,6 +1565,21 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
+    elseif msg == "prd" then
+        -- List every status bar found under the Personal Resource Display roots, so the
+        -- right mana bar can be identified on this client.
+        local roots = GetPersonalResourceRoots()
+        print("|cff55ff55DFMP|r Personal Resource Display: " .. #roots .. " root frame(s) found. Max mana:",
+            tostring(UnitPowerMax("player", MANA_POWER_TYPE)))
+        for _, root in ipairs(roots) do
+            print("  root:", GetFrameLabel(root), "shown:", tostring(root:IsShown()))
+            for _, bar in ipairs(CollectStatusBars(root)) do
+                local isMana, reason = StatusBarShowsMana(bar)
+                local overlay = blizzardOverlays[bar]
+                print(string.format("    %s | shown=%s | %s | %s%s", GetFrameLabel(bar), tostring(bar:IsShown()),
+                    isMana and "MANA" or "not mana", reason, overlay and overlay.active and " | overlay on" or ""))
+            end
+        end
     elseif msg == "formlog" then
         formLogEnabled = not formLogEnabled
         formLogStart = 0
