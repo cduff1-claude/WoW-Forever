@@ -6,21 +6,26 @@
 --     single column whatever the bags' section-column setting:
 --       Junk      - grays, Junk, vendor-automated sections
 --       Other     - everything else
---       Protected - your "Core" section and anything with no sell value
+--       Protected - sections set to "Protected" (Automate dropdown), your
+--                   "Core" section, and anything with no sell value
 --     each cheapest first. Junk and Other show their cheapest stack's value
 --     in the title; Protected's icons are desaturated.
+--   * Protected items always ask before they're destroyed, whatever the
+--     rarity setting says.
 --   * Quest items are left out of the view (unless filed in Junk, a vendor
 --     section or Core).
 -- Written against ForeverForge Bags 0.21.0. It replaces
 -- ForeverForgeBags.Window.CollectByValue and wraps
--- ForeverForgeBags.Destroy.ItemValue and ForeverForgeBags.Window.Rebuild.
+-- ForeverForgeBags.Destroy.ItemValue / AsksFirstFor and
+-- ForeverForgeBags.Window.Rebuild, and adds "Protected" to
+-- ForeverForgeBags.Automation.ACTIONS.
 
 local ADDON = ...
 local PREFIX = "|cffe04848ForeverForge Bags Destroy Plus|r: "
 local TESTED_VERSION = "0.21.0"
 
 local DEFAULTS = {
-    grayVendor = true, sections = true, desaturate = true, singleColumn = true,
+    grayVendor = true, sections = true, desaturate = true, singleColumn = true, protectedAsks = true,
     quest = "hide",            -- "hide" or "other"
     coreSection = "Core",
 }
@@ -28,8 +33,13 @@ local DEFAULTS = {
 local db = {}
 for k, v in pairs(DEFAULTS) do db[k] = v end
 
-local origItemValue, origCollect, origRebuild, origGetStore
-local installed = { value = false, sections = false, desat = false, rebuild = false, column = false }
+local origItemValue, origAsksFirstFor, origCollect, origRebuild, origGetStore
+local installed = { value = false, asks = false, sections = false, desat = false, rebuild = false, column = false,
+    action = false }
+
+-- The Automate dropdown's new choice (Bags settings » Sections » your section).
+local PROTECTED = "protected"
+local PROTECTED_ACTION = { key = PROTECTED, name = "Protected (Destroy mode)" }
 
 -- Section titles in the Destroy view.
 local JUNK_TITLE = "Junk"
@@ -83,10 +93,18 @@ local function isCore(filed)
     return want ~= nil and want ~= "" and lower(filed) == want
 end
 
+--- In a section set to Protected, or your Core section. Returns why.
+local function isProtectedSection(filed, automate)
+    if automate == PROTECTED then return true, "Protected section (" .. tostring(filed) .. ")" end
+    if isCore(filed) then return true, "in " .. tostring(filed) end
+    return false
+end
+
 --- "junk", "mid", "last" or "hide", and why.
 local function groupOf(d, value)
     local filed, automate = filedIn(d)
-    if isCore(filed) then return "last", "in " .. tostring(filed) end
+    local protected, why = isProtectedSection(filed, automate)
+    if protected then return "last", why end
     -- Filed for selling beats the quest check: you said so by hand.
     if automate == "vendor" or (filed ~= nil and filed == junkName()) then
         return "junk", select(2, isVendorJunk(d, filed, automate))
@@ -108,6 +126,15 @@ local function itemValue(d, ...)
         return vendor, vendor > 0 and "vendor" or nil
     end
     return origItemValue(d, ...)
+end
+
+--- Protected items always ask first; everything else follows the rarity
+--- setting (and no sell value, which asks anyway).
+local function asksFirstFor(d, ...)
+    if db.protectedAsks and type(d) == "table" and d.itemId and isProtectedSection(filedIn(d)) then
+        return true
+    end
+    return origAsksFirstFor(d, ...)
 end
 
 ------------------------------------------------------------- Sections
@@ -234,7 +261,7 @@ local TIPS = {
     [MID_TITLE] = { "Destroy mode - other",
         "Everything else, cheapest first: left to right, then down. Worth is the vendor price, or the auction house price after fees when that's more. The title shows the first item's value." },
     [LAST_TITLE] = { "Destroy mode - protected",
-        "Your Core section and anything with no sell value, cheapest first. Anything with no sell value always asks before it is destroyed." },
+        "Sections set to Protected (Automate, on the section's settings card), your Core section, and anything with no sell value, cheapest first. Everything here asks before it is destroyed." },
 }
 
 local function decorate(self)
@@ -280,6 +307,20 @@ local function install()
         origItemValue = D.ItemValue
         D.ItemValue = itemValue
         installed.value = true
+    end
+    if not installed.asks and D and type(D.AsksFirstFor) == "function" then
+        origAsksFirstFor = D.AsksFirstFor
+        D.AsksFirstFor = asksFirstFor
+        installed.asks = true
+    end
+    local AUT = fb.Automation
+    if not installed.action and AUT and type(AUT.ACTIONS) == "table" then
+        local have = false
+        for _, a in ipairs(AUT.ACTIONS) do
+            if a.key == PROTECTED then have = true end
+        end
+        if not have then table.insert(AUT.ACTIONS, PROTECTED_ACTION) end
+        installed.action = true
     end
     if not installed.sections and W and type(W.CollectByValue) == "function" and D
         and D.ResetValues and D.StackValue and fb.Bags and fb.Bags.content and fb.Bags.CountsAsFree then
@@ -344,17 +385,18 @@ local function debug()
     local v = version()
     print(("  ForeverForge Bags %s%s"):format(tostring(v),
         v == TESTED_VERSION and "" or (" |cffffaa00(written against " .. TESTED_VERSION .. ")|r")))
-    print(("  hooks: value %s, sections %s, desaturate %s, rebuild %s, single column %s"):format(
-        tostring(installed.value), tostring(installed.sections), tostring(installed.desat),
-        tostring(installed.rebuild), tostring(installed.column)))
+    print(("  hooks: value %s, asks %s, dropdown %s, sections %s, desaturate %s, rebuild %s, single column %s"):format(
+        tostring(installed.value), tostring(installed.asks), tostring(installed.action), tostring(installed.sections),
+        tostring(installed.desat), tostring(installed.rebuild), tostring(installed.column)))
     local Config = _G.ForeverForge and _G.ForeverForge.Config
-    print(("  still ours: ItemValue %s, CollectByValue %s, Rebuild %s, GetStore %s"):format(
+    print(("  still ours: ItemValue %s, AsksFirstFor %s, CollectByValue %s, Rebuild %s, GetStore %s"):format(
         tostring(fb and fb.Destroy and fb.Destroy.ItemValue == itemValue),
+        tostring(fb and fb.Destroy and fb.Destroy.AsksFirstFor == asksFirstFor),
         tostring(fb and fb.Window and fb.Window.CollectByValue == collectByValue),
         tostring(fb and fb.Window and fb.Window.Rebuild == rebuild),
         tostring(Config and Config.GetStore == getStore)))
-    print(("  settings: vendor price %s, sections %s, single column %s, desaturate %s, quest items %s, core section \"%s\""):format(
-        onOff(db.grayVendor), onOff(db.sections), onOff(db.singleColumn), onOff(db.desaturate),
+    print(("  settings: vendor price %s, sections %s, single column %s, desaturate %s, protected asks %s, quest items %s, core section \"%s\""):format(
+        onOff(db.grayVendor), onOff(db.sections), onOff(db.singleColumn), onOff(db.desaturate), onOff(db.protectedAsks),
         tostring(db.quest), tostring(db.coreSection)))
     if not (fb and fb.Destroy and fb.Bags and fb.Container and origItemValue) then return end
     local D, B = fb.Destroy, fb.Bags
@@ -371,11 +413,13 @@ local function debug()
                 if g == "mid" and not why then
                     mid = mid + 1
                 else
-                    local filed = filedIn(d)
+                    local filed, automate = filedIn(d)
                     local orig = origItemValue(d) * math.max(1, tonumber(d.count) or 1)
-                    print(("  [%s] %s x%d: %s (%s) | original %s | q%s filed=%s class=%s"):format(
+                    local asks = D.AsksFirstFor and D.AsksFirstFor(d)
+                    print(("  [%s] %s x%d: %s (%s) | original %s | q%s filed=%s automate=%s class=%s asks=%s"):format(
                         g, d.link, d.count or 1, money(value), tostring(how), money(orig), tostring(d.quality),
-                        tostring(filed), tostring(d.class)) .. (why and (" - " .. why) or ""))
+                        tostring(filed), tostring(automate), tostring(d.class), tostring(asks))
+                        .. (why and (" - " .. why) or ""))
                 end
             end
         end
@@ -404,6 +448,8 @@ SlashCmdList.FOREVERFORGEBAGSDESTROYPLUS = function(msg)
         toggle("sections", arg, "Junk / Other / Protected sections")
     elseif cmd == "column" then
         toggle("singleColumn", arg, "Destroy view in a single column")
+    elseif cmd == "ask" then
+        toggle("protectedAsks", arg, "Protected items always ask before they're destroyed")
     elseif cmd == "desat" then
         toggle("desaturate", arg, "desaturate Protected icons")
     elseif cmd == "quest" then
@@ -412,7 +458,7 @@ SlashCmdList.FOREVERFORGEBAGSDESTROYPLUS = function(msg)
             .. (db.quest == "other" and "shown in Other" or "hidden"))
         redraw()
     elseif cmd == "core" then
-        if rest ~= "" then db.coreSection = rest end
+        if arg == "none" then db.coreSection = "" elseif rest ~= "" then db.coreSection = rest end
         Print("section that always goes in Protected: \"" .. tostring(db.coreSection) .. "\"")
         redraw()
     elseif cmd == "debug" then
@@ -423,8 +469,9 @@ SlashCmdList.FOREVERFORGEBAGSDESTROYPLUS = function(msg)
         print("  /ffdp sections [on|off] - split Destroy mode into Junk / Other / Protected")
         print("  /ffdp column [on|off] - stack the Destroy view in a single column")
         print("  /ffdp desat [on|off] - desaturate the Protected icons")
+        print("  /ffdp ask [on|off] - Protected items always ask before they're destroyed")
         print("  /ffdp quest hide|other - leave quest items out, or show them in Other (now " .. tostring(db.quest) .. ")")
-        print("  /ffdp core <section name> - your section that always goes in Protected (now \""
+        print("  /ffdp core <section name>|none - a section that always counts as Protected (now \""
             .. tostring(db.coreSection) .. "\")")
         print("  /ffdp debug - hook status, and each Junk / Protected / quest item with its value and why")
     end

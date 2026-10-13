@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: ForeverForge Bags Destroy Plus
 ## Notes: ForeverForge Bags Destroy mode: Junk / Other / Protected sections, and vendor-only prices for gray and to-be-sold items.
-## Version: 2.1.0
+## Version: 2.2.0
 ## Dependencies: ForeverForge_Bags
 ## SavedVariables: ForeverForge_Bags_DestroyPlusDB
 
