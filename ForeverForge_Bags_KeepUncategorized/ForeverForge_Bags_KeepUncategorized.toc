@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: ForeverForge Bags Keep Uncategorized
+## Notes: ForeverForge Bags, Manual mode: the Uncategorized section stays in place even when empty, so sections don't shuffle columns.
+## Version: 1.0.0
+## Dependencies: ForeverForge_Bags
+## SavedVariables: ForeverForge_Bags_KeepUncategorizedDB
+
+ForeverForge_Bags_KeepUncategorized.lua

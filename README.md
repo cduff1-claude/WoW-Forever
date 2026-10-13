@@ -66,3 +66,11 @@ ForeverForge Bags updates. Written against ForeverForge Bags 0.21.0.
 Slash command: `/ffdp` (help), `/ffdp vendor|sections|column|desat|ask [on|off]`, `/ffdp quest hide|other`,
 `/ffdp core <section name>|none` (default `Core`), `/ffdp debug` (hook status, then each item outside Other with its value,
 original value, quality, filed section and why).
+
+## ForeverForge_Bags_KeepUncategorized
+An add-on for *ForeverForge Bags* (needs the `ForeverForge_Bags` folder; changes no ForeverForge files). Written against
+ForeverForge Bags 0.21.0. In **Manual** sorting, the *Uncategorized* section stays in the bag window as an empty title when
+it has no items, instead of disappearing (which reshuffled the section columns). It sits where it would with items in it,
+and you can still drag items onto it. Bags only (not the bank). Wraps `ForeverForgeBags.Window.CollectBySection`.
+
+Slash command: `/ffku on|off`, `/ffku debug` (hook status, Manual mode, whether the last redraw added the empty section).
