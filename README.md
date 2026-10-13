@@ -42,3 +42,13 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - Snap to the main-hand swing timer or unlock and drag; width, height and opacity sliders.
 
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
+
+## ForeverForgeBagsGrayValue
+A small add-on for *ForeverForge Bags* (it changes no ForeverForge files, so it keeps working when ForeverForge Bags updates).
+Destroy mode's "cheapest first" order normally values an item at its vendor price or its auction house price after fees,
+whichever is higher. With this add-on, **gray items are valued at their vendor price only**. Other items are unchanged.
+It wraps `ForeverForgeBags.Destroy.ItemValue`, so the sort order, the "Worth ..." tooltip line and the "no sell value, asks first"
+check all use the new value.
+
+Slash command: `/ffgray on|off`, `/ffgray debug` (shows whether the hook is in, and for each gray item in your bags its vendor
+price, ForeverForge's own value and the value now used).
