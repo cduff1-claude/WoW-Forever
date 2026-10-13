@@ -55,6 +55,11 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   - Re-anchor to its `GetStatusBarTexture()` when the power type changes; Blizzard may swap the texture.
   - Translucent overlays blend with Blizzard's blue texture and look washed out. Use stronger colours and
     higher alpha than expected: around 0.75 for pale colours and 0.9 for bold ones.
+- **Personal Resource Display** is the Midnight-style `PersonalResourceDisplayFrame` (from the
+  `Blizzard_PersonalResourceDisplay` addon, which may load after ours). Its bars are
+  `HealthBarsContainer.healthBar`, `PowerBar` (primary power) and `AlternatePowerBar` (the druid's mana bar in
+  Cat/Bear). Hook its `UpdatePowerBar` / `UpdateAlternatePowerBar` methods with `hooksecurefunc` to react
+  when Blizzard repaints them. It only draws when the `nameplateShowSelf` CVar is on.
 - **SavedVariables** load *after* the addon's Lua runs. Re-read the settings table at `PLAYER_LOGIN`, and
   refresh options-panel widgets in the panel's `OnShow`. Otherwise settings never persist.
 - **Shapeshift forms:** use `GetShapeshiftFormID()`, not the stance-bar index (the index shifts with learned
