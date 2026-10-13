@@ -43,19 +43,23 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
 
-## ForeverForgeBagsDestroyPlus
+## ForeverForge_Bags_DestroyPlus
 An add-on for *ForeverForge Bags* (needs the `ForeverForge_Bags` folder). It changes no ForeverForge files, so it survives
-ForeverForge Bags updates. Written against ForeverForge Bags 0.21.0. Replaces the old *ForeverForgeBagsGrayValue*.
+ForeverForge Bags updates. Written against ForeverForge Bags 0.21.0.
 - **Vendor price only** for anything headed to a vendor: gray items (wherever they're filed), items filed in Junk, and items
   in a section automated to sell at vendors. Other items still use the higher of vendor and auction house (after fees).
-- **Destroy mode's cheapest-first view is split into three sections**, each cheapest first:
-  - *Junk*: gray items, Junk, vendor-automated sections.
-  - *Everything else*.
-  - *Keep last* (icons desaturated): your `Core` section, quest items, and anything with no sell value.
+- **Destroy mode's cheapest-first view is split into three sections**, stacked in a single column (whatever the bags'
+  section-column setting), each cheapest first:
+  - *Junk*: gray items, Junk, vendor-automated sections. Title shows the first item's value.
+  - *Other*: everything else. Title shows the first item's value.
+  - *Protected* (icons desaturated): your `Core` section and anything with no sell value.
+  - Quest items are left out, unless filed in Junk, a vendor section or Core (`/ffdp quest other` shows them in Other).
   Precedence: Core, then filed in Junk / a vendor section, then quest, then gray, then no sell value.
-- How it works: wraps `ForeverForgeBags.Destroy.ItemValue`, replaces `ForeverForgeBags.Window.CollectByValue`, and hooks
-  `ItemButton.RefreshState` (desaturating) and `Window.Rebuild` (section header tooltips). If ForeverForge Bags rewrites
-  the Destroy view, `/ffdp debug` shows the version mismatch and whether the hooks are still in place.
+- How it works: wraps `ForeverForgeBags.Destroy.ItemValue` and `ForeverForgeBags.Window.Rebuild`, replaces
+  `ForeverForgeBags.Window.CollectByValue`, hooks `ItemButton.RefreshState` (desaturating), and while the Destroy view is
+  drawn makes `ForeverForge.Config:GetStore("bags")` answer 1 for `layout.sectionColumns`. If ForeverForge Bags changes,
+  `/ffdp debug` shows the version mismatch and whether each hook is still in place.
 
-Slash command: `/ffdp` (help), `/ffdp vendor|sections|desat [on|off]`, `/ffdp core <section name>` (default `Core`),
-`/ffdp debug` (hook status, then each Junk / Keep last item with its value, original value, quality, filed section and why).
+Slash command: `/ffdp` (help), `/ffdp vendor|sections|column|desat [on|off]`, `/ffdp quest hide|other`,
+`/ffdp core <section name>` (default `Core`), `/ffdp debug` (hook status, then each item outside Other with its value,
+original value, quality, filed section and why).

@@ -2,31 +2,39 @@
 -- Changes ForeverForge Bags' Destroy mode without touching its files:
 --   * Gray items, and anything headed for a vendor (filed in Junk, or in a
 --     section automated to sell at vendors), are valued at vendor price only.
---   * The cheapest-first view is split into three sections:
---       Junk           - grays, Junk, vendor-automated sections
---       Everything else
---       Keep last      - your "Core" section, quest items, no sell value
---     each cheapest first, with the bottom section's icons desaturated.
+--   * The cheapest-first view is split into three sections, stacked in a
+--     single column whatever the bags' section-column setting:
+--       Junk      - grays, Junk, vendor-automated sections
+--       Other     - everything else
+--       Protected - your "Core" section and anything with no sell value
+--     each cheapest first. Junk and Other show their cheapest stack's value
+--     in the title; Protected's icons are desaturated.
+--   * Quest items are left out of the view (unless filed in Junk, a vendor
+--     section or Core).
 -- Written against ForeverForge Bags 0.21.0. It replaces
 -- ForeverForgeBags.Window.CollectByValue and wraps
--- ForeverForgeBags.Destroy.ItemValue; everything else is hooked, not replaced.
+-- ForeverForgeBags.Destroy.ItemValue and ForeverForgeBags.Window.Rebuild.
 
 local ADDON = ...
 local PREFIX = "|cffe04848ForeverForge Bags Destroy Plus|r: "
 local TESTED_VERSION = "0.21.0"
 
-local DEFAULTS = { grayVendor = true, sections = true, desaturate = true, coreSection = "Core" }
+local DEFAULTS = {
+    grayVendor = true, sections = true, desaturate = true, singleColumn = true,
+    quest = "hide",            -- "hide" or "other"
+    coreSection = "Core",
+}
 
 local db = {}
 for k, v in pairs(DEFAULTS) do db[k] = v end
 
-local origItemValue, origCollect
-local installed = { value = false, sections = false, desat = false, tooltips = false }
+local origItemValue, origCollect, origRebuild, origGetStore
+local installed = { value = false, sections = false, desat = false, rebuild = false, column = false }
 
 -- Section titles in the Destroy view.
 local JUNK_TITLE = "Junk"
-local MID_TITLE = "Everything else"
-local LAST_TITLE = "Keep last"
+local MID_TITLE = "Other"
+local LAST_TITLE = "Protected"
 
 local function Print(msg) print(PREFIX .. msg) end
 
@@ -75,7 +83,7 @@ local function isCore(filed)
     return want ~= nil and want ~= "" and lower(filed) == want
 end
 
---- "junk", "mid" or "last", and why.
+--- "junk", "mid", "last" or "hide", and why.
 local function groupOf(d, value)
     local filed, automate = filedIn(d)
     if isCore(filed) then return "last", "in " .. tostring(filed) end
@@ -83,7 +91,10 @@ local function groupOf(d, value)
     if automate == "vendor" or (filed ~= nil and filed == junkName()) then
         return "junk", select(2, isVendorJunk(d, filed, automate))
     end
-    if isQuest(d, filed) then return "last", "quest item" end
+    if isQuest(d, filed) then
+        if db.quest == "other" then return "mid", "quest item" end
+        return "hide", "quest item"
+    end
     if d.quality == 0 then return "junk", "gray" end
     if value <= 0 then return "last", "no sell value" end
     return "mid", nil
@@ -101,8 +112,10 @@ end
 
 ------------------------------------------------------------- Sections
 
--- slotData -> itemId, for the bottom section of the last Destroy view drawn.
+-- slotData -> itemId, for the Protected section of the last view drawn.
 local lastSlots = {}
+-- Section title -> the value of its first (cheapest) stack.
+local firstValue = {}
 
 local function byValue(a, b)
     if a.worthless ~= b.worthless then return b.worthless end
@@ -114,15 +127,13 @@ local function byValue(a, b)
 end
 
 local function collectByValue(self, ...)
-    if not db.sections then
-        wipe(lastSlots)
-        return origCollect(self, ...)
-    end
+    wipe(lastSlots)
+    wipe(firstValue)
+    if not db.sections then return origCollect(self, ...) end
     local fb = FB()
     local D, B = fb.Destroy, fb.Bags
     D.ResetValues()
-    wipe(lastSlots)
-    local groups = { junk = {}, mid = {}, last = {} }
+    local groups = { junk = {}, mid = {}, last = {}, hide = {} }
     local freeCount = 0
     for _, bag in ipairs(self:Bags()) do
         local content = B.content[bag]
@@ -147,12 +158,13 @@ local function collectByValue(self, ...)
         local list = groups[g[1]]
         if #list > 0 then
             table.sort(list, byValue)
-            blocks[#blocks + 1] = { name = g[2], kind = "destroy", entries = list, fgDestroyPlus = g[1] }
+            blocks[#blocks + 1] = { name = g[2], kind = "destroy", entries = list }
+            firstValue[g[2]] = list[1].value
         end
     end
-    -- Bags with nothing in them still show one (empty) section, as before.
+    -- Bags with nothing to show still show one (empty) section, as before.
     if #blocks == 0 then
-        blocks[1] = { name = MID_TITLE, kind = "destroy", entries = {}, fgDestroyPlus = "mid" }
+        blocks[1] = { name = MID_TITLE, kind = "destroy", entries = {} }
     end
     return blocks, freeCount
 end
@@ -174,25 +186,88 @@ local function desaturateIfLast(_, button)
     if icon and icon.SetDesaturated then icon:SetDesaturated(true) end
 end
 
----------------------------------------------------------- Header tooltips
+---------------------------------------------------------- Single column
+
+-- While a Destroy view is being drawn, the bags' "bags" settings store
+-- answers 1 for layout.sectionColumns, so the three sections stack.
+local oneColumn = false
+local proxies = setmetatable({}, { __mode = "k" })
+
+local function proxyFor(store)
+    local p = proxies[store]
+    if p then return p end
+    p = setmetatable({
+        Get = function(_, key, ...)
+            if oneColumn and key == "layout.sectionColumns" then return 1 end
+            return store:Get(key, ...)
+        end,
+    }, {
+        __index = function(_, k)
+            local v = store[k]
+            if type(v) == "function" then
+                return function(self, ...)
+                    if self == p then return v(store, ...) end
+                    return v(self, ...)
+                end
+            end
+            return v
+        end,
+        __newindex = function(_, k, v) store[k] = v end,
+    })
+    proxies[store] = p
+    return p
+end
+
+local function getStore(config, key, ...)
+    local store = origGetStore(config, key, ...)
+    if oneColumn and key == "bags" and type(store) == "table" and type(store.Get) == "function" then
+        return proxyFor(store)
+    end
+    return store
+end
+
+---------------------------------------------------------- Section titles
 
 local TIPS = {
     [JUNK_TITLE] = { "Destroy mode - junk",
-        "Gray items, items you filed in Junk, and items in a section set to sell at vendors. Cheapest first, valued at vendor price only (they're getting vendored anyway)." },
-    [MID_TITLE] = { "Destroy mode - cheapest first",
-        "Everything else, cheapest first: left to right, then down. Worth is the vendor price, or the auction house price after fees when that's more." },
-    [LAST_TITLE] = { "Destroy mode - keep last",
-        "Your Core section, quest items, and anything with no sell value, cheapest first. Anything with no sell value always asks before it is destroyed." },
+        "Gray items, items you filed in Junk, and items in a section set to sell at vendors. Cheapest first, valued at vendor price only (they're getting vendored anyway). The title shows the first item's value." },
+    [MID_TITLE] = { "Destroy mode - other",
+        "Everything else, cheapest first: left to right, then down. Worth is the vendor price, or the auction house price after fees when that's more. The title shows the first item's value." },
+    [LAST_TITLE] = { "Destroy mode - protected",
+        "Your Core section and anything with no sell value, cheapest first. Anything with no sell value always asks before it is destroyed." },
 }
 
-local function afterRebuild(self)
+local function decorate(self)
     if not (db.sections and self.destroyViewShown and self.sections) then return end
-    local Section = FB().Section
-    if not (Section and Section.SetHeaderTooltip) then return end
+    local fb = FB()
+    local Section = fb.Section
+    local money = fb.Money or GetMoneyString or tostring
     for _, s in ipairs(self.sections) do
         local tip = TIPS[s.name]
-        if tip then pcall(Section.SetHeaderTooltip, Section, s, "click one to destroy it", tip[1], tip[2]) end
+        if tip then
+            if Section and Section.SetHeaderTooltip then
+                pcall(Section.SetHeaderTooltip, Section, s, "click one to destroy it", tip[1], tip[2])
+            end
+            if s.countText then
+                local v = firstValue[s.name]
+                if s.name ~= LAST_TITLE and v and v > 0 then
+                    s.countText:SetText(money(v))
+                    s.countText:SetTextColor(0.9, 0.9, 0.9)
+                else
+                    s.countText:SetText("")
+                end
+            end
+            if Section and Section.FitHint then pcall(Section.FitHint, s) end
+        end
     end
+end
+
+local function rebuild(self, ...)
+    oneColumn = db.sections and db.singleColumn and self.DestroyView and self:DestroyView() and true or false
+    local ok, err = pcall(origRebuild, self, ...)
+    oneColumn = false
+    if not ok then error(err, 0) end
+    decorate(self)
 end
 
 ----------------------------------------------------------------- Install
@@ -216,9 +291,16 @@ local function install()
         hooksecurefunc(IB, "RefreshState", desaturateIfLast)
         installed.desat = true
     end
-    if not installed.tooltips and W and type(W.Rebuild) == "function" then
-        hooksecurefunc(W, "Rebuild", afterRebuild)
-        installed.tooltips = true
+    if not installed.rebuild and W and type(W.Rebuild) == "function" then
+        origRebuild = W.Rebuild
+        W.Rebuild = rebuild
+        installed.rebuild = true
+    end
+    local Config = _G.ForeverForge and _G.ForeverForge.Config
+    if not installed.column and Config and type(Config.GetStore) == "function" then
+        origGetStore = Config.GetStore
+        Config.GetStore = getStore
+        installed.column = true
     end
 end
 
@@ -236,8 +318,8 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function(_, event, name)
     if event == "ADDON_LOADED" and name == ADDON then
-        ForeverForgeBagsDestroyPlusDB = ForeverForgeBagsDestroyPlusDB or {}
-        db = ForeverForgeBagsDestroyPlusDB
+        ForeverForge_Bags_DestroyPlusDB = ForeverForge_Bags_DestroyPlusDB or {}
+        db = ForeverForge_Bags_DestroyPlusDB
         for k, v in pairs(DEFAULTS) do
             if db[k] == nil then db[k] = v end
         end
@@ -254,20 +336,26 @@ local function version()
     return v or (FB() and FB().VERSION) or "?"
 end
 
+local function onOff(v) return v and "on" or "off" end
+
 local function debug()
     local fb = FB()
     Print("debug")
     local v = version()
     print(("  ForeverForge Bags %s%s"):format(tostring(v),
         v == TESTED_VERSION and "" or (" |cffffaa00(written against " .. TESTED_VERSION .. ")|r")))
-    print(("  hooks: value %s, sections %s, desaturate %s, tooltips %s"):format(tostring(installed.value),
-        tostring(installed.sections), tostring(installed.desat), tostring(installed.tooltips)))
-    print(("  still ours: ItemValue %s, CollectByValue %s"):format(
+    print(("  hooks: value %s, sections %s, desaturate %s, rebuild %s, single column %s"):format(
+        tostring(installed.value), tostring(installed.sections), tostring(installed.desat),
+        tostring(installed.rebuild), tostring(installed.column)))
+    local Config = _G.ForeverForge and _G.ForeverForge.Config
+    print(("  still ours: ItemValue %s, CollectByValue %s, Rebuild %s, GetStore %s"):format(
         tostring(fb and fb.Destroy and fb.Destroy.ItemValue == itemValue),
-        tostring(fb and fb.Window and fb.Window.CollectByValue == collectByValue)))
-    print(("  settings: vendor price %s, sections %s, desaturate %s, core section \"%s\""):format(
-        db.grayVendor and "on" or "off", db.sections and "on" or "off", db.desaturate and "on" or "off",
-        tostring(db.coreSection)))
+        tostring(fb and fb.Window and fb.Window.CollectByValue == collectByValue),
+        tostring(fb and fb.Window and fb.Window.Rebuild == rebuild),
+        tostring(Config and Config.GetStore == getStore)))
+    print(("  settings: vendor price %s, sections %s, single column %s, desaturate %s, quest items %s, core section \"%s\""):format(
+        onOff(db.grayVendor), onOff(db.sections), onOff(db.singleColumn), onOff(db.desaturate),
+        tostring(db.quest), tostring(db.coreSection)))
     if not (fb and fb.Destroy and fb.Bags and fb.Container and origItemValue) then return end
     local D, B = fb.Destroy, fb.Bags
     local money = fb.Money or GetMoneyString or tostring
@@ -280,7 +368,7 @@ local function debug()
             if d and d.link then
                 local value, how = D.StackValue(d)
                 local g, why = groupOf(d, value)
-                if g == "mid" then
+                if g == "mid" and not why then
                     mid = mid + 1
                 else
                     local filed = filedIn(d)
@@ -292,15 +380,15 @@ local function debug()
             end
         end
     end
-    print("  " .. mid .. " stacks in Everything else")
+    print("  plus " .. mid .. " other stacks")
     D.ResetValues()
 end
 
 ------------------------------------------------------------------- Slash
 
-local function onOff(key, arg, label)
+local function toggle(key, arg, label)
     if arg == "on" then db[key] = true elseif arg == "off" then db[key] = false else db[key] = not db[key] end
-    Print(label .. ": " .. (db[key] and "on" or "off"))
+    Print(label .. ": " .. onOff(db[key]))
     redraw()
 end
 
@@ -311,24 +399,33 @@ SlashCmdList.FOREVERFORGEBAGSDESTROYPLUS = function(msg)
     cmd = lower(cmd) or ""
     local arg = lower(rest)
     if cmd == "vendor" then
-        onOff("grayVendor", arg, "gray / junk / vendor-section items valued at vendor price only")
+        toggle("grayVendor", arg, "gray / Junk / vendor-section items valued at vendor price only")
     elseif cmd == "sections" then
-        onOff("sections", arg, "Junk / Everything else / Keep last sections")
+        toggle("sections", arg, "Junk / Other / Protected sections")
+    elseif cmd == "column" then
+        toggle("singleColumn", arg, "Destroy view in a single column")
     elseif cmd == "desat" then
-        onOff("desaturate", arg, "desaturate Keep last icons")
+        toggle("desaturate", arg, "desaturate Protected icons")
+    elseif cmd == "quest" then
+        if arg == "hide" or arg == "other" then db.quest = arg end
+        Print("quest items (not filed in Junk, a vendor section or Core): "
+            .. (db.quest == "other" and "shown in Other" or "hidden"))
+        redraw()
     elseif cmd == "core" then
         if rest ~= "" then db.coreSection = rest end
-        Print("section that always goes in Keep last: \"" .. tostring(db.coreSection) .. "\"")
+        Print("section that always goes in Protected: \"" .. tostring(db.coreSection) .. "\"")
         redraw()
     elseif cmd == "debug" then
         debug()
     else
         Print("commands:")
         print("  /ffdp vendor [on|off] - vendor price only for gray / Junk / vendor-section items")
-        print("  /ffdp sections [on|off] - split Destroy mode into Junk / Everything else / Keep last")
-        print("  /ffdp desat [on|off] - desaturate the Keep last icons")
-        print("  /ffdp core <section name> - your section that always goes in Keep last (now \""
+        print("  /ffdp sections [on|off] - split Destroy mode into Junk / Other / Protected")
+        print("  /ffdp column [on|off] - stack the Destroy view in a single column")
+        print("  /ffdp desat [on|off] - desaturate the Protected icons")
+        print("  /ffdp quest hide|other - leave quest items out, or show them in Other (now " .. tostring(db.quest) .. ")")
+        print("  /ffdp core <section name> - your section that always goes in Protected (now \""
             .. tostring(db.coreSection) .. "\")")
-        print("  /ffdp debug - hook status, and each non-middle item with its group, value and why")
+        print("  /ffdp debug - hook status, and each Junk / Protected / quest item with its value and why")
     end
 end
