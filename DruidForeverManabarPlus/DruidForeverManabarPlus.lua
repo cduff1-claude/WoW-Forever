@@ -24,30 +24,22 @@ local TRACKED_FORMS = {
 DruidForeverManabarPlusDB = DruidForeverManabarPlusDB or {}
 
 local DEFAULTS = {
-    width = 124,
-    height = 10,
-    scale = 1.0,
-    point = "CENTER",
-    relativePoint = "CENTER",
-    xOfs = 0,
-    yOfs = -150,
-    attachToPlayerFrame = true,
-    unlocked = false,
-    colorR = 0.0,
-    colorG = 0.4,
-    colorB = 0.85,
-    textFormat = "both",
-    showTimerText = true,
-    showOutsideForms = false,
-    fontKey = "arial",
-    fontSize = 10,
-    showShiftMarker = false,
-    showShiftShade = true,
-    showShiftOnPlayerFrame = true,
-    showShiftOnPersonalResource = true,
+    enablePlayerFrame = true,       -- druid bar under the Player Frame + caster shading on its mana bar
+    enablePersonalResource = true,  -- shading on the Personal Resource Display's mana bar
 }
 
+-- Fixed look of the druid bar.
+local BAR_COLOR_R, BAR_COLOR_G, BAR_COLOR_B = 0.0, 0.4, 0.85
+local BAR_WIDTH_FALLBACK, BAR_HEIGHT = 124, 10
+local FALLBACK_FONT, FALLBACK_FONT_SIZE = "Fonts\\ARIALN.TTF", 10
+
 local function EnsureDB()
+    -- Drop settings from older versions that no longer exist.
+    for key in pairs(DruidForeverManabarPlusDB) do
+        if DEFAULTS[key] == nil then
+            DruidForeverManabarPlusDB[key] = nil
+        end
+    end
     for key, value in pairs(DEFAULTS) do
         if DruidForeverManabarPlusDB[key] == nil then
             DruidForeverManabarPlusDB[key] = value
@@ -58,20 +50,9 @@ end
 
 local db = EnsureDB()
 
-local FONT_CHOICES = {
-    arial = { label = "Arial Narrow", path = "Fonts\\ARIALN.TTF" },
-    friz = { label = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
-    morpheus = { label = "Morpheus", path = "Fonts\\MORPHEUS.TTF" },
-    skurri = { label = "Skurri", path = "Fonts\\SKURRI.TTF" },
-}
-
 local manaFrame = CreateFrame("Frame", "DruidForeverManabarPlusMainFrame", UIParent, "BackdropTemplate")
-manaFrame:SetSize(db.width, db.height)
-manaFrame:SetScale(db.scale)
-manaFrame:SetMovable(true)
+manaFrame:SetSize(BAR_WIDTH_FALLBACK, BAR_HEIGHT)
 manaFrame:EnableMouse(true)
-manaFrame:RegisterForDrag("LeftButton")
-manaFrame:SetClampedToScreen(true)
 
 manaFrame:SetBackdrop({
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -86,7 +67,7 @@ background:SetColorTexture(0, 0, 0, 0.6)
 local manaBar = CreateFrame("StatusBar", nil, manaFrame)
 manaBar:SetAllPoints(manaFrame)
 manaBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
-manaBar:SetStatusBarColor(db.colorR, db.colorG, db.colorB, 1)
+manaBar:SetStatusBarColor(BAR_COLOR_R, BAR_COLOR_G, BAR_COLOR_B, 1)
 manaBar:SetMinMaxValues(0, 1)
 manaBar:SetValue(0)
 
@@ -223,42 +204,14 @@ local overlayFrame = CreateFrame("Frame", nil, manaFrame)
 overlayFrame:SetAllPoints(manaFrame)
 overlayFrame:SetFrameLevel(manaBar:GetFrameLevel() + 5)
 
-local shiftLine = overlayFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-shiftLine:SetColorTexture(1, 1, 1, 1)
-shiftLine:SetWidth(2)
-shiftLine:SetPoint("TOP", druidShade.bearEdgeTexture, "TOPRIGHT", 0, 0)
-shiftLine:SetPoint("BOTTOM", druidShade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
-shiftLine:Hide()
-
 local manaText = overlayFrame:CreateFontString(nil, "OVERLAY")
 manaText:SetPoint("CENTER", manaBar, "CENTER", 0, 0)
 
 local fsrMarker = overlayFrame:CreateTexture(nil, "OVERLAY", nil, 7)
 fsrMarker:SetColorTexture(1, 1, 1, 0.95)
 fsrMarker:SetWidth(2)
-fsrMarker:SetHeight(db.height + 4)
+fsrMarker:SetHeight(BAR_HEIGHT + 4)
 fsrMarker:Hide()
-
-local fsrText = manaFrame:CreateFontString(nil, "OVERLAY")
-fsrText:SetPoint("TOP", manaFrame, "BOTTOM", 0, -2)
-fsrText:Hide()
-
-local function ApplyFont()
-    local choice = FONT_CHOICES[db.fontKey] or FONT_CHOICES.arial
-    local size = db.fontSize or 10
-
-    manaText:SetFont(choice.path, size, "")
-    manaText:SetTextColor(1, 1, 1, 1)
-    manaText:SetShadowColor(0, 0, 0, 0.9)
-    manaText:SetShadowOffset(1, -1)
-
-    fsrText:SetFont(choice.path, math.max(8, size - 1), "")
-    fsrText:SetTextColor(1, 1, 1, 1)
-    fsrText:SetShadowColor(0, 0, 0, 0.9)
-    fsrText:SetShadowOffset(1, -1)
-end
-
-ApplyFont()
 
 -- Shade colours. Orange = Bear/Cat cost, red = Travel Form cost; pale = the current cast
 -- will take mana below that cost, bold/dark = already below it.
@@ -289,14 +242,14 @@ local function ColorShiftShade(set, colors, shown)
 end
 
 local function ApplyShiftShadeColor()
-    local shown = db.showShiftShade
+    local shown = true
 
     -- Lighten the configured bar colour towards white.
     local lighten = 0.45
     DRUID_BAR_COLORS.blue = {
-        db.colorR + (1 - db.colorR) * lighten,
-        db.colorG + (1 - db.colorG) * lighten,
-        db.colorB + (1 - db.colorB) * lighten,
+        BAR_COLOR_R + (1 - BAR_COLOR_R) * lighten,
+        BAR_COLOR_G + (1 - BAR_COLOR_G) * lighten,
+        BAR_COLOR_B + (1 - BAR_COLOR_B) * lighten,
         1,
     }
     ColorShiftShade(druidShade, DRUID_BAR_COLORS, shown)
@@ -340,15 +293,57 @@ local function GetPlayerResourceBar()
     end
 end
 
+-- The druid bar's text copies the Player Frame mana bar's font, scaled by how much
+-- shorter the druid bar is than that bar.
+local function GetPlayerManaTextFont(resourceBar)
+    if not resourceBar then
+        return nil
+    end
+    for _, key in ipairs({ "TextString", "ManaBarText", "LeftText", "RightText" }) do
+        local fontString = resourceBar[key]
+        if fontString and fontString.GetFont then
+            local path, size, flags = fontString:GetFont()
+            if path and size and size > 0 then
+                return path, size, flags
+            end
+        end
+    end
+    if PlayerFrameManaBarText and PlayerFrameManaBarText.GetFont then
+        local path, size, flags = PlayerFrameManaBarText:GetFont()
+        if path and size and size > 0 then
+            return path, size, flags
+        end
+    end
+end
+
+local function ApplyFont()
+    local resourceBar = GetPlayerResourceBar()
+    local path, size, flags = GetPlayerManaTextFont(resourceBar)
+
+    if path then
+        local barHeight = resourceBar:GetHeight()
+        local ratio = (barHeight and barHeight > 0) and (manaFrame:GetHeight() / barHeight) or 1
+        size = math.max(6, math.floor(size * math.min(ratio, 1) + 0.5))
+    else
+        path, size, flags = FALLBACK_FONT, FALLBACK_FONT_SIZE, ""
+    end
+
+    manaText:SetFont(path, size, flags or "")
+    manaText:SetTextColor(1, 1, 1, 1)
+    manaText:SetShadowColor(0, 0, 0, 0.9)
+    manaText:SetShadowOffset(1, -1)
+end
+
+-- Always attached directly under the Player Frame's mana bar.
 local function ApplyAnchor()
     manaFrame:ClearAllPoints()
 
-    if db.attachToPlayerFrame and PlayerFrame then
+    if PlayerFrame then
         local resourceBar = GetPlayerResourceBar()
 
         manaFrame:SetParent(PlayerFrame)
         manaFrame:SetScale(1)
-        manaFrame:SetHeight(10)
+        manaFrame:SetHeight(BAR_HEIGHT)
 
         if resourceBar then
             -- Match the real Blizzard power bar instead of relying on fixed PlayerFrame offsets.
@@ -356,14 +351,13 @@ local function ApplyAnchor()
             manaFrame:SetPoint("TOPRIGHT", resourceBar, "BOTTOMRIGHT", 0, 0)
         else
             -- Fallback for beta builds where the resource-bar hierarchy changes.
-            manaFrame:SetWidth(124)
+            manaFrame:SetWidth(BAR_WIDTH_FALLBACK)
             manaFrame:SetPoint("TOPLEFT", PlayerFrame, "TOPLEFT", 85, -74)
         end
     else
         manaFrame:SetParent(UIParent)
-        manaFrame:SetScale(db.scale)
-        manaFrame:SetSize(db.width, db.height)
-        manaFrame:SetPoint(db.point, UIParent, db.relativePoint, db.xOfs, db.yOfs)
+        manaFrame:SetSize(BAR_WIDTH_FALLBACK, BAR_HEIGHT)
+        manaFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -150)
     end
 
     fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
@@ -372,11 +366,12 @@ local function ApplyAnchor()
     AnchorShiftShade(druidShade)
     overlayFrame:SetFrameStrata(manaBar:GetFrameStrata())
     overlayFrame:SetFrameLevel(manaBar:GetFrameLevel() + 5)
+
+    ApplyFont()
 end
 
 local function HideFiveSecondRuleVisual()
     fsrMarker:Hide()
-    fsrText:Hide()
     fsrUpdateFrame:SetScript("OnUpdate", nil)
     fsrUpdateElapsed = 0
 end
@@ -415,13 +410,6 @@ local function UpdateFiveSecondRuleVisual()
     fsrMarker:ClearAllPoints()
     fsrMarker:SetPoint("CENTER", manaBar, "LEFT", x, 0)
     fsrMarker:Show()
-
-    if db.showTimerText then
-        fsrText:SetText(string.format("%.1f", remaining))
-        fsrText:Show()
-    else
-        fsrText:Hide()
-    end
 end
 
 local function OnFiveSecondRuleUpdate(_, elapsed)
@@ -472,8 +460,24 @@ local function GetManaPercent(currentMana, maxMana)
     return false, nil
 end
 
+-- Follows the Player Frame's status text setting (Options > Interface > Status Text):
+-- NONE, NUMERIC, PERCENT or BOTH.
+local function GetStatusTextFormat()
+    local value = GetCVar and GetCVar("statusTextDisplay")
+    value = value and value:upper() or "BOTH"
+    if value == "NONE" then return "none" end
+    if value == "NUMERIC" then return "numeric" end
+    if value == "PERCENT" then return "percent" end
+    return "both"
+end
+
 local function SetManaText(currentMana, maxMana)
-    local format = db.textFormat
+    local format = GetStatusTextFormat()
+
+    if format == "none" then
+        manaText:SetText("")
+        return
+    end
 
     if format == "numeric" then
         manaText:SetFormattedText("%s / %s", currentMana, maxMana)
@@ -637,17 +641,8 @@ local function EnsureBarOverlay(bar)
     overlay = { bar = bar, active = false }
     overlay.shade = CreateShiftShade(bar, "Interface\\Buttons\\WHITE8X8")
 
-    overlay.lineFrame = CreateFrame("Frame", nil, bar)
-    overlay.lineFrame:SetAllPoints(bar)
-    local line = overlay.lineFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-    line:SetColorTexture(1, 1, 1, 1)
-    line:SetWidth(2)
-    line:SetPoint("TOP", overlay.shade.bearEdgeTexture, "TOPRIGHT", 0, 0)
-    line:SetPoint("BOTTOM", overlay.shade.bearEdgeTexture, "BOTTOMRIGHT", 0, 0)
-
     ShowShiftShade(overlay.shade, false)
-    overlay.lineFrame:Hide()
-    ColorShiftShade(overlay.shade, PLAYER_FRAME_COLORS, db.showShiftShade)
+    ColorShiftShade(overlay.shade, PLAYER_FRAME_COLORS, true)
 
     blizzardOverlays[bar] = overlay
     return overlay
@@ -657,11 +652,8 @@ local function SetBarOverlayActive(overlay, active)
     overlay.active = active
     if active then
         AnchorShiftShade(overlay.shade)
-        overlay.lineFrame:SetFrameStrata(overlay.bar:GetFrameStrata())
-        overlay.lineFrame:SetFrameLevel(overlay.bar:GetFrameLevel() + 8)
     else
         ShowShiftShade(overlay.shade, false)
-        overlay.lineFrame:Hide()
     end
 end
 
@@ -747,14 +739,14 @@ end
 RefreshBlizzardOverlays = function(reanchor)
     local wanted = {}
 
-    if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
+    if isDruid and db.enablePlayerFrame and PlayerFrameBarShowsMana() then
         local resourceBar = GetPlayerResourceBar()
         if resourceBar and resourceBar.GetStatusBarTexture then
             wanted[resourceBar] = true
         end
     end
 
-    if isDruid and db.showShiftOnPersonalResource then
+    if isDruid and db.enablePersonalResource then
         HookPersonalResourceFrame()
         local bar = GetPersonalResourceManaBar()
         if bar then
@@ -823,12 +815,10 @@ local function UpdateShiftShade(set, maxMana, currentMana, threshold)
 end
 
 local function UpdateShiftCostVisual(maxMana, currentMana)
-    if shiftCost == nil or (not db.showShiftMarker and not db.showShiftShade) then
+    if shiftCost == nil then
         ShowShiftShade(druidShade, false)
-        shiftLine:Hide()
         for _, overlay in pairs(blizzardOverlays) do
             ShowShiftShade(overlay.shade, false)
-            overlay.lineFrame:Hide()
         end
         return
     end
@@ -836,15 +826,12 @@ local function UpdateShiftCostVisual(maxMana, currentMana)
     local threshold = GetShiftThreshold()
 
     UpdateShiftShade(druidShade, maxMana, currentMana, threshold)
-    shiftLine:SetShown(db.showShiftMarker)
 
     for _, overlay in pairs(blizzardOverlays) do
         if overlay.active then
             UpdateShiftShade(overlay.shade, maxMana, currentMana, threshold)
-            overlay.lineFrame:SetShown(db.showShiftMarker)
         else
             ShowShiftShade(overlay.shade, false)
-            overlay.lineFrame:Hide()
         end
     end
 end
@@ -959,7 +946,7 @@ end
 local function UpdateFormState()
     local formID = GetShapeshiftFormID()
     local tracked = isDruid and (IsTrackedForm(formID) or PrimaryPowerIsNotMana())
-    local shouldShow = isDruid and (tracked or db.showOutsideForms)
+    local shouldShow = isDruid and db.enablePlayerFrame and tracked
 
     RefreshBlizzardOverlays()
 
@@ -1087,21 +1074,6 @@ manaFrame:SetScript("OnMouseDown", function(_, button)
     end
 end)
 
-manaFrame:SetScript("OnDragStart", function(self)
-    if db.unlocked and not db.attachToPlayerFrame then
-        self:StartMoving()
-    end
-end)
-
-manaFrame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    local point, _, relativePoint, xOfs, yOfs = self:GetPoint()
-    db.point = point
-    db.relativePoint = relativePoint
-    db.xOfs = xOfs
-    db.yOfs = yOfs
-end)
-
 manaFrame:RegisterEvent("PLAYER_LOGIN")
 manaFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 manaFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
@@ -1121,6 +1093,8 @@ manaFrame:RegisterEvent("SPELLS_CHANGED")
 manaFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
 manaFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 manaFrame:RegisterEvent("PLAYER_LEVEL_UP")
+-- The Player Frame's status text setting, which the druid bar's text follows.
+manaFrame:RegisterEvent("CVAR_UPDATE")
 pcall(manaFrame.RegisterEvent, manaFrame, "PLAYER_TALENT_UPDATE")
 pcall(manaFrame.RegisterEvent, manaFrame, "CHARACTER_POINTS_CHANGED")
 
@@ -1132,9 +1106,8 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         local _, classFile = UnitClass("player")
         isDruid = (classFile == "DRUID")
 
-        manaBar:SetStatusBarColor(db.colorR, db.colorG, db.colorB, 1)
+        manaBar:SetStatusBarColor(BAR_COLOR_R, BAR_COLOR_G, BAR_COLOR_B, 1)
         ApplyShiftShadeColor()
-        ApplyFont()
         ApplyAnchor()
 
         UpdateFormState()
@@ -1163,6 +1136,11 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         lastFormSignature = GetFormSignature()
         UpdateFormState()
         LogFormReadings(event)
+        return
+    end
+
+    if event == "CVAR_UPDATE" then
+        UpdateManaBar()
         return
     end
 
@@ -1250,7 +1228,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "Druid Forever Manabar Plus"
-panel:SetSize(460, 730)
+panel:SetSize(460, 200)
 
 local settingsCategory
 
@@ -1271,231 +1249,34 @@ title:SetText("Druid Forever Manabar Plus Settings")
 
 local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-subtitle:SetText("Right-click the mana bar in-game anytime to open this menu.")
+subtitle:SetText("Right-click the druid mana bar, or type /dfmp, to open this menu.")
 
-local attachCheckbox = CreateFrame("CheckButton", "DFMPAttachCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-attachCheckbox:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -15)
-_G[attachCheckbox:GetName() .. "Text"]:SetText("Snap directly below Player Frame resource bar")
-attachCheckbox:SetChecked(db.attachToPlayerFrame)
-attachCheckbox:SetScript("OnClick", function(self)
-    db.attachToPlayerFrame = self:GetChecked()
-    ApplyAnchor()
-end)
-
-local unlockCheckbox = CreateFrame("CheckButton", "DFMPUnlockCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-unlockCheckbox:SetPoint("TOPLEFT", attachCheckbox, "BOTTOMLEFT", 0, -10)
-_G[unlockCheckbox:GetName() .. "Text"]:SetText("Unlock bar for dragging (disable anchoring first)")
-unlockCheckbox:SetChecked(db.unlocked)
-unlockCheckbox:SetScript("OnClick", function(self)
-    db.unlocked = self:GetChecked()
-end)
-
-local timerTextCheckbox = CreateFrame("CheckButton", "DFMPTimerTextCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-timerTextCheckbox:SetPoint("TOPLEFT", unlockCheckbox, "BOTTOMLEFT", 0, -10)
-_G[timerTextCheckbox:GetName() .. "Text"]:SetText("Show 5-second-rule countdown text below the mana bar")
-timerTextCheckbox:SetChecked(db.showTimerText)
-timerTextCheckbox:SetScript("OnClick", function(self)
-    db.showTimerText = self:GetChecked()
-    UpdateFiveSecondRuleVisual()
-end)
-
-local outsideFormsCheckbox = CreateFrame("CheckButton", "DFMPOutsideFormsCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-outsideFormsCheckbox:SetPoint("TOPLEFT", timerTextCheckbox, "BOTTOMLEFT", 0, -10)
-_G[outsideFormsCheckbox:GetName() .. "Text"]:SetText("Show mana bar in Caster Form (outside shapeshift forms)")
-outsideFormsCheckbox:SetChecked(db.showOutsideForms)
-outsideFormsCheckbox:SetScript("OnClick", function(self)
-    db.showOutsideForms = self:GetChecked()
-    UpdateFormState()
-end)
-
-local shiftLineCheckbox = CreateFrame("CheckButton", "DFMPShiftLineCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-shiftLineCheckbox:SetPoint("TOPLEFT", outsideFormsCheckbox, "BOTTOMLEFT", 0, -10)
-_G[shiftLineCheckbox:GetName() .. "Text"]:SetText("Show white line at the Cat/Bear shift cost")
-shiftLineCheckbox:SetChecked(db.showShiftMarker)
-shiftLineCheckbox:SetScript("OnClick", function(self)
-    db.showShiftMarker = self:GetChecked()
-    UpdateManaBar()
-end)
-
-local shiftShadeCheckbox = CreateFrame("CheckButton", "DFMPShiftShadeCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-shiftShadeCheckbox:SetPoint("TOPLEFT", shiftLineCheckbox, "BOTTOMLEFT", 0, -10)
-_G[shiftShadeCheckbox:GetName() .. "Text"]:SetText("Lighter shade on the mana a Cat/Bear shift would spend")
-shiftShadeCheckbox:SetChecked(db.showShiftShade)
-shiftShadeCheckbox:SetScript("OnClick", function(self)
-    db.showShiftShade = self:GetChecked()
-    ApplyShiftShadeColor()
-    UpdateManaBar()
-end)
-
-local playerFrameShiftCheckbox = CreateFrame("CheckButton", "DFMPPlayerFrameShiftCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-playerFrameShiftCheckbox:SetPoint("TOPLEFT", shiftShadeCheckbox, "BOTTOMLEFT", 0, -10)
-_G[playerFrameShiftCheckbox:GetName() .. "Text"]:SetText("Also show shift cost on the Player Frame mana bar (caster form)")
-playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
-playerFrameShiftCheckbox:SetScript("OnClick", function(self)
-    db.showShiftOnPlayerFrame = self:GetChecked()
-    UpdateFormState()
-end)
-
-local personalResourceCheckbox = CreateFrame("CheckButton", "DFMPPersonalResourceCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
-personalResourceCheckbox:SetPoint("TOPLEFT", playerFrameShiftCheckbox, "BOTTOMLEFT", 0, -10)
-_G[personalResourceCheckbox:GetName() .. "Text"]:SetText("Also show shift cost on the Personal Resource Display mana bar")
-personalResourceCheckbox:SetChecked(db.showShiftOnPersonalResource)
-personalResourceCheckbox:SetScript("OnClick", function(self)
-    db.showShiftOnPersonalResource = self:GetChecked()
-    UpdateFormState()
-end)
-
-local function CreateSlider(name, parent, minVal, maxVal, step, labelText, valueKey, callback)
-    local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
-    slider:SetMinMaxValues(minVal, maxVal)
-    slider:SetValue(db[valueKey])
-    slider:SetValueStep(step)
-    slider:SetObeyStepOnDrag(true)
-
-    _G[slider:GetName() .. "Low"]:SetText(tostring(minVal))
-    _G[slider:GetName() .. "High"]:SetText(tostring(maxVal))
-    local label = _G[slider:GetName() .. "Text"]
-
-    local function DisplayValue(value)
-        if step < 1 then
-            return string.format("%.1f", value)
-        end
-        return tostring(math.floor(value + 0.5))
-    end
-
-    label:SetText(labelText .. ": " .. DisplayValue(db[valueKey]))
-
-    slider:SetScript("OnValueChanged", function(_, value)
-        value = math.floor(value / step + 0.5) * step
-        db[valueKey] = value
-        label:SetText(labelText .. ": " .. DisplayValue(value))
-        if callback then callback(value) end
+local function CreateCheckbox(name, anchor, label, key)
+    local checkbox = CreateFrame("CheckButton", name, panel, "InterfaceOptionsCheckButtonTemplate")
+    checkbox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -12)
+    _G[name .. "Text"]:SetText(label)
+    checkbox:SetChecked(db[key])
+    checkbox:SetScript("OnClick", function(self)
+        db[key] = self:GetChecked() and true or false
+        UpdateFormState()
     end)
-
-    return slider
+    return checkbox
 end
 
-local widthSlider = CreateSlider("DFMPWidthSlider", panel, 50, 400, 10, "Bar Width (Manual)", "width", function(val)
-    if not db.attachToPlayerFrame then
-        manaFrame:SetSize(val, db.height)
-        fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
-    end
-end)
-widthSlider:SetPoint("TOPLEFT", personalResourceCheckbox, "BOTTOMLEFT", 0, -35)
+local playerFrameCheckbox = CreateCheckbox("DFMPPlayerFrameCheckbox", subtitle,
+    "Enable for player frame", "enablePlayerFrame")
+local personalResourceCheckbox = CreateCheckbox("DFMPPersonalResourceCheckbox", playerFrameCheckbox,
+    "Enable for Personal Resource Display", "enablePersonalResource")
 
-local heightSlider = CreateSlider("DFMPHeightSlider", panel, 6, 30, 2, "Bar Height (Manual)", "height", function(val)
-    if not db.attachToPlayerFrame then
-        manaFrame:SetSize(manaFrame:GetWidth(), val)
-        fsrMarker:SetHeight(manaFrame:GetHeight() + 4)
-    end
-end)
-heightSlider:SetPoint("TOPLEFT", widthSlider, "BOTTOMLEFT", 0, -35)
-
-local scaleSlider = CreateSlider("DFMPScaleSlider", panel, 0.5, 2.0, 0.1, "UI Scale (Manual)", "scale", function(val)
-    if not db.attachToPlayerFrame then
-        manaFrame:SetScale(val)
-    end
-end)
-scaleSlider:SetPoint("TOPLEFT", heightSlider, "BOTTOMLEFT", 0, -35)
-
-local formatLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-formatLabel:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -35)
-formatLabel:SetText("Mana text format:")
-
-local formatButtons = {}
-
-local function RefreshFormatButtons()
-    for mode, btn in pairs(formatButtons) do
-        if mode == db.textFormat then
-            btn:SetText("[" .. btn.label .. "]")
-        else
-            btn:SetText(btn.label)
-        end
-    end
-end
-
-local function CreateFormatButton(mode, label, xOffset)
-    local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    btn:SetSize(80, 22)
-    btn:SetPoint("TOPLEFT", formatLabel, "BOTTOMLEFT", xOffset, -8)
-    btn.label = label
-    btn:SetText(label)
-    btn:SetScript("OnClick", function()
-        db.textFormat = mode
-        RefreshFormatButtons()
-        UpdateManaBar()
-    end)
-    formatButtons[mode] = btn
-    return btn
-end
-
-CreateFormatButton("numeric", "Numeric", 0)
-CreateFormatButton("percent", "Percent", 85)
-CreateFormatButton("both", "Both", 170)
-RefreshFormatButtons()
-
-local fontLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-fontLabel:SetPoint("TOPLEFT", formatLabel, "BOTTOMLEFT", 0, -42)
-fontLabel:SetText("Mana bar font:")
-
-local fontButtons = {}
-
-local function RefreshFontButtons()
-    for key, btn in pairs(fontButtons) do
-        if key == db.fontKey then
-            btn:SetText("[" .. btn.label .. "]")
-        else
-            btn:SetText(btn.label)
-        end
-    end
-end
-
-local function CreateFontButton(key, xOffset, width)
-    local choice = FONT_CHOICES[key]
-    local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    btn:SetSize(width or 95, 22)
-    btn:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", xOffset, -8)
-    btn.label = choice.label
-    btn:SetText(choice.label)
-    btn:SetScript("OnClick", function()
-        db.fontKey = key
-        ApplyFont()
-        RefreshFontButtons()
-        UpdateManaBar()
-        UpdateFiveSecondRuleVisual()
-    end)
-    fontButtons[key] = btn
-    return btn
-end
-
-CreateFontButton("arial", 0, 95)
-CreateFontButton("friz", 100, 95)
-CreateFontButton("morpheus", 200, 95)
-CreateFontButton("skurri", 300, 80)
-RefreshFontButtons()
-
-local fontSizeSlider = CreateSlider("DFMPFontSizeSlider", panel, 8, 16, 1, "Font Size", "fontSize", function()
-    ApplyFont()
-    UpdateManaBar()
-    UpdateFiveSecondRuleVisual()
-end)
-fontSizeSlider:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -55)
+local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+note:SetPoint("TOPLEFT", personalResourceCheckbox, "BOTTOMLEFT", 0, -12)
+note:SetWidth(420)
+note:SetJustifyH("LEFT")
+note:SetText("The mana text follows the Player Frame's Status Text setting (Options > Interface).")
 
 panel:SetScript("OnShow", function()
-    attachCheckbox:SetChecked(db.attachToPlayerFrame)
-    unlockCheckbox:SetChecked(db.unlocked)
-    timerTextCheckbox:SetChecked(db.showTimerText)
-    outsideFormsCheckbox:SetChecked(db.showOutsideForms)
-    shiftLineCheckbox:SetChecked(db.showShiftMarker)
-    shiftShadeCheckbox:SetChecked(db.showShiftShade)
-    playerFrameShiftCheckbox:SetChecked(db.showShiftOnPlayerFrame)
-    personalResourceCheckbox:SetChecked(db.showShiftOnPersonalResource)
-    widthSlider:SetValue(db.width)
-    heightSlider:SetValue(db.height)
-    scaleSlider:SetValue(db.scale)
-    fontSizeSlider:SetValue(db.fontSize)
-    RefreshFormatButtons()
-    RefreshFontButtons()
+    playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
+    personalResourceCheckbox:SetChecked(db.enablePersonalResource)
 end)
 
 if Settings and Settings.RegisterCanvasLayoutCategory then
@@ -1539,8 +1320,9 @@ local function PrintDebugInfo()
         "pending cast cost:", tostring(pendingCastCost))
     print("Travel Form cost:", travelCost and tostring(travelCost) or "none (not learned or not readable)",
         travelCostOverride and "(test override)" or "")
-    local fontChoice = FONT_CHOICES[db.fontKey] or FONT_CHOICES.arial
-    print("Font:", fontChoice.label, "size", tostring(db.fontSize), "show outside forms:", tostring(db.showOutsideForms))
+    local fontPath, fontSize = manaText:GetFont()
+    print("Text format:", GetStatusTextFormat(), "font:", tostring(fontPath), "size", tostring(fontSize),
+        "| player frame:", tostring(db.enablePlayerFrame), "PRD:", tostring(db.enablePersonalResource))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
         local spellName = nil
         if C_Spell and C_Spell.GetSpellName then

@@ -3,21 +3,28 @@
 Copy each folder into `World of Warcraft/_retail_/Interface/AddOns/` (or wherever your WoW Forever client keeps addons).
 
 ## DruidForeverManabarPlus
-A copy of *Druid Forever Manabar* (by antisnake) with:
-- A lighter shade over the part of the filled bar that a Cat/Bear shift would spend (cost / max mana, from the left).
-  The cost is read live from `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
-- Colours: blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
+A reworked copy of *Druid Forever Manabar* (by antisnake). It shows a druid mana bar with the 5-second rule
+under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades the mana a Cat/Bear shift would spend.
+
+- **Shift shading:** covers cost / max mana from the left of the bar. The cost is read live from
+  `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
+- **Colours:** blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
   cast will take you below that cost, bold/dark = already below it. Once below Bear cost, the shade splits into a
   Travel Form section and a Bear section.
-- The same shading also appears on the Personal Resource Display's mana bar (option in settings). It uses the display's `PowerBar` in caster form and its `AlternatePowerBar` (the in-form mana bar) in Cat/Bear. `/dfmp prd` shows which bar it is using.
-- `/dfmp formlog` toggles a log of form-related readings (form ID, stance, bonus bar, power type, form aura) with timings, for diagnosing shifts.
-- `/dfmp testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/dfmp testtravel off` clears it.
-- Optional white line at the shift cost (off by default).
-- Shows in Cat, Bear, Travel and Aquatic Form (and caster form if enabled in options).
-- Also draws the shift-cost line (and a lighter wash) on the standard Blizzard Player Frame mana bar whenever it is showing mana (caster form, Moonkin, etc.). Can be turned off in options.
-- Settings now persist between sessions.
+- **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
+  shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
+- **Settings (`/dfmp`, or right-click the druid bar):** two tick boxes, "Enable for player frame" (druid bar + Player
+  Frame shading) and "Enable for Personal Resource Display".
+- **Text:** the druid bar's mana text follows the Player Frame's Status Text setting (None / Numeric / Percentage /
+  Both), and copies the Player Frame mana text's font, scaled down to the smaller bar.
 
-Slash command: `/dfmp` (options), `/dfmp debug` (shows the detected shift cost), `/dfmp test`.
+Other commands:
+- `/dfmp debug`: detected shift/travel costs, text format, font and overlay status.
+- `/dfmp prd`: which Personal Resource Display bar is being shaded.
+- `/dfmp test`: shows the druid bar with a 5-second-rule test timer.
+- `/dfmp testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/dfmp testtravel off` clears it.
+- `/dfmp formlog`: toggles a log of form-related readings with timings, for diagnosing shifts.
+
 Uses its own saved variables, so disable the original *Druid Forever Manabar* to avoid two bars.
 
 ## ForeverFiveSecondRule
