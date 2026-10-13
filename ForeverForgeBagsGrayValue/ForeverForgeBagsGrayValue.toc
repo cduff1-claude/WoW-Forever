@@ -1,8 +1,0 @@
-## Interface: 99999
-## Title: ForeverForge Bags Gray Value
-## Notes: Destroy mode in ForeverForge Bags values gray items at their vendor price only, ignoring auction house prices.
-## Version: 1.0.0
-## OptionalDeps: ForeverForge, ForeverForgeBags, ForeverForge_Bags
-## SavedVariables: ForeverForgeBagsGrayValueDB
-
-ForeverForgeBagsGrayValue.lua

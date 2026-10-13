@@ -1,0 +1,8 @@
+## Interface: 99999
+## Title: ForeverForge Bags Destroy Plus
+## Notes: ForeverForge Bags Destroy mode: Junk / everything else / keep-last sections, and vendor-only prices for gray and to-be-sold items.
+## Version: 2.0.0
+## Dependencies: ForeverForge_Bags
+## SavedVariables: ForeverForgeBagsDestroyPlusDB
+
+ForeverForgeBagsDestroyPlus.lua

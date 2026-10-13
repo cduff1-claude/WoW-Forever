@@ -43,12 +43,19 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
 
-## ForeverForgeBagsGrayValue
-A small add-on for *ForeverForge Bags* (it changes no ForeverForge files, so it keeps working when ForeverForge Bags updates).
-Destroy mode's "cheapest first" order normally values an item at its vendor price or its auction house price after fees,
-whichever is higher. With this add-on, **gray items are valued at their vendor price only**. Other items are unchanged.
-It wraps `ForeverForgeBags.Destroy.ItemValue`, so the sort order, the "Worth ..." tooltip line and the "no sell value, asks first"
-check all use the new value.
+## ForeverForgeBagsDestroyPlus
+An add-on for *ForeverForge Bags* (needs the `ForeverForge_Bags` folder). It changes no ForeverForge files, so it survives
+ForeverForge Bags updates. Written against ForeverForge Bags 0.21.0. Replaces the old *ForeverForgeBagsGrayValue*.
+- **Vendor price only** for anything headed to a vendor: gray items (wherever they're filed), items filed in Junk, and items
+  in a section automated to sell at vendors. Other items still use the higher of vendor and auction house (after fees).
+- **Destroy mode's cheapest-first view is split into three sections**, each cheapest first:
+  - *Junk*: gray items, Junk, vendor-automated sections.
+  - *Everything else*.
+  - *Keep last* (icons desaturated): your `Core` section, quest items, and anything with no sell value.
+  Precedence: Core, then filed in Junk / a vendor section, then quest, then gray, then no sell value.
+- How it works: wraps `ForeverForgeBags.Destroy.ItemValue`, replaces `ForeverForgeBags.Window.CollectByValue`, and hooks
+  `ItemButton.RefreshState` (desaturating) and `Window.Rebuild` (section header tooltips). If ForeverForge Bags rewrites
+  the Destroy view, `/ffdp debug` shows the version mismatch and whether the hooks are still in place.
 
-Slash command: `/ffgray on|off`, `/ffgray debug` (shows whether the hook is in, and for each gray item in your bags its vendor
-price, ForeverForge's own value and the value now used).
+Slash command: `/ffdp` (help), `/ffdp vendor|sections|desat [on|off]`, `/ffdp core <section name>` (default `Core`),
+`/ffdp debug` (hook status, then each Junk / Keep last item with its value, original value, quality, filed section and why).
