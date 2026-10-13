@@ -665,96 +665,73 @@ local function SetBarOverlayActive(overlay, active)
     end
 end
 
--- Personal Resource Display. Frame names differ between client versions and aren't
--- confirmed on Forever, so search the likely roots for status bars and pick the ones
--- showing mana: max value equal to the player's max mana (which is readable), or a
--- Blizzard powerType field of mana. Health bars are skipped by name.
-local function GetPersonalResourceRoots()
-    local roots = {}
-    local function add(frame)
-        if frame and type(frame) == "table" and frame.GetObjectType then
-            roots[#roots + 1] = frame
-        end
+-- Personal Resource Display (Midnight-style, confirmed from the ForeverResourceBar addon):
+-- PersonalResourceDisplayFrame with HealthBarsContainer.healthBar, PowerBar and
+-- AlternatePowerBar. PowerBar shows the primary power, so it is mana in caster, Travel and
+-- Aquatic Form; in Cat/Bear the AlternatePowerBar is the in-form mana bar.
+local prdHooked = false
+local RefreshBlizzardOverlays
+local UpdateManaBarLater
+
+local function GetPersonalResourceFrame()
+    local frame = _G.PersonalResourceDisplayFrame
+    if frame and type(frame) == "table" and frame.GetObjectType then
+        return frame
     end
-    add(_G.PersonalResourceDisplayFrame)
-    add(_G.ClassNameplateManaBarFrame)
-    if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-        local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, "player")
-        if ok then add(plate) end
-    end
-    if NamePlateDriverFrame and NamePlateDriverFrame.GetClassNameplateAlternatePowerBar then
-        local ok, bar = pcall(NamePlateDriverFrame.GetClassNameplateAlternatePowerBar, NamePlateDriverFrame)
-        if ok then add(bar) end
-    end
-    return roots
 end
 
-local function GetFrameLabel(frame)
-    if frame.GetDebugName then
-        local ok, name = pcall(frame.GetDebugName, frame)
-        if ok and name and name ~= "" then
-            return name
-        end
+local function PrimaryPowerIsMana()
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return nil
     end
-    return frame:GetName() or tostring(frame)
+    return powerType == MANA_POWER_TYPE
 end
 
-local function CollectStatusBars(root)
-    local bars, seen = {}, {}
-    local function visit(frame, depth)
-        if seen[frame] or depth > 5 then
+-- Returns the PRD bar currently showing mana (or nil), and a short reason for /dfmp prd.
+local function GetPersonalResourceManaBar()
+    local prd = GetPersonalResourceFrame()
+    if not prd then
+        return nil, "PersonalResourceDisplayFrame not found"
+    end
+
+    local primaryIsMana = PrimaryPowerIsMana()
+    if primaryIsMana == nil then
+        return nil, "power type unreadable"
+    end
+
+    local bar = primaryIsMana and prd.PowerBar or prd.AlternatePowerBar
+    local key = primaryIsMana and "PowerBar" or "AlternatePowerBar"
+    if not (bar and bar.GetStatusBarTexture) then
+        return nil, key .. " not found"
+    end
+    return bar, key
+end
+
+-- Blizzard repaints these bars (and may swap their fill texture) from these methods, so
+-- re-check and re-anchor after them. Hooked lazily: the PRD can load after us.
+local function HookPersonalResourceFrame()
+    if prdHooked then
+        return
+    end
+    local prd = GetPersonalResourceFrame()
+    if not prd then
+        return
+    end
+    prdHooked = true
+
+    local function OnRepaint()
+        if not isDruid then
             return
         end
-        seen[frame] = true
-        if frame:GetObjectType() == "StatusBar" then
-            bars[#bars + 1] = frame
-        end
-        local children = { pcall(frame.GetChildren, frame) }
-        if children[1] then
-            for i = 2, #children do
-                visit(children[i], depth + 1)
-            end
+        RefreshBlizzardOverlays(true)
+        UpdateManaBarLater()
+    end
+    for _, method in ipairs({ "UpdatePowerBar", "UpdateAlternatePowerBar" }) do
+        if type(prd[method]) == "function" then
+            hooksecurefunc(prd, method, OnRepaint)
         end
     end
-    visit(root, 0)
-    return bars
-end
-
--- Returns isMana, reason.
-local function StatusBarShowsMana(bar)
-    if GetFrameLabel(bar):lower():find("health") then
-        return false, "health bar"
-    end
-
-    local powerType = bar.powerType
-    if powerType ~= nil and not IsSecretValue(powerType) then
-        if powerType == MANA_POWER_TYPE or powerType == "MANA" then
-            return true, "powerType=mana"
-        end
-        return false, "powerType=" .. tostring(powerType)
-    end
-
-    local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
-    local _, barMax = bar:GetMinMaxValues()
-    if not IsReadableNumber(barMax) or not IsReadableNumber(maxMana) then
-        return false, "max unreadable"
-    end
-    if maxMana > 0 and barMax == maxMana then
-        return true, "max=" .. barMax
-    end
-    return false, "max=" .. tostring(barMax)
-end
-
-local function FindPersonalResourceManaBars()
-    local found = {}
-    for _, root in ipairs(GetPersonalResourceRoots()) do
-        for _, bar in ipairs(CollectStatusBars(root)) do
-            if bar.GetStatusBarTexture and StatusBarShowsMana(bar) then
-                found[#found + 1] = bar
-            end
-        end
-    end
-    return found
 end
 
 local function PlayerFrameBarShowsMana()
@@ -765,8 +742,9 @@ local function PlayerFrameBarShowsMana()
     return powerType == MANA_POWER_TYPE
 end
 
--- Work out which Blizzard bars should carry an overlay right now.
-local function RefreshBlizzardOverlays()
+-- Work out which Blizzard bars should carry an overlay right now. reanchor = true forces
+-- active overlays to re-anchor (after Blizzard repaints a bar).
+RefreshBlizzardOverlays = function(reanchor)
     local wanted = {}
 
     if isDruid and db.showShiftOnPlayerFrame and PlayerFrameBarShowsMana() then
@@ -777,14 +755,16 @@ local function RefreshBlizzardOverlays()
     end
 
     if isDruid and db.showShiftOnPersonalResource then
-        for _, bar in ipairs(FindPersonalResourceManaBars()) do
+        HookPersonalResourceFrame()
+        local bar = GetPersonalResourceManaBar()
+        if bar then
             wanted[bar] = true
         end
     end
 
     for bar in pairs(wanted) do
         local overlay = EnsureBarOverlay(bar)
-        if not overlay.active then
+        if reanchor or not overlay.active then
             SetBarOverlayActive(overlay, true)
         end
     end
@@ -881,6 +861,20 @@ local function UpdateManaBar()
     manaBar:SetValue(currentMana)
     SetManaText(currentMana, maxMana)
     UpdateShiftCostVisual(maxMana, currentMana)
+end
+
+-- Called from Blizzard's PRD repaint hooks; deferred a frame so it runs after Blizzard has
+-- finished updating the bar.
+local updateQueued = false
+UpdateManaBarLater = function()
+    if updateQueued then
+        return
+    end
+    updateQueued = true
+    C_Timer.After(0, function()
+        updateQueued = false
+        UpdateManaBar()
+    end)
 end
 
 local function SetPendingCast(castGUID, spellID)
@@ -1566,36 +1560,14 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
     if msg == "debug" then
         PrintDebugInfo()
     elseif msg == "prd" then
-        -- List every status bar found under the Personal Resource Display roots. Chat only
-        -- gets a short summary; the full list goes into the saved settings file
-        -- (WTF/Account/<account>/SavedVariables/DruidForeverManabarPlus.lua) after /reload.
-        local lines, manaBars, total = {}, {}, 0
-        local roots = GetPersonalResourceRoots()
-        lines[#lines + 1] = string.format("%s | max mana %s | power type %s | form %s",
-            date("%Y-%m-%d %H:%M:%S"), tostring(UnitPowerMax("player", MANA_POWER_TYPE)),
-            tostring(UnitPowerType("player")), tostring(GetShapeshiftFormID()))
-        for _, root in ipairs(roots) do
-            lines[#lines + 1] = "root: " .. GetFrameLabel(root) .. " shown=" .. tostring(root:IsShown())
-            for _, bar in ipairs(CollectStatusBars(root)) do
-                total = total + 1
-                local isMana, reason = StatusBarShowsMana(bar)
-                local overlay = blizzardOverlays[bar]
-                lines[#lines + 1] = string.format("  %s | shown=%s | %s | %s%s", GetFrameLabel(bar),
-                    tostring(bar:IsShown()), isMana and "MANA" or "not mana", reason,
-                    overlay and overlay.active and " | overlay on" or "")
-                if isMana then
-                    manaBars[#manaBars + 1] = GetFrameLabel(bar)
-                end
-            end
-        end
-        db.prdDump = lines
-
-        print(string.format("|cff55ff55DFMP|r PRD: %d root(s), %d status bar(s), %d showing mana.",
-            #roots, total, #manaBars))
-        for _, name in ipairs(manaBars) do
-            print("  mana bar: " .. name)
-        end
-        print("  Full list saved. /reload, then send SavedVariables/DruidForeverManabarPlus.lua.")
+        local prd = GetPersonalResourceFrame()
+        local bar, info = GetPersonalResourceManaBar()
+        local overlay = bar and blizzardOverlays[bar]
+        print("|cff55ff55DFMP|r Personal Resource Display:", prd and "found" or "not found",
+            "| shown:", prd and tostring(prd:IsShown()) or "-", "| hooked:", tostring(prdHooked))
+        print("  mana bar:", bar and info or ("none (" .. info .. ")"),
+            "| bar shown:", bar and tostring(bar:IsShown()) or "-",
+            "| overlay:", overlay and overlay.active and "on" or "off")
     elseif msg == "formlog" then
         formLogEnabled = not formLogEnabled
         formLogStart = 0

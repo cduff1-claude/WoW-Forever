@@ -9,7 +9,7 @@ A copy of *Druid Forever Manabar* (by antisnake) with:
 - Colours: blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
   cast will take you below that cost, bold/dark = already below it. Once below Bear cost, the shade splits into a
   Travel Form section and a Bear section.
-- The same shading also appears on the Personal Resource Display's mana bar (option in settings). `/dfmp prd` lists the status bars it found there, for diagnosing which one is the mana bar.
+- The same shading also appears on the Personal Resource Display's mana bar (option in settings). It uses the display's `PowerBar` in caster form and its `AlternatePowerBar` (the in-form mana bar) in Cat/Bear. `/dfmp prd` shows which bar it is using.
 - `/dfmp formlog` toggles a log of form-related readings (form ID, stance, bonus bar, power type, form aura) with timings, for diagnosing shifts.
 - `/dfmp testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/dfmp testtravel off` clears it.
 - Optional white line at the shift cost (off by default).
