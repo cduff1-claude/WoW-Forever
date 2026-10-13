@@ -8,9 +8,9 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
 
 - **Shift shading:** covers cost / max mana from the left of the bar. The cost is read live from
   `C_Spell.GetSpellPowerCost`, so talents (e.g. Natural Shapeshifter) and items are included.
-- **Colours:** blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel Form cost. Pale = the current
+- **Colours:** blue = enough for Bear/Cat; orange = Bear/Cat cost; red = Travel/Aquatic Form cost (they cost the same; Travel is used if known, otherwise Aquatic). Pale = the current
   cast will take you below that cost, bold/dark = already below it. Once below Bear cost, the shade splits into a
-  Travel Form section and a Bear section.
+  Travel/Aquatic section and a Bear section.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
 - **Settings (`/dfmp`, or right-click the druid bar):** two tick boxes, "Enable for player frame" (druid bar + Player

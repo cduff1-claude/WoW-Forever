@@ -11,7 +11,12 @@ local SHIFT_COST_SPELLS = {
 }
 local SHIFT_COST_SPELL_ORDER = { 768, 9634, 5487 }
 
-local TRAVEL_FORM_SPELL_ID = 783
+-- Travel Form and Aquatic Form share a cost, so whichever the player knows sets the
+-- "escape form" (red) threshold. Travel first, then Aquatic.
+local ESCAPE_FORM_SPELLS = {
+    { id = 783, name = "Travel Form" },
+    { id = 1066, name = "Aquatic Form" },
+}
 
 -- Bear and Dire Bear share form ID 5.
 local TRACKED_FORMS = {
@@ -213,7 +218,7 @@ fsrMarker:SetWidth(2)
 fsrMarker:SetHeight(BAR_HEIGHT + 4)
 fsrMarker:Hide()
 
--- Shade colours. Orange = Bear/Cat cost, red = Travel Form cost; pale = the current cast
+-- Shade colours. Orange = Bear/Cat cost, red = Travel/Aquatic Form cost; pale = the current cast
 -- will take mana below that cost, bold/dark = already below it.
 local DRUID_BAR_COLORS = {
     paleOrange = { 1.0, 0.8, 0.55, 1 },
@@ -575,33 +580,44 @@ local function IsReadableNumber(value)
     return type(value) == "number" and not IsSecretValue(value)
 end
 
-local function PlayerHasTravelForm()
+local travelCostSource = nil
+
+local function PlayerHasForm(formSpellID)
     if GetNumShapeshiftForms and GetShapeshiftFormInfo then
         for index = 1, GetNumShapeshiftForms() or 0 do
             local _, _, _, spellID = GetShapeshiftFormInfo(index)
-            if spellID == TRAVEL_FORM_SPELL_ID then
+            if spellID == formSpellID then
                 return true
             end
         end
     end
-    return PlayerKnowsSpell(TRAVEL_FORM_SPELL_ID)
+    return PlayerKnowsSpell(formSpellID)
 end
 
 local function RefreshTravelCost()
     travelCost = nil
+    travelCostSource = nil
 
     if travelCostOverride then
         travelCost = travelCostOverride
-    elseif isDruid and PlayerHasTravelForm() then
-        local cost = GetManaCostFromSpell(TRAVEL_FORM_SPELL_ID)
-        if IsReadableNumber(cost) and cost > 0 then
-            travelCost = cost
+        travelCostSource = "test override"
+    elseif isDruid then
+        for _, form in ipairs(ESCAPE_FORM_SPELLS) do
+            if PlayerHasForm(form.id) then
+                local cost = GetManaCostFromSpell(form.id)
+                if IsReadableNumber(cost) and cost > 0 then
+                    travelCost = cost
+                    travelCostSource = form.name
+                    break
+                end
+            end
         end
     end
 
     -- Only useful when it is cheaper than a Bear/Cat shift.
     if travelCost and IsReadableNumber(shiftCost) and travelCost >= shiftCost then
         travelCost = nil
+        travelCostSource = nil
     end
 end
 
@@ -1318,8 +1334,8 @@ local function PrintDebugInfo()
     local threshold = GetShiftThreshold()
     print("Bear threshold (incl. cast):", threshold and tostring(threshold) or "unavailable (shift cost restricted)",
         "pending cast cost:", tostring(pendingCastCost))
-    print("Travel Form cost:", travelCost and tostring(travelCost) or "none (not learned or not readable)",
-        travelCostOverride and "(test override)" or "")
+    print("Travel/Aquatic cost:", travelCost and tostring(travelCost) or "none (not learned, not readable, or not below bear cost)",
+        travelCostSource and ("from " .. travelCostSource) or "")
     local fontPath, fontSize = manaText:GetFont()
     print("Text format:", GetStatusTextFormat(), "font:", tostring(fontPath), "size", tostring(fontSize),
         "| player frame:", tostring(db.enablePlayerFrame), "PRD:", tostring(db.enablePersonalResource))
