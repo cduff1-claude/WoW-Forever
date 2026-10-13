@@ -28,10 +28,13 @@ Other commands:
 Uses its own saved variables, so disable the original *Druid Forever Manabar* to avoid two bars.
 
 ## ForeverFiveSecondRule
-Draws the 5-second-rule marker on the standard Blizzard Player Frame mana bar for any mana user.
-Hidden while the Player Frame bar shows something other than mana (e.g. Druid Cat/Bear Form).
+Draws the 5-second-rule marker on Blizzard's mana bars for any mana user:
+- The Player Frame mana bar, while it shows mana (hidden e.g. in Druid Cat/Bear Form).
+- The Personal Resource Display: its `PowerBar` when the primary power is mana, and for druids in Cat/Bear its
+  `AlternatePowerBar` (the in-form mana bar).
 
-Slash command: `/ffsr` (help), `/ffsr on|off`, `/ffsr text`, `/ffsr width <1-6>`, `/ffsr test`, `/ffsr debug`.
+Slash command: `/ffsr` (help), `/ffsr on|off`, `/ffsr player` / `/ffsr prd` (toggle each bar), `/ffsr text`,
+`/ffsr width <1-6>`, `/ffsr test`, `/ffsr debug`.
 
 ## DruidRange
 A druid-only take on *RangeBar*: one bar whose colour depends on form and target. Range is only ever the game's

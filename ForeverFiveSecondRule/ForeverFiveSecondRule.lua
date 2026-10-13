@@ -8,6 +8,8 @@ local DEFAULTS = {
     enabled = true,
     showTimerText = true,
     markerWidth = 2,
+    playerFrame = true,       -- marker on the Player Frame mana bar
+    personalResource = true,  -- marker on the Personal Resource Display mana bar
 }
 
 local function EnsureDB()
@@ -42,44 +44,49 @@ local function GetPlayerResourceBar()
     end
 end
 
--- Overlay frame that sits on top of the Blizzard Player Frame mana bar. It is created
--- parented to UIParent and re-anchored to the resource bar once the Player Frame exists.
-local overlay = CreateFrame("Frame", "ForeverFiveSecondRuleOverlay", UIParent)
-overlay:SetSize(124, 10)
-overlay:Hide()
+-- Personal Resource Display (Midnight-style PersonalResourceDisplayFrame): PowerBar shows
+-- the primary power; for a druid in Cat/Bear the AlternatePowerBar is the mana bar.
+local isDruid = false
 
-local fsrMarker = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
-fsrMarker:SetColorTexture(1, 1, 1, 0.95)
-fsrMarker:SetWidth(db.markerWidth)
+local function GetPersonalResourceFrame()
+    local frame = _G.PersonalResourceDisplayFrame
+    if frame and type(frame) == "table" and frame.GetObjectType then
+        return frame
+    end
+end
 
-local fsrText = overlay:CreateFontString(nil, "OVERLAY")
-fsrText:SetFont("Fonts\\ARIALN.TTF", 10, "")
-fsrText:SetTextColor(1, 1, 1, 1)
-fsrText:SetShadowColor(0, 0, 0, 0.9)
-fsrText:SetShadowOffset(1, -1)
-fsrText:SetPoint("LEFT", overlay, "RIGHT", 3, 0)
-fsrText:Hide()
+-- Overlay frames on the Blizzard mana bars, created lazily and keyed by bar.
+local targets = {}
 
-local anchoredBar = nil
-
-local function ApplyAnchor()
-    local resourceBar = GetPlayerResourceBar()
-    if not resourceBar then
-        return false
+local function GetTarget(bar)
+    local target = targets[bar]
+    if target then
+        return target
     end
 
-    if anchoredBar ~= resourceBar then
-        overlay:SetParent(resourceBar)
-        overlay:ClearAllPoints()
-        overlay:SetAllPoints(resourceBar)
-        anchoredBar = resourceBar
-    end
+    local frame = CreateFrame("Frame", nil, bar)
+    frame:SetAllPoints(bar)
+    frame:Hide()
 
-    -- Keep above the bar's own text and spark.
-    overlay:SetFrameStrata(resourceBar:GetFrameStrata())
-    overlay:SetFrameLevel(resourceBar:GetFrameLevel() + 10)
-    fsrMarker:SetHeight(overlay:GetHeight() + 4)
-    return true
+    local marker = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+    marker:SetColorTexture(1, 1, 1, 0.95)
+
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    text:SetFont("Fonts\\ARIALN.TTF", 10, "")
+    text:SetTextColor(1, 1, 1, 1)
+    text:SetShadowColor(0, 0, 0, 0.9)
+    text:SetShadowOffset(1, -1)
+    text:SetPoint("LEFT", frame, "RIGHT", 3, 0)
+
+    target = { bar = bar, frame = frame, marker = marker, text = text }
+    targets[bar] = target
+    return target
+end
+
+local function HideAllTargets()
+    for _, target in pairs(targets) do
+        target.frame:Hide()
+    end
 end
 
 local fsrEndTime = 0
@@ -88,23 +95,62 @@ local lastManaSpellID = nil
 local fsrUpdateFrame = CreateFrame("Frame")
 local fsrUpdateElapsed = 0
 
--- Only draw on the Player Frame bar while it is actually showing mana
--- (e.g. not while a Druid is in Cat/Bear Form and the bar shows energy/rage).
-local function PlayerBarShowsMana()
+-- nil when the power type can't be read.
+local function PrimaryPowerIsMana()
     local powerType = UnitPowerType("player")
     if powerType == nil or IsSecretValue(powerType) then
-        return false
+        return nil
     end
     return powerType == MANA_POWER_TYPE
 end
 
+local function PlayerBarShowsMana()
+    return PrimaryPowerIsMana() == true
+end
+
+-- The Blizzard bars currently showing mana that should carry the marker.
+local function GetWantedBars()
+    local bars = {}
+    if not db.enabled then
+        return bars
+    end
+
+    local primaryIsMana = PrimaryPowerIsMana()
+    if primaryIsMana == nil then
+        return bars
+    end
+
+    if db.playerFrame and primaryIsMana then
+        local bar = GetPlayerResourceBar()
+        if bar then
+            bars[#bars + 1] = bar
+        end
+    end
+
+    if db.personalResource then
+        local prd = GetPersonalResourceFrame()
+        if prd then
+            local bar
+            if primaryIsMana then
+                bar = prd.PowerBar
+            elseif isDruid then
+                bar = prd.AlternatePowerBar
+            end
+            if bar and bar.GetObjectType then
+                bars[#bars + 1] = bar
+            end
+        end
+    end
+
+    return bars
+end
+
 local function ShouldShowOverlay()
-    return db.enabled and PlayerBarShowsMana() and anchoredBar ~= nil
+    return #GetWantedBars() > 0
 end
 
 local function HideFiveSecondRuleVisual()
-    overlay:Hide()
-    fsrText:Hide()
+    HideAllTargets()
     fsrUpdateFrame:SetScript("OnUpdate", nil)
     fsrUpdateElapsed = 0
 end
@@ -126,31 +172,49 @@ local function UpdateFiveSecondRuleVisual()
         return
     end
 
-    if not ShouldShowOverlay() then
-        HideFiveSecondRuleVisual()
+    -- No bar to draw on right now (e.g. mid-shift): hide the markers but keep ticking, so
+    -- they come back as soon as a mana bar is available again.
+    local wanted = GetWantedBars()
+    if #wanted == 0 then
+        HideAllTargets()
         return
     end
-
-    overlay:Show()
 
     local elapsed = FIVE_SECOND_RULE - remaining
     local progress = elapsed / FIVE_SECOND_RULE
     if progress < 0 then progress = 0 end
     if progress > 1 then progress = 1 end
 
-    local markerWidth = fsrMarker:GetWidth() or 2
-    local usableWidth = math.max(0, overlay:GetWidth() - markerWidth)
-    local x = (markerWidth / 2) + (progress * usableWidth)
+    local shown = {}
+    for _, bar in ipairs(wanted) do
+        local target = GetTarget(bar)
+        shown[target] = true
 
-    fsrMarker:ClearAllPoints()
-    fsrMarker:SetPoint("CENTER", overlay, "LEFT", x, 0)
-    fsrMarker:Show()
+        -- Keep above the bar's own text and spark.
+        target.frame:SetFrameStrata(bar:GetFrameStrata())
+        target.frame:SetFrameLevel(bar:GetFrameLevel() + 10)
+        target.frame:Show()
 
-    if db.showTimerText then
-        fsrText:SetText(string.format("%.1f", remaining))
-        fsrText:Show()
-    else
-        fsrText:Hide()
+        local markerWidth = db.markerWidth
+        target.marker:SetWidth(markerWidth)
+        target.marker:SetHeight(target.frame:GetHeight() + 4)
+        local usableWidth = math.max(0, target.frame:GetWidth() - markerWidth)
+        local x = (markerWidth / 2) + (progress * usableWidth)
+        target.marker:ClearAllPoints()
+        target.marker:SetPoint("CENTER", target.frame, "LEFT", x, 0)
+
+        if db.showTimerText then
+            target.text:SetText(string.format("%.1f", remaining))
+            target.text:Show()
+        else
+            target.text:Hide()
+        end
+    end
+
+    for _, target in pairs(targets) do
+        if not shown[target] then
+            target.frame:Hide()
+        end
     end
 end
 
@@ -167,7 +231,7 @@ end
 -- The timer keeps running while the overlay is hidden (e.g. while in a Druid form), so
 -- the marker reappears at the correct position when the bar goes back to showing mana.
 local function ResumeFiveSecondRuleVisual()
-    if fsrEndTime > GetTime() and ShouldShowOverlay() then
+    if fsrEndTime > GetTime() and db.enabled then
         fsrUpdateElapsed = 0
         UpdateFiveSecondRuleVisual()
         fsrUpdateFrame:SetScript("OnUpdate", OnFiveSecondRuleUpdate)
@@ -241,14 +305,13 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if event == "PLAYER_LOGIN" then
         -- SavedVariables are loaded after this file runs, so re-read them here.
         db = EnsureDB()
-        fsrMarker:SetWidth(db.markerWidth)
-        ApplyAnchor()
+        local _, classFile = UnitClass("player")
+        isDruid = (classFile == "DRUID")
         return
     end
 
     if event == "PLAYER_ENTERING_WORLD" then
         wipe(pendingManaCasts)
-        ApplyAnchor()
         ResumeFiveSecondRuleVisual()
         return
     end
@@ -308,11 +371,15 @@ local function PrintDebugInfo()
     local powerID, powerToken = UnitPowerType("player")
     local remaining = math.max(0, fsrEndTime - GetTime())
     local resourceBar = GetPlayerResourceBar()
+    local prd = GetPersonalResourceFrame()
 
     print("|cff55ff55ForeverFiveSecondRule debug|r")
     print("Client:", tostring(version), "build", tostring(build), "TOC", tostring(tocVersion))
     print("Primary power:", tostring(powerID), tostring(powerToken), "shows mana:", tostring(PlayerBarShowsMana()))
-    print("Attach target:", resourceBar and (resourceBar.GetDebugName and resourceBar:GetDebugName() or tostring(resourceBar)) or "not found")
+    print("Player Frame bar:", resourceBar and "found" or "not found", "| enabled:", tostring(db.playerFrame))
+    print("Personal Resource Display:", prd and "found" or "not found", "| shown:", prd and tostring(prd:IsShown()) or "-",
+        "| enabled:", tostring(db.personalResource))
+    print("Bars that would get the marker now:", tostring(#GetWantedBars()))
     print("Enabled:", tostring(db.enabled), "timer text:", tostring(db.showTimerText))
     print("5SR remaining:", string.format("%.2f", remaining))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
@@ -330,6 +397,8 @@ local function PrintHelp()
     print("  /ffsr on | off    - enable or disable the marker")
     print("  /ffsr text        - toggle the countdown text")
     print("  /ffsr width <1-6> - marker width in pixels")
+    print("  /ffsr player      - toggle the marker on the Player Frame mana bar")
+    print("  /ffsr prd         - toggle the marker on the Personal Resource Display")
     print("  /ffsr test        - start a 5-second test timer")
     print("  /ffsr debug       - print debug information")
 end
@@ -355,18 +424,23 @@ SlashCmdList["FOREVERFIVESECONDRULE"] = function(msg)
         local width = tonumber(arg)
         if width and width >= 1 and width <= 6 then
             db.markerWidth = math.floor(width + 0.5)
-            fsrMarker:SetWidth(db.markerWidth)
+            ResumeFiveSecondRuleVisual()
             print("|cff55ff55FFSR:|r marker width set to " .. db.markerWidth .. ".")
         else
             print("|cff55ff55FFSR:|r usage: /ffsr width <1-6>")
         end
+    elseif cmd == "player" or cmd == "prd" then
+        local key = cmd == "player" and "playerFrame" or "personalResource"
+        local label = cmd == "player" and "Player Frame" or "Personal Resource Display"
+        db[key] = not db[key]
+        ResumeFiveSecondRuleVisual()
+        print("|cff55ff55FFSR:|r " .. label .. " marker " .. (db[key] and "on." or "off."))
     elseif cmd == "test" then
-        ApplyAnchor()
         StartFiveSecondRule()
         if ShouldShowOverlay() then
             print("|cff55ff55FFSR:|r started a 5-second visual test timer.")
         else
-            print("|cff55ff55FFSR:|r test timer started, but the Player Frame bar is not showing mana (or the addon is disabled).")
+            print("|cff55ff55FFSR:|r test timer started, but no enabled bar is showing mana (or the addon is disabled).")
         end
     elseif cmd == "debug" then
         PrintDebugInfo()
