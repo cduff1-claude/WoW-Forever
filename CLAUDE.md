@@ -39,6 +39,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
       show through.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
+- **Mana regen** on Forever is smooth (a steady flow), not Classic's 2-second ticks.
 - **Range checks** (`C_Spell.IsSpellInRange`) return `true` / `false` / `nil`:
   - `nil` means no answer. Treat it as "unknown", never as "in range".
   - Spells the character **hasn't learned return `nil`**, even if they'd be in range. Spells from other

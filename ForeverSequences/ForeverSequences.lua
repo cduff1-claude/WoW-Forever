@@ -76,27 +76,43 @@ local function Spell(name, rank)
     return { kind = "spell", name = name, rank = rank }
 end
 
--- Starting sequences, until you make your own in the editor.
-local DEFAULT_SEQUENCES = {
+-- Starting windows and sequences, until you make your own in the editor. Dynamic windows
+-- show one row per sequence and close up gaps; fixed windows always show the Primary (which
+-- can be clicked to cast) with the best sub-sequence under it, and never move anything.
+local DEFAULT_WINDOWS = {
     {
-        name = "Bear out",
+        name = "Main",
+        type = "dynamic",
         enabled = true,
-        alwaysPrimary = false,
-        hideOnCooldown = false,
-        entries = { Spell("Regrowth"), Spell("Rejuvenation"), Spell("Bear Form") },
-        subs = {
-            { entries = { Spell("Regrowth"), Spell("Bear Form") }, hideOnCooldown = false },
-            { entries = { Spell("Rejuvenation"), Spell("Bear Form") }, hideOnCooldown = false },
+        onlyInCombat = false,
+        sequences = {
+            {
+                name = "Bear out",
+                enabled = true,
+                hideOnCooldown = false,
+                entries = { Spell("Regrowth"), Spell("Rejuvenation"), Spell("Bear Form") },
+                subs = {
+                    { entries = { Spell("Regrowth"), Spell("Bear Form") }, hideOnCooldown = false },
+                    { entries = { Spell("Rejuvenation"), Spell("Bear Form") }, hideOnCooldown = false },
+                },
+            },
         },
     },
     {
-        name = "Root and run",
+        name = "Clickable",
+        type = "fixed",
         enabled = true,
-        alwaysPrimary = true,
-        hideOnCooldown = false,
-        entries = { Spell("Entangling Roots"), Spell("Rejuvenation"), Spell("Travel Form") },
-        subs = {
-            { entries = { Spell("Entangling Roots"), Spell("Travel Form") }, hideOnCooldown = false },
+        onlyInCombat = false,
+        sequences = {
+            {
+                name = "Root and run",
+                enabled = true,
+                hideOnCooldown = false,
+                entries = { Spell("Entangling Roots"), Spell("Rejuvenation"), Spell("Travel Form") },
+                subs = {
+                    { entries = { Spell("Entangling Roots"), Spell("Travel Form") }, hideOnCooldown = false },
+                },
+            },
         },
     },
 }
@@ -105,13 +121,8 @@ ForeverSequencesDB = ForeverSequencesDB or {}
 local db = ForeverSequencesDB
 
 local DEFAULTS = {
-    point = "CENTER",
-    relativePoint = "CENTER",
-    x = 0,
-    y = -150,
-    locked = false,
-    regenMode = "ticks", -- "ticks" (safe: worst-case tick timing), "smooth" or "off"
-    clickable = true,    -- click an always-shown Primary to cast
+    regenMode = "smooth", -- "smooth" (Forever's regen), "ticks" (2-second ticks, worst timing) or "off"
+    clickable = true,     -- click a fixed window's Primary to cast
 }
 
 local function CopyTable(t)
@@ -123,25 +134,61 @@ local function CopyTable(t)
 end
 ns.CopyTable = CopyTable
 
--- Sequences saved by the first prototype held spell names in `spells`.
-local function MigrateSequences(list)
-    local function Convert(def)
-        if def.spells and not def.entries then
-            def.entries = {}
-            for _, name in ipairs(def.spells) do
-                def.entries[#def.entries + 1] = Spell(name)
+-- The first prototype held spell names in `spells`.
+local function MigrateSequence(def)
+    local function Convert(list)
+        if list.spells and not list.entries then
+            list.entries = {}
+            for _, name in ipairs(list.spells) do
+                list.entries[#list.entries + 1] = Spell(name)
             end
-            def.spells = nil
+            list.spells = nil
         end
-        def.entries = def.entries or {}
+        list.entries = list.entries or {}
     end
-    for _, def in ipairs(list) do
-        Convert(def)
-        def.subs = def.subs or {}
-        for _, sub in ipairs(def.subs) do
-            Convert(sub)
+    Convert(def)
+    def.subs = def.subs or {}
+    for _, sub in ipairs(def.subs) do
+        Convert(sub)
+    end
+end
+
+-- Older versions kept one list of sequences, each with its own "always show Primary". Those
+-- become a dynamic window and (for the always-shown ones) a fixed window.
+local function MigrateSettings()
+    if type(db.windows) ~= "table" then
+        if type(db.sequences) == "table" then
+            local dynamic = { name = "Main", type = "dynamic", enabled = true, onlyInCombat = false, sequences = {} }
+            local fixed = { name = "Clickable", type = "fixed", enabled = true, onlyInCombat = false, sequences = {} }
+            for _, def in ipairs(db.sequences) do
+                local list = def.alwaysPrimary and fixed.sequences or dynamic.sequences
+                def.alwaysPrimary = nil
+                list[#list + 1] = def
+            end
+            db.windows = { dynamic }
+            if #fixed.sequences > 0 then
+                db.windows[2] = fixed
+            end
+        else
+            db.windows = CopyTable(DEFAULT_WINDOWS)
         end
     end
+    db.sequences, db.point, db.relativePoint, db.x, db.y, db.locked = nil, nil, nil, nil, nil, nil
+    for _, window in ipairs(db.windows) do
+        window.sequences = window.sequences or {}
+        for _, def in ipairs(window.sequences) do
+            MigrateSequence(def)
+        end
+    end
+    -- Forever's regen is smooth; earlier versions defaulted to ticks.
+    if not db.smoothRegenDefault then
+        db.regenMode = "smooth"
+        db.smoothRegenDefault = true
+    end
+end
+
+function ns.DefaultWindows()
+    return CopyTable(DEFAULT_WINDOWS)
 end
 
 local function Print(msg)
@@ -541,69 +588,90 @@ function ns.SameEntry(a, b)
     return a.kind == b.kind and a.name == b.name and a.rank == b.rank and a.itemID == b.itemID
 end
 
+-- Whether an entry has a cooldown of its own (longer than the global cooldown). Items and
+-- potions always count: they share cooldowns the spell data doesn't show.
+function ns.HasCooldown(entry)
+    if entry.kind ~= "spell" then
+        return true
+    end
+    local spellID = ResolveSpell(entry.name, entry.rank)
+    local fn = (C_Spell and C_Spell.GetSpellBaseCooldown) or GetSpellBaseCooldown
+    if spellID and fn then
+        local ok, cooldownMS = pcall(fn, spellID)
+        if ok and IsReadableNumber(cooldownMS) then
+            return cooldownMS > GLOBAL_COOLDOWN * 1000
+        end
+    end
+    return false
+end
+
+function ns.AnyCooldown(entries)
+    for _, entry in ipairs(entries) do
+        if ns.HasCooldown(entry) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Everything that can go in a sequence, for the editor's list: the best-mana-potion entry,
+-- your spells (highest rank), then usable items in your bags and equipped trinkets.
+-- `filter` is a lower-case piece of the name, or nil.
+function ns.PickerEntries(filter)
+    local list = {}
+    local function Add(entry, icon, name)
+        if not filter or filter == "" or name:lower():find(filter, 1, true) then
+            list[#list + 1] = { entry = entry, icon = icon, name = name }
+        end
+    end
+    Add({ kind = "manapot" }, ResolveEntry({ kind = "manapot" }).icon, "Best mana potion")
+
+    local names = {}
+    for name in pairs(spellbook) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        Add(Spell(name), GetSpellIcon(spellbook[name].maxID), name)
+    end
+
+    local items = {}
+    for itemID in pairs(bagCounts) do
+        items[itemID] = true
+    end
+    if GetInventoryItemID then
+        for _, slot in ipairs({ 13, 14 }) do
+            local itemID = GetInventoryItemID("player", slot)
+            if IsReadableNumber(itemID) then
+                items[itemID] = true
+            end
+        end
+    end
+    local itemList = {}
+    for itemID in pairs(items) do
+        if GetItemUseSpell(itemID) then
+            itemList[#itemList + 1] = itemID
+        end
+    end
+    table.sort(itemList)
+    for _, itemID in ipairs(itemList) do
+        local entry = { kind = "item", itemID = itemID }
+        Add(entry, GetItemIcon(itemID), ns.EntryName(entry))
+    end
+    return list
+end
+
 ----------------------------------------------------------------------------------------------
 -- Frames
 ----------------------------------------------------------------------------------------------
 
-local root = CreateFrame("Frame", "ForeverSequencesFrame", UIParent)
-root:SetSize(100, 50)
-root:SetPoint(DEFAULTS.point, UIParent, DEFAULTS.relativePoint, DEFAULTS.x, DEFAULTS.y)
-root:SetMovable(true)
-root:SetClampedToScreen(true)
-
--- While unlocked, a cover over the whole display takes the drags (and clicks, so nothing is
--- cast while moving it). Right-click opens the options.
-local mover = CreateFrame("Frame", nil, root, "BackdropTemplate")
-mover:SetAllPoints(root)
-mover:SetFrameStrata("DIALOG")
-mover:EnableMouse(true)
-mover:RegisterForDrag("LeftButton")
-mover:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Buttons\\WHITE8X8",
-    edgeSize = 1,
-})
-mover:SetBackdropColor(0.1, 0.3, 0.5, 0.35)
-mover:SetBackdropBorderColor(0.4, 0.8, 1, 0.9)
-
-local moverLabel = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-moverLabel:SetPoint("BOTTOM", mover, "TOP", 0, 2)
-moverLabel:SetText("Forever Sequences: drag to move, right-click for options")
-
-local function SavePosition()
-    local point, _, relativePoint, x, y = root:GetPoint(1)
-    db.point, db.relativePoint, db.x, db.y = point, relativePoint, x, y
-end
+local active = false
+local editorOpen = false
 
 local function OpenOptions()
     if ns.ToggleEditor then
         ns.ToggleEditor(true)
     end
-end
-
-mover:SetScript("OnDragStart", function()
-    -- The display may hold secure buttons, so it can't move in combat.
-    if not InCombatLockdown() then
-        root:StartMoving()
-    end
-end)
-mover:SetScript("OnDragStop", function()
-    root:StopMovingOrSizing()
-    SavePosition()
-end)
-mover:SetScript("OnMouseUp", function(_, button)
-    if button == "RightButton" then
-        OpenOptions()
-    end
-end)
-
-function ns.ApplyLock()
-    mover:SetShown(not db.locked)
-end
-
-local function ApplyPosition()
-    root:ClearAllPoints()
-    root:SetPoint(db.point, UIParent, db.relativePoint, db.x, db.y)
 end
 
 local function NewFrame(frameType, parent)
@@ -651,7 +719,109 @@ local function NewIconTexture(frame, layer, area)
 end
 
 ----------------------------------------------------------------------------------------------
--- Clicking (always-shown Primary only: those buttons never move or swap)
+-- Display windows: one on-screen frame per window in the settings
+----------------------------------------------------------------------------------------------
+
+local roots = {} -- by window index; reused across rebuilds
+
+local function SavePosition(root)
+    local window = root.window
+    if not window then
+        return
+    end
+    window.left, window.top = root:GetLeft(), root:GetTop()
+    root:ClearAllPoints()
+    root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left, window.top)
+end
+
+local function ApplyPosition(root, window, index)
+    root:ClearAllPoints()
+    if window.left and window.top then
+        root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left, window.top)
+    else
+        root:SetPoint("TOP", UIParent, "CENTER", (index - 1) * 30, -120 - (index - 1) * 110)
+    end
+end
+
+local function GetRoot(index)
+    if roots[index] then
+        return roots[index]
+    end
+    local root = CreateFrame("Frame", "ForeverSequencesWindow" .. index, UIParent)
+    root:SetSize(100, 50)
+    root:SetMovable(true)
+    root:SetClampedToScreen(true)
+
+    -- While the options are open, a cover over the window takes the drags (and clicks, so
+    -- nothing is cast while moving it).
+    local mover = CreateFrame("Frame", nil, root, "BackdropTemplate")
+    mover:SetAllPoints(root)
+    mover:SetFrameStrata("DIALOG")
+    mover:EnableMouse(true)
+    mover:RegisterForDrag("LeftButton")
+    mover:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Buttons\\WHITE8X8",
+        edgeSize = 1,
+    })
+    mover:SetBackdropColor(0.1, 0.3, 0.5, 0.35)
+    mover:SetBackdropBorderColor(0.4, 0.8, 1, 0.9)
+    mover:SetScript("OnDragStart", function()
+        -- Windows may hold secure buttons, so they can't move in combat.
+        if not InCombatLockdown() then
+            root:StartMoving()
+        end
+    end)
+    mover:SetScript("OnDragStop", function()
+        root:StopMovingOrSizing()
+        SavePosition(root)
+    end)
+    mover:Hide()
+    local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("BOTTOMLEFT", mover, "TOPLEFT", 0, 2)
+
+    root.mover, root.label = mover, label
+    root.lines, root.groups = {}, {}
+    roots[index] = root
+    return root
+end
+
+-- Shown, hidden, or shown only in combat (a secure state driver, so it works for windows with
+-- click-to-cast buttons too). Always shown, unlocked, while the options are open.
+local pendingVisibility = false
+
+local function ApplyVisibility()
+    for _, root in ipairs(roots) do
+        local window = root.window
+        root.mover:SetShown(editorOpen and window ~= nil and window.enabled and true or false)
+    end
+    if InCombatLockdown() then
+        pendingVisibility = true
+        return
+    end
+    pendingVisibility = false
+    for _, root in ipairs(roots) do
+        local window = root.window
+        if UnregisterStateDriver then
+            UnregisterStateDriver(root, "visibility")
+        end
+        if not (active and window and window.enabled) then
+            root:Hide()
+        elseif editorOpen or not window.onlyInCombat or not RegisterStateDriver then
+            root:Show()
+        else
+            RegisterStateDriver(root, "visibility", "[combat] show; hide")
+        end
+    end
+end
+
+function ns.SetEditorOpen(open)
+    editorOpen = open and true or false
+    ApplyVisibility()
+end
+
+----------------------------------------------------------------------------------------------
+-- Clicking (fixed windows' Primary only: those buttons never move or swap)
 ----------------------------------------------------------------------------------------------
 
 local buttonCount = 0
@@ -706,7 +876,7 @@ local function ApplyAction(cell)
 end
 
 ----------------------------------------------------------------------------------------------
--- Display
+-- Icons and rows
 ----------------------------------------------------------------------------------------------
 
 local function ShowTooltip(cell)
@@ -726,8 +896,8 @@ local function ShowTooltip(cell)
     GameTooltip:Show()
 end
 
--- secure: a click-to-cast button (always-shown Primary). Otherwise a plain frame that only
--- takes right-clicks; left clicks go through it.
+-- secure: a click-to-cast button (a fixed window's Primary). Otherwise a plain frame that
+-- only takes right-clicks; left clicks go through it.
 local function CreateCell(row, index, size, secure)
     local cell
     if secure then
@@ -838,7 +1008,6 @@ end
 
 local groups = {}
 local rows = {}       -- every candidate row of every group, for the threshold maths
-local oldLines = {}   -- frames from earlier builds, hidden
 
 local function LineWidth(cellCount, size)
     return cellCount * size + math.max(0, cellCount - 1) * ICON_GAP + GLOW_SIZE * 2
@@ -870,11 +1039,10 @@ local function CreateBandedRow(group, line, def, size, label)
     return row
 end
 
-local function NewLine(width, height, x, y)
+local function NewLine(root, width, height)
     local line = NewFrame("Frame", root)
     line:SetSize(width, height)
-    line:SetPoint("TOPLEFT", root, "TOPLEFT", x, y)
-    oldLines[#oldLines + 1] = line
+    root.lines[#root.lines + 1] = line
     return line
 end
 
@@ -886,72 +1054,153 @@ local function MostEntries(list)
     return most
 end
 
-local function BuildDisplay()
-    for _, line in ipairs(oldLines) do
-        line:Hide()
-    end
-    wipe(oldLines)
-    wipe(groups)
-    wipe(rows)
-
-    local y = -PADDING
-    local width = 0
-    for _, def in ipairs(db.sequences) do
+local function BuildWindow(root, window)
+    for _, def in ipairs(window.sequences) do
         local subs = {}
         for _, sub in ipairs(def.subs) do
             if #sub.entries > 0 then
                 subs[#subs + 1] = sub
             end
         end
-        if def.enabled and (#def.entries > 0 or #subs > 0) then
-            local group = { name = def.name or "?", def = def, subs = {} }
-            local mainCount = #def.entries
-            if not def.alwaysPrimary then
-                mainCount = math.max(mainCount, MostEntries(subs))
-            end
-            local mainWidth = LineWidth(mainCount, ICON_SIZE)
-            local mainLine = NewLine(mainWidth, ICON_SIZE + GLOW_SIZE * 2, PADDING - GLOW_SIZE, y + GLOW_SIZE)
-            width = math.max(width, mainWidth)
-            y = y - ICON_SIZE
-
-            if def.alwaysPrimary then
-                group.primary = CreateRow(group, mainLine, mainLine, def, ICON_SIZE, "primary", true)
+        if def.enabled and #def.entries > 0 then
+            local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
+            if root.fixed then
+                group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
+                group.primary = CreateRow(group, group.mainLine, group.mainLine, def, ICON_SIZE, "primary", true)
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
-                    -- Its space is always kept: Lua can't tell when the Primary is affordable.
-                    local subWidth = LineWidth(subCount, SUB_ICON_SIZE)
-                    local subLine = NewLine(subWidth, SUB_ICON_SIZE + GLOW_SIZE * 2,
-                        PADDING - GLOW_SIZE + SUB_INDENT, y - ICON_GAP + GLOW_SIZE)
-                    width = math.max(width, subWidth + SUB_INDENT)
-                    y = y - ICON_GAP - SUB_ICON_SIZE
+                    -- Its space is always kept: Lua can't tell when the Primary is affordable,
+                    -- and click-to-cast buttons can't move in combat.
+                    group.subLine = NewLine(root, LineWidth(subCount, SUB_ICON_SIZE), SUB_ICON_SIZE + GLOW_SIZE * 2)
                     for i, sub in ipairs(subs) do
-                        group.subs[i] = CreateBandedRow(group, subLine, sub, SUB_ICON_SIZE, "sub " .. i)
+                        group.subs[i] = CreateBandedRow(group, group.subLine, sub, SUB_ICON_SIZE, "sub " .. i)
                     end
                 end
             else
-                group.primary = CreateBandedRow(group, mainLine, def, ICON_SIZE, "primary")
+                local count = math.max(#def.entries, MostEntries(subs))
+                group.mainLine = NewLine(root, LineWidth(count, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
+                group.primary = CreateBandedRow(group, group.mainLine, def, ICON_SIZE, "primary")
                 for i, sub in ipairs(subs) do
-                    group.subs[i] = CreateBandedRow(group, mainLine, sub, ICON_SIZE, "sub " .. i)
+                    group.subs[i] = CreateBandedRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i)
                 end
             end
+            root.groups[#root.groups + 1] = group
             groups[#groups + 1] = group
-            y = y - ROW_GAP
         end
     end
-    local height = -y - ROW_GAP + PADDING
-    root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 40), math.max(height, 20))
+end
+
+-- Stack each window's rows. Dynamic windows skip sequences with nothing to show, so the rows
+-- below move up; fixed windows keep every row (and their buttons) in place.
+local function LayoutWindows()
+    for _, root in ipairs(roots) do
+        if root.window and not (root.fixed and InCombatLockdown()) then
+            local key = {}
+            for i, group in ipairs(root.groups) do
+                key[i] = (root.fixed or not group.collapsed) and "1" or "0"
+            end
+            key = table.concat(key)
+            if key ~= root.layoutKey then
+                root.layoutKey = key
+                local y = -PADDING
+                local width = 0
+                for _, group in ipairs(root.groups) do
+                    local shown = root.fixed or not group.collapsed
+                    group.mainLine:SetShown(shown)
+                    if group.subLine then
+                        group.subLine:SetShown(shown)
+                    end
+                    if shown then
+                        group.mainLine:ClearAllPoints()
+                        group.mainLine:SetPoint("TOPLEFT", root, "TOPLEFT", PADDING - GLOW_SIZE, y + GLOW_SIZE)
+                        width = math.max(width, group.mainLine:GetWidth())
+                        y = y - ICON_SIZE
+                        if group.subLine then
+                            group.subLine:ClearAllPoints()
+                            group.subLine:SetPoint("TOPLEFT", root, "TOPLEFT",
+                                PADDING - GLOW_SIZE + SUB_INDENT, y - ICON_GAP + GLOW_SIZE)
+                            width = math.max(width, group.subLine:GetWidth() + SUB_INDENT)
+                            y = y - ICON_GAP - SUB_ICON_SIZE
+                        end
+                        y = y - ROW_GAP
+                    end
+                end
+                local height = -y - ROW_GAP + PADDING
+                root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 60), math.max(height, 24))
+            end
+        end
+    end
+end
+
+local function BuildDisplay()
+    for _, root in ipairs(roots) do
+        for _, line in ipairs(root.lines) do
+            line:Hide()
+        end
+        wipe(root.lines)
+        wipe(root.groups)
+        root.window = nil
+        root.layoutKey = nil
+    end
+    wipe(groups)
+    wipe(rows)
+
+    for index, window in ipairs(db.windows) do
+        local root = GetRoot(index)
+        root.window = window
+        root.fixed = window.type == "fixed"
+        root.label:SetText((window.name or "?") .. (root.fixed and " (fixed)" or " (dynamic)") .. ": drag to move")
+        ApplyPosition(root, window, index)
+        if window.enabled then
+            BuildWindow(root, window)
+        end
+    end
+    LayoutWindows()
+    ApplyVisibility()
+end
+
+function ns.ResetPositions()
+    if InCombatLockdown() then
+        Print("can't move windows in combat.")
+        return
+    end
+    for index, window in ipairs(db.windows) do
+        window.left, window.top = nil, nil
+        if roots[index] then
+            ApplyPosition(roots[index], window, index)
+        end
+    end
 end
 
 ----------------------------------------------------------------------------------------------
 -- Updating
 ----------------------------------------------------------------------------------------------
 
--- Re-read everything about each entry: what it is, its costs and timings, what it restores.
+-- Everything the timing maths needs about one entry, written into `target`.
+local function EntryData(entry, info, target)
+    local spellID = info.spellID
+    local description = GetDescription(spellID)
+    local isItem = info.kind ~= "spell"
+    target.cost = (not isItem) and GetManaCost(spellID) or 0
+    target.castTime = GetCastTime(spellID)
+    target.gcd = GetGlobalCooldown(spellID) or (isItem and 0 or GLOBAL_COOLDOWN)
+    target.channel = ChannelTime(spellID, description)
+    local gain, over = ParseManaGain(description)
+    if info.kind == "manapot" then
+        gain, over = manaPotions[1] and manaPotions[1].gain or nil, nil
+    end
+    target.gain = (gain and not over) and gain or 0
+    target.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
+    target.instantNext = MakesNextInstant(description)
+    target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
+        and not CLEARCASTING_IGNORES[entry.name]
+end
+
+-- Re-read everything about each icon.
 local function RefreshEntries()
     for _, row in ipairs(rows) do
         for _, cell in ipairs(row.cells) do
-            local entry = cell.entry
-            local info = ResolveEntry(entry)
+            local info = ResolveEntry(cell.entry)
             local old = cell.info
             cell.info = info
             if not old or old.spellID ~= info.spellID or old.itemID ~= info.itemID or old.icon ~= info.icon
@@ -962,23 +1211,7 @@ local function RefreshEntries()
                 ApplyAction(cell)
             end
             cell.rankText:SetText(ns.RankText(info) or "")
-
-            local spellID = info.spellID
-            local description = GetDescription(spellID)
-            local isItem = info.kind ~= "spell"
-            cell.cost = (not isItem) and GetManaCost(spellID) or 0
-            cell.castTime = GetCastTime(spellID)
-            cell.gcd = GetGlobalCooldown(spellID) or (isItem and 0 or GLOBAL_COOLDOWN)
-            cell.channel = ChannelTime(spellID, description)
-            local gain, over = ParseManaGain(description)
-            if info.kind == "manapot" then
-                gain, over = manaPotions[1] and manaPotions[1].gain or nil, nil
-            end
-            cell.gain = (gain and not over) and gain or 0
-            cell.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
-            cell.instantNext = MakesNextInstant(description)
-            cell.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
-                and not CLEARCASTING_IGNORES[entry.name]
+            EntryData(cell.entry, info, cell)
         end
     end
 end
@@ -1158,11 +1391,12 @@ end
 -- Each cost is taken (and each restore given) when the cast ends (instants: at once). The next
 -- entry starts once the cast and any channel are done and the global cooldown has passed.
 -- Mana can't go above max, so a restore or regen while full is lost.
-local function RowThresholds(row, base, casting, phase, fsrRemaining, maxMana, freeNext)
+local function RowThresholds(row, ctx, phase)
     local windows, extras = {}, {}
-    if fsrRemaining > 0 then
-        windows[1] = { -math.huge, fsrRemaining }
+    if ctx.fsrRemaining > 0 then
+        windows[1] = { -math.huge, ctx.fsrRemaining }
     end
+    local freeNext = ctx.clearcasting
     local thresholds = {}
     local startTime, spent, highest = 0, 0, -math.huge
     local peak = -math.huge -- highest mana (relative to now) reached so far, before a cost
@@ -1180,14 +1414,14 @@ local function RowThresholds(row, base, casting, phase, fsrRemaining, maxMana, f
         end
         local due = startTime + castTime
 
-        local regained = Gain(due, windows, extras, base, casting, phase)
+        local regained = Gain(due, windows, extras, ctx.base, ctx.casting, phase)
         peak = math.max(peak, regained - spent)
         spent = spent + cost - (cell.gain or 0)
         local net = regained - spent -- mana now + net = mana after this entry
 
         local need = -net
-        if maxMana and maxMana + net - peak < 0 then
-            need = maxMana + 1 -- not even full mana is enough
+        if ctx.maxMana and ctx.maxMana + net - peak < 0 then
+            need = ctx.maxMana + 1 -- not even full mana is enough
         end
         highest = math.max(highest, need)
         thresholds[i] = highest
@@ -1209,43 +1443,64 @@ end
 
 local fsrEndTime = 0
 
--- Lay the thresholds out along each row. Tick mode takes the worst case over every tick timing.
-local function UpdateThresholds(now)
-    local base, casting = 0, 0
-    local ticks = false
+-- What the maths needs to know right now.
+local function Context(now)
+    local ctx = { base = 0, casting = 0, ticks = false, clearcasting = clearcasting }
     if db.regenMode ~= "off" then
-        local b, c = ReadRegen()
-        if b then
-            base, casting = b, c
-            ticks = db.regenMode == "ticks"
+        local base, casting = ReadRegen()
+        if base then
+            ctx.base, ctx.casting = base, casting
+            ctx.ticks = db.regenMode == "ticks"
         end
     end
     local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
-    if not IsReadableNumber(maxMana) or maxMana <= 0 then
-        maxMana = nil
-    end
-    local fsrRemaining = math.max(0, fsrEndTime - now)
+    ctx.maxMana = (IsReadableNumber(maxMana) and maxMana > 0) and maxMana or nil
+    ctx.fsrRemaining = math.max(0, fsrEndTime - now)
+    return ctx
+end
 
-    for _, row in ipairs(rows) do
-        local thresholds
-        if ticks then
-            thresholds = {}
-            for step = 0, TICK_PHASE_STEPS - 1 do
-                local phase = REGEN_TICK * step / TICK_PHASE_STEPS
-                local list = RowThresholds(row, base, casting, phase, fsrRemaining, maxMana, clearcasting)
-                for i, need in ipairs(list) do
-                    thresholds[i] = math.max(thresholds[i] or -math.huge, need)
-                end
+-- Whole-mana thresholds for a row. Tick mode takes the worst case over every tick timing.
+local function RowNeeds(row, ctx)
+    local thresholds
+    if ctx.ticks then
+        thresholds = {}
+        for step = 0, TICK_PHASE_STEPS - 1 do
+            local phase = REGEN_TICK * step / TICK_PHASE_STEPS
+            for i, need in ipairs(RowThresholds(row, ctx, phase)) do
+                thresholds[i] = math.max(thresholds[i] or -math.huge, need)
             end
-        else
-            thresholds = RowThresholds(row, base, casting, nil, fsrRemaining, maxMana, clearcasting)
         end
+    else
+        thresholds = RowThresholds(row, ctx, nil)
+    end
+    for i, need in ipairs(thresholds) do
+        thresholds[i] = math.ceil(need) -- mana is an integer
+    end
+    return thresholds
+end
 
+-- For the editor: the mana needed now to start these entries, and what they cost in all.
+function ns.Need(entries)
+    local row = { cells = {} }
+    local cost = 0
+    for i, entry in ipairs(entries) do
+        local cell = {}
+        EntryData(entry, ResolveEntry(entry), cell)
+        row.cells[i] = cell
+        cost = cost + (cell.cost or 0)
+    end
+    local thresholds = RowNeeds(row, Context(GetTime()))
+    return math.max(0, thresholds[#thresholds] or 0), cost
+end
+
+local function UpdateThresholds(now)
+    local ctx = Context(now)
+    for _, row in ipairs(rows) do
+        local thresholds = RowNeeds(row, ctx)
         local previous = 0
         row.total = 0
         for i, cell in ipairs(row.cells) do
-            -- Whole mana points: mana is an integer, so round the requirement up.
-            local need = math.ceil(thresholds[i])
+            local need = thresholds[i]
             cell.start = math.min(previous, need)
             cell.total = need
             if cell.total > cell.start then
@@ -1292,10 +1547,10 @@ local function Candidates(list)
     return result
 end
 
--- Decide which row of each group shows, as mana bands.
+-- Decide which row of each sequence shows, as mana bands.
 local function UpdateBands()
     for _, group in ipairs(groups) do
-        if group.def.alwaysPrimary then
+        if group.fixed then
             -- Primary always shown. Below it: the most complete sub-sequence you can afford
             -- (the cheapest if none), until you can afford the Primary.
             local list = Candidates(group.subs)
@@ -1308,7 +1563,8 @@ local function UpdateBands()
             end
         else
             -- One row: the cheapest sequence you can't afford yet, i.e. the one you're working
-            -- towards, and the Primary once you can afford everything.
+            -- towards, and the Primary once you can afford everything. With nothing left to
+            -- show (all hidden on cooldown), the row closes up.
             local all = { group.primary }
             for _, row in ipairs(group.subs) do
                 all[#all + 1] = row
@@ -1327,8 +1583,10 @@ local function UpdateBands()
                 local high = (k < #list) and row.total or math.huge
                 SetBand(row, low, high)
             end
+            group.collapsed = #list == 0
         end
     end
+    LayoutWindows()
 end
 
 local function GetHighestTotal()
@@ -1388,7 +1646,6 @@ end
 
 local driver = CreateFrame("Frame")
 local tickElapsed, refreshElapsed = 0, 0
-local active = false
 
 local function Refresh()
     RefreshEntries()
@@ -1424,7 +1681,7 @@ local function Rebuild()
     end
     if InCombatLockdown() then
         if not pendingRebuild then
-            Print("the display will update after combat.")
+            Print("the windows will update after combat.")
         end
         pendingRebuild = true
         return
@@ -1458,7 +1715,7 @@ driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 driver:RegisterUnitEvent("UNIT_AURA", "player")
 
--- Times of recent mana updates, for /fseq debug: steady 2s gaps mean Forever regens in ticks.
+-- Times of recent mana updates, for /fseq debug: steady 2s gaps would mean regen in ticks.
 local manaEventTimes = {}
 
 driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
@@ -1472,25 +1729,27 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 db[key] = value
             end
         end
-        if type(db.sequences) ~= "table" then
-            db.sequences = CopyTable(DEFAULT_SEQUENCES)
-        end
-        MigrateSequences(db.sequences)
-        ApplyPosition()
-        ns.ApplyLock()
+        MigrateSettings()
         active = IsDruid()
-        root:SetShown(active)
         ScanSpellbook()
         ScanBags()
-        Rebuild()
+        if active then
+            Rebuild()
+        end
     elseif not active then
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pendingRebuild then
             Rebuild()
-        elseif pendingActions then
-            pendingActions = false
-            Refresh()
+        else
+            if pendingVisibility then
+                ApplyVisibility()
+            end
+            if pendingActions then
+                pendingActions = false
+                Refresh()
+            end
+            LayoutWindows()
         end
     elseif event == "UNIT_POWER_FREQUENT" then
         if arg2 == "MANA" then
@@ -1523,6 +1782,7 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     elseif event == "BAG_UPDATE_DELAYED" then
         ScanBags()
         Refresh()
+        if ns.RefreshEditor then ns.RefreshEditor() end
     else
         Refresh()
     end
@@ -1531,21 +1791,17 @@ end)
 -- Clicking on/off, from the options. Secure buttons only change out of combat.
 function ns.SetClickable(value)
     db.clickable = value
+    for _, row in ipairs(rows) do
+        for _, cell in ipairs(row.cells) do
+            cell.actionPending = true
+        end
+    end
     if InCombatLockdown() then
         pendingActions = true
-        for _, row in ipairs(rows) do
-            for _, cell in ipairs(row.cells) do
-                cell.actionPending = true
-            end
-        end
         Print("clicking will change after combat.")
         return
     end
-    for _, row in ipairs(rows) do
-        for _, cell in ipairs(row.cells) do
-            ApplyAction(cell)
-        end
-    end
+    Refresh()
 end
 
 function ns.SetRegenMode(mode)
@@ -1587,26 +1843,34 @@ local function PrintDebug()
         potions[#potions + 1] = potion.itemID .. " (" .. potion.gain .. ")"
     end
     Print("mana potions in bags, best first: " .. (#potions > 0 and table.concat(potions, ", ") or "none"))
-    for _, group in ipairs(groups) do
-        Print(string.format("\"%s\": always show Primary=%s", group.name, tostring(group.def.alwaysPrimary and true or false)))
-        local list = { group.primary }
-        for _, row in ipairs(group.subs) do
-            list[#list + 1] = row
-        end
-        for _, row in ipairs(list) do
-            print(string.format("  %s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
-                row.label, tostring(row.total),
-                row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
-                tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
-            for _, cell in ipairs(row.cells) do
-                local info = cell.info or {}
-                print(string.format("     %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s",
-                    ns.EntryName(cell.entry), tostring(info.spellID), tostring(info.rank), tostring(info.maxRank),
-                    tostring(info.known), tostring(cell.cost), tostring(cell.castTime), tostring(cell.gcd),
-                    tostring(cell.channel), tostring(cell.gain),
-                    cell.gainOver and string.format(" (+%s over %ss)", cell.gainOver.amount, cell.gainOver.duration) or "",
-                    tostring(cell.instantNext), tostring(cell.usesClearcasting),
-                    tostring(cell.start), tostring(cell.total), tostring(cell.cooldownNote)))
+    for _, root in ipairs(roots) do
+        local window = root.window
+        if window then
+            Print(string.format("window \"%s\": %s, enabled=%s, only in combat=%s, shown=%s",
+                window.name or "?", window.type, tostring(window.enabled), tostring(window.onlyInCombat),
+                tostring(root:IsShown())))
+            for _, group in ipairs(root.groups) do
+                print(string.format("  \"%s\"%s", group.name, group.collapsed and " (closed up: nothing to show)" or ""))
+                local list = { group.primary }
+                for _, row in ipairs(group.subs) do
+                    list[#list + 1] = row
+                end
+                for _, row in ipairs(list) do
+                    print(string.format("    %s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
+                        row.label, tostring(row.total),
+                        row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
+                        tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
+                    for _, cell in ipairs(row.cells) do
+                        local info = cell.info or {}
+                        print(string.format("       %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s",
+                            ns.EntryName(cell.entry), tostring(info.spellID), tostring(info.rank), tostring(info.maxRank),
+                            tostring(info.known), tostring(cell.cost), tostring(cell.castTime), tostring(cell.gcd),
+                            tostring(cell.channel), tostring(cell.gain),
+                            cell.gainOver and string.format(" (+%s over %ss)", cell.gainOver.amount, cell.gainOver.duration) or "",
+                            tostring(cell.instantNext), tostring(cell.usesClearcasting),
+                            tostring(cell.start), tostring(cell.total), tostring(cell.cooldownNote)))
+                    end
+                end
             end
         end
     end
@@ -1618,21 +1882,9 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     local cmd, arg = msg:match("^%s*(%S*)%s*(.-)%s*$")
     if cmd == "" or cmd == "options" then
         OpenOptions()
-    elseif cmd == "lock" or cmd == "unlock" then
-        db.locked = cmd == "lock"
-        ns.ApplyLock()
-        if ns.RefreshEditor then ns.RefreshEditor() end
-        Print(db.locked and "locked." or "unlocked: drag to move.")
     elseif cmd == "reset" then
-        for _, key in ipairs({ "point", "relativePoint", "x", "y" }) do
-            db[key] = DEFAULTS[key]
-        end
-        if InCombatLockdown() then
-            Print("can't move it in combat.")
-        else
-            ApplyPosition()
-            Print("position reset.")
-        end
+        ns.ResetPositions()
+        Print("window positions reset.")
     elseif cmd == "test" then
         if testStartTime then
             testStartTime = nil
@@ -1663,13 +1915,13 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateMana()
         end
     elseif cmd == "defaults" then
-        db.sequences = CopyTable(DEFAULT_SEQUENCES)
-        Print("sequences reset to the defaults.")
+        db.windows = ns.DefaultWindows()
+        Print("windows and sequences reset to the defaults.")
         if ns.RefreshEditor then ns.RefreshEditor() end
         Rebuild()
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq (options) | lock | unlock | reset | test | cdtest [spell] | defaults | debug")
+        Print("/fseq (options) | reset | test | cdtest [spell] | defaults | debug")
     end
 end

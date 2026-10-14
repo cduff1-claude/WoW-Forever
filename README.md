@@ -58,8 +58,8 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
 
 ## ForeverSequences
-Rows of spell icons, one row per sequence, stacked vertically. Each icon fills with colour from left to right as you
-gain the mana to cast it **after** everything before it in its row:
+Windows of spell icons, one row per sequence. Each icon fills with colour from left to right as you gain the mana to
+cast it **after** everything before it in its row:
 - An icon you can afford (on top of the earlier ones) is in full colour. The next one is part colour, part grey,
   in proportion to how much of its cost you have. The rest are grey.
 - When an icon becomes affordable it gets a pulsing gold border for 2 seconds.
@@ -78,39 +78,46 @@ each cost is taken. Everything is read from the game, not hard-coded:
   in the sequence instant.
 - While you have Clearcasting (Omen of Clarity), the first spell in each sequence that would use it is free. Forms,
   items and Wrath don't use it.
-- Regen modes: *ticks* (default) assumes 2-second mana ticks with the worst timing, so it's never too early;
-  *smooth* treats regen as a steady flow; *off* ignores it.
+- Regen modes: *smooth* (default, as Forever regens), *2s ticks* (worst tick timing), *off*.
 
-**Sequences.** Each sequence has a Primary and optional sub-sequences (any spells or items, up to 8 each, up to 4 subs):
-- Normally the sequence has one row, showing the cheapest sequence you can't afford yet (the one you're working
-  towards), and the Primary once you can afford everything.
-- With *always show Primary*, the Primary keeps its row. Below it, smaller and indented, is the most complete
-  sub-sequence you can afford (the cheapest if none), until you can afford the Primary. That space is always reserved,
-  because Lua can't tell when the Primary is affordable.
+**Windows.** Make as many as you like (PvP, tanking, healing...); each is named, can be turned off, and remembers its
+position. Each window is one of:
+- **Dynamic:** one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
+  working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
+  hidden on cooldown) closes up, and the rows below move up.
+- **Fixed:** the Primary is always shown and can be clicked to cast (one icon per click; forms as `/cast !Form`, so
+  they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
+  complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
+  click-to-cast buttons can't move in combat, so that space is kept.
+- *Only show in combat* hides the window out of combat.
+- Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.
+
+**Sequences.** Each has a Primary and up to 4 sub-sequences (any spells or items, up to 8 each).
 - **Cooldowns:** an icon on cooldown (not just the global cooldown), or an item you have none of, is greyed out with
-  Blizzard's cooldown swipe; the countdown numbers follow your "show numbers for cooldowns" setting. A sequence or
-  sub-sequence set to *hide on cooldown* drops out while that's true, and the next one shows.
+  Blizzard's cooldown swipe; the countdown numbers follow your "show numbers for cooldowns" setting. *Hide when on
+  cooldown* (offered only where a spell or item has a cooldown of its own, and not for a fixed window's Primary) drops
+  that sequence or sub-sequence out while that's true, and the next one shows.
 - **Ranks:** a spell follows your highest rank. A pinned lower rank shows "R3" on its icon.
-- **Clicking:** an always-shown Primary can be clicked to cast, one icon per click (forms as `/cast !Form`, so they
-  never shift you out; "best mana potion" uses the best one you have). Other rows are for reading only: left clicks go
-  through them. Right-click any icon to open the options.
 
-**Editor** (`/fseq`, right-click the display, or Esc > Options > AddOns > Forever Sequences):
-- Left: your sequences in display order. Tick to show or hide (hidden ones take no space), arrows to reorder,
-  New / Delete.
-- Right: the selected sequence's name, *always show Primary*, *hide when on cooldown*, the Primary row and the
-  sub-sequences (each with its own *hide on cooldown*).
-- Drag spells from the spellbook (or action bars) and items from your bags onto a row; the "+" slot adds at the end.
-  Drag the *best mana potion* tile into a row for "whichever is best in my bags".
+**Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). While they're open, every
+window is shown and can be dragged to move it; they lock again when the options close.
+- Left: windows and their sequences, in display order. Tick to show or hide (hidden ones take no space), arrows to
+  reorder, drag a sequence onto another window or sequence to move it there. New window / New sequence / Delete.
+- Right: the window's name, type and *only show in combat*; the sequence's name and *hide when on cooldown*; the
+  Primary and the sub-sequences, each with the mana it needs now (and its total cost). Sub-sequences are listed
+  dearest first each time the options open.
+- Beside it: every spell you know and every usable item you carry (bags and trinkets), plus *best mana potion*, with a
+  search box. Drag them into a row, or click to add to the end of the Primary. The spellbook and bags work too, and
+  opening the spellbook leaves the options open.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
-  slot they go in Primary order), or off the window to remove them. Shift-right-click also removes.
-- Right-click a spell to step down through the ranks you know, and back round to your highest. Dragging in a lower
-  rank from the spellbook pins that rank.
-- Bottom: *lock display* (unlocked, drag it to move), *click always-shown Primary to cast*, and the regen mode.
-- Changes made in combat reach the display when combat ends.
+  slot they go in Primary order), or off the window to remove them. Shift-right-click also removes. Right-click a
+  spell to step down through the ranks you know, and back round to your highest.
+- Bottom: *click a fixed window's Primary to cast*, and the regen mode.
+- Changes made in combat reach the windows when combat ends.
 
-Druids only. Other commands: `/fseq lock` / `unlock`, `/fseq reset` (default position), `/fseq test` (fake mana
-sweeping from empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults`
-(restore the starting sequences), and `/fseq debug` (for every icon: spell ID, rank, cost, cast/GCD/channel time,
-mana restored, instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule,
-mana update gaps, Clearcasting and the mana potions found).
+Druids only. Older settings move into a dynamic "Main" window, plus a fixed "Clickable" window for sequences that had
+*always show Primary*. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
+empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults` (restore the
+starting windows), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
+instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule, mana update gaps,
+Clearcasting and the mana potions found).
