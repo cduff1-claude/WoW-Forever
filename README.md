@@ -58,47 +58,59 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
 
 ## ForeverSequences
-*Prototype.* Rows of spell icons, one row per sequence, stacked vertically. Each icon fills with colour
-from left to right as you gain the mana to cast it **after** everything before it in its row:
+Rows of spell icons, one row per sequence, stacked vertically. Each icon fills with colour from left to right as you
+gain the mana to cast it **after** everything before it in its row:
 - An icon you can afford (on top of the earlier ones) is in full colour. The next one is part colour, part grey,
   in proportion to how much of its cost you have. The rest are grey.
 - When an icon becomes affordable it gets a pulsing gold border for 2 seconds.
-- Costs come from `C_Spell.GetSpellPowerCost`, so talents and gear are included. The highest rank you know is used.
-- **Regen and cast time:** "the mana to cast it" means the mana you need *now* to start the sequence and still have
-  enough when each spell's cost is taken. Mana regained in the meantime counts. Each cost is taken when its cast ends
-  (instants: straight away), and the next spell starts when that cast or the 1.5s global cooldown ends. Regen comes from
-  `GetManaRegen()`, at the in-5-second-rule rate while the rule is running (from your last mana spell, or from earlier
-  spells in the sequence) and the normal rate otherwise. Regen that would overflow full mana isn't counted.
-- `/fseq regen ticks` (default) assumes mana arrives in 2-second ticks and takes the worst case for when they land,
-  so it never shows a spell as affordable too early. `/fseq regen smooth` treats regen as a steady flow, and
-  `/fseq regen off` ignores regen.
 - Mana is secret on Forever, so the comparisons are done with hidden status bars and clipping, not in Lua.
 
-**Sub-sequences.** Each sequence has a Primary and optional sub-sequences made from its spells:
+**What counts.** "The mana to cast it" means the mana you need *now* to start the sequence and still have enough when
+each cost is taken. Everything is read from the game, not hard-coded:
+- Costs from `C_Spell.GetSpellPowerCost` (talents and gear included), cast times from the spell data, and whether
+  something triggers the global cooldown from `GetSpellBaseCooldown` (so War Stomp, Nature's Swiftness, potions and
+  trinkets each take the time they really take). Channels: a "Channeled" tooltip and "over N sec" in the description.
+- Regen from `GetManaRegen()`, at the in-5-second-rule rate while the rule is running (from your last mana spell, or
+  from earlier spells in the sequence). Regen or restores that would overflow full mana aren't counted.
+- Anything whose description says "Restores X to Y mana" (potions, runes, gems, engineering items) adds the low figure
+  when used; "... over N sec" spreads it over that time.
+- Anything whose description says the next spell "becomes an instant cast" (Nature's Swiftness) makes the next cast
+  in the sequence instant.
+- While you have Clearcasting (Omen of Clarity), the first spell in each sequence that would use it is free. Forms,
+  items and Wrath don't use it.
+- Regen modes: *ticks* (default) assumes 2-second mana ticks with the worst timing, so it's never too early;
+  *smooth* treats regen as a steady flow; *off* ignores it.
+
+**Sequences.** Each sequence has a Primary and optional sub-sequences (any spells or items, up to 8 each, up to 4 subs):
 - Normally the sequence has one row, showing the cheapest sequence you can't afford yet (the one you're working
   towards), and the Primary once you can afford everything.
 - With *always show Primary*, the Primary keeps its row. Below it, smaller and indented, is the most complete
   sub-sequence you can afford (the cheapest if none), until you can afford the Primary. That space is always reserved,
   because Lua can't tell when the Primary is affordable.
+- **Cooldowns:** an icon on cooldown (not just the global cooldown), or an item you have none of, is greyed out with
+  Blizzard's cooldown swipe; the countdown numbers follow your "show numbers for cooldowns" setting. A sequence or
+  sub-sequence set to *hide on cooldown* drops out while that's true, and the next one shows.
+- **Ranks:** a spell follows your highest rank. A pinned lower rank shows "R3" on its icon.
+- **Clicking:** an always-shown Primary can be clicked to cast, one icon per click (forms as `/cast !Form`, so they
+  never shift you out; "best mana potion" uses the best one you have). Other rows are for reading only: left clicks go
+  through them. Right-click any icon to open the options.
 
-**Cooldowns.** A spell on cooldown (not just the global cooldown) is greyed out with Blizzard's cooldown swipe. The
-countdown numbers follow your "show numbers for cooldowns" setting. A sequence or sub-sequence set to *hide on cooldown*
-drops out while one of its spells is on cooldown, and the next one shows instead. If the game won't say whether a spell
-is on cooldown, it's never treated as on cooldown (Blizzard's swipe may still show).
+**Editor** (`/fseq`, right-click the display, or Esc > Options > AddOns > Forever Sequences):
+- Left: your sequences in display order. Tick to show or hide (hidden ones take no space), arrows to reorder,
+  New / Delete.
+- Right: the selected sequence's name, *always show Primary*, *hide when on cooldown*, the Primary row and the
+  sub-sequences (each with its own *hide on cooldown*).
+- Drag spells from the spellbook (or action bars) and items from your bags onto a row; the "+" slot adds at the end.
+  Drag the *best mana potion* tile into a row for "whichever is best in my bags".
+- Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
+  slot they go in Primary order), or off the window to remove them. Shift-right-click also removes.
+- Right-click a spell to step down through the ranks you know, and back round to your highest. Dragging in a lower
+  rank from the spellbook pins that rank.
+- Bottom: *lock display* (unlocked, drag it to move), *click always-shown Primary to cast*, and the regen mode.
+- Changes made in combat reach the display when combat ends.
 
-The display is for reading only: locked, it ignores the mouse and clicks go through it.
-
-Prototype sequences (the editor comes next):
-1. *Bear out*: Regrowth > Rejuvenation > Bear Form, with subs Regrowth > Bear Form and Rejuvenation > Bear Form.
-2. *Root and run* (always show Primary): Entangling Roots > Rejuvenation > Travel Form, with sub Entangling Roots >
-   Travel Form.
-
-Druids only. Commands:
-- `/fseq unlock` (drag to move) / `/fseq lock`, `/fseq reset` (default position).
-- `/fseq test`: fake mana sweeping from empty to full, to check the visuals and the row switching.
-- `/fseq regen ticks|smooth|off`.
-- Prototype toggles for every sequence at once: `/fseq primary` (always show Primary), `/fseq hidecd` (hide on
-  cooldown). `/fseq cdtest [spell]` puts a fake 10s cooldown on that spell's icons (Rejuvenation by default).
-  `/fseq defaults` restores the prototype sequences.
-- `/fseq debug`: spell IDs, known ranks, costs, cast times, thresholds, each row's mana band and cooldown state, regen
-  rates, time left on the 5-second rule, the gaps between recent mana updates, and which values read as secret.
+Druids only. Other commands: `/fseq lock` / `unlock`, `/fseq reset` (default position), `/fseq test` (fake mana
+sweeping from empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults`
+(restore the starting sequences), and `/fseq debug` (for every icon: spell ID, rank, cost, cast/GCD/channel time,
+mana restored, instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule,
+mana update gaps, Clearcasting and the mana potions found).
