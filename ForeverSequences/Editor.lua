@@ -1645,14 +1645,29 @@ local function CreateEditor()
     return f
 end
 
--- Open (show = true) or toggle the editor.
-function ns.ToggleEditor(show)
+-- Open (show = true) or toggle the editor. With a window, select it (and scroll the windows
+-- list to it).
+function ns.ToggleEditor(show, window)
     if not ns.db then
         return
     end
     editor = editor or CreateEditor()
     if show or not editor:IsShown() then
-        editor:Show()
+        if window and IndexOf(Windows(), window) then
+            selWindow, selItem, selSeq = window, nil, nil
+            for i, data in ipairs(WindowListItems()) do
+                if data.window == window and data.item == nil then
+                    if i <= windowOffset or i > windowOffset + WINDOW_ROWS then
+                        windowOffset = math.max(0, i - 1)
+                    end
+                end
+            end
+        end
+        if editor:IsShown() then
+            editor:Refresh()
+        else
+            editor:Show()
+        end
         editor:Raise()
     else
         editor:Hide()

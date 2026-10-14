@@ -998,9 +998,10 @@ end
 local active = false
 local editorOpen = false
 
-local function OpenOptions()
+-- Open the options; with a window, that window is selected in them.
+local function OpenOptions(window)
     if ns.ToggleEditor then
-        ns.ToggleEditor(true)
+        ns.ToggleEditor(true, window)
     end
 end
 
@@ -1098,6 +1099,7 @@ local function GetRoot(index)
     mover:SetBackdropBorderColor(0.4, 0.8, 1, 0.9)
     mover:SetScript("OnDragStart", function()
         -- Windows may hold secure buttons, so they can't move in combat.
+        mover.dragged = true
         if not InCombatLockdown() then
             root:StartMoving()
         end
@@ -1105,6 +1107,16 @@ local function GetRoot(index)
     mover:SetScript("OnDragStop", function()
         root:StopMovingOrSizing()
         SavePosition(root)
+    end)
+    -- A click (not a drag) on a window while the options are open selects it there.
+    mover:SetScript("OnMouseDown", function()
+        mover.dragged = false
+    end)
+    mover:SetScript("OnMouseUp", function()
+        if not mover.dragged and root.window then
+            OpenOptions(root.window)
+        end
+        mover.dragged = false
     end)
     mover:Hide()
     local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1273,9 +1285,9 @@ local function CreateCell(parent, secure)
         SetPassThrough(cell, "LeftButton")
     end
     cell.secure = secure
-    cell:HookScript("OnMouseUp", function(_, button)
+    cell:HookScript("OnMouseUp", function(self, button)
         if button == "RightButton" then
-            OpenOptions()
+            OpenOptions(self.window)
         end
     end)
     local level = cell:GetFrameLevel()

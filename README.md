@@ -133,8 +133,9 @@ setup, and editing it never changes the class default. To tidy up the class defa
 say), switch to it, edit, and switch back. Settings from before profiles become a "Default" profile for the first
 character to log in, with a copy as the class default.
 
-**Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). While they're open, every
-window is shown and can be dragged to move it; they lock again when the options close.
+**Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). Right-clicking an icon opens
+them with its window selected. While they're open, every window is shown and can be dragged to move it, and clicking
+a window selects it; they lock again when the options close.
 - Left, top: windows and the sequences they show, in display order. Tick to show or hide (hidden ones take no space),
   arrows to reorder, drag a sequence onto another window or sequence to move it there. *Remove* takes a sequence out of
   a window (it stays in the library); *Delete* deletes a window.
