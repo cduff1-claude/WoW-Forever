@@ -31,6 +31,7 @@ DruidForeverManabarPlusDB = DruidForeverManabarPlusDB or {}
 local DEFAULTS = {
     enablePlayerFrame = true,       -- druid bar under the Player Frame + caster shading on its mana bar
     enablePersonalResource = true,  -- shading on the Personal Resource Display's mana bar
+    useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
 }
 
 -- Fixed look of the druid bar.
@@ -79,12 +80,13 @@ manaBar:SetValue(0)
 -- Shade over the part of the filled bar that a Bear/Cat shift would spend, split into a
 -- Travel Form section [0 .. travel cost] and a Bear section [travel cost .. bear cost].
 --
---                         | travel section | bear section
---   enough for bear       | blue           | blue
---   cast -> below bear    | blue           | pale orange
---   cast -> below travel  | pale red       | (unshaded)
---   below bear now        | blue           | bold orange
---   below travel now      | dark red       | (empty, fill ends before it)
+--                                         | travel section | bear section
+--   enough for bear, even after the cast  | blue           | blue
+--   cast -> below bear (above travel)     | blue           | pale orange
+--   cast -> below travel                  | pale red       | (unshaded)
+--   below bear now, cast stays >= travel  | pale yellow    | bold orange
+--   below bear now, cast -> below travel  | grey           | (unshaded)
+--   below travel now                      | dark red       | (empty, fill ends before it)
 --
 -- Without Travel Form (or with its cost unknown) the travel section is empty and the bear
 -- section uses only blue / pale orange / bold orange.
@@ -160,10 +162,16 @@ local function CreateShiftShade(bar, texturePath)
     set.tree[#set.tree + 1] = { frame = set.fillClip, parent = bar }
     set.topLevel[#set.topLevel + 1] = set.fillClip
 
-    -- Travel section.
+    -- Travel section. Above travel after the cast: blue if mana is at/above bear cost now,
+    -- pale yellow if below it. Above travel now but not after the cast: pale red if at/above
+    -- bear cost now, grey if below it. Below travel now: dark red.
     local travel = CreateClip(set, set.fillClip, bar, "LEFT", travelEdge, "RIGHT")
-    CreateLayer(set, CreateClip(set, travel, bar, "LEFT", castT, "RIGHT"), "blue")
-    CreateLayer(set, CreateClip(set, travel, castT, "RIGHT", nowT, "RIGHT"), "paleRed")
+    local travelAfterCast = CreateClip(set, travel, bar, "LEFT", castT, "RIGHT")
+    CreateLayer(set, CreateClip(set, travelAfterCast, bar, "LEFT", nowB, "RIGHT"), "blue")
+    CreateLayer(set, CreateClip(set, travelAfterCast, nowB, "RIGHT", bar, "RIGHT"), "paleYellow")
+    local travelCastBelow = CreateClip(set, travel, castT, "RIGHT", nowT, "RIGHT")
+    CreateLayer(set, CreateClip(set, travelCastBelow, bar, "LEFT", nowB, "RIGHT"), "paleRed")
+    CreateLayer(set, CreateClip(set, travelCastBelow, nowB, "RIGHT", bar, "RIGHT"), "grey")
     CreateLayer(set, CreateClip(set, travel, nowT, "RIGHT", bar, "RIGHT"), "darkRed")
 
     -- Bear section.
@@ -221,6 +229,8 @@ fsrMarker:Hide()
 -- Shade colours. Orange = Bear/Cat cost, red = Travel/Aquatic Form cost; pale = the current cast
 -- will take mana below that cost, bold/dark = already below it.
 local DRUID_BAR_COLORS = {
+    paleYellow = { 1.0, 0.95, 0.6, 1 },
+    grey = { 0.6, 0.6, 0.6, 1 },
     paleOrange = { 1.0, 0.8, 0.55, 1 },
     boldOrange = { 1.0, 0.55, 0.1, 1 },
     paleRed = { 1.0, 0.66, 0.66, 1 },
@@ -230,6 +240,8 @@ local DRUID_BAR_COLORS = {
 -- with the blue underneath.
 local PLAYER_FRAME_COLORS = {
     blue = { 1.0, 1.0, 1.0, 0.3 },
+    paleYellow = { 1.0, 0.95, 0.4, 0.75 },
+    grey = { 0.55, 0.55, 0.55, 0.85 },
     paleOrange = { 1.0, 0.55, 0.1, 0.75 },
     boldOrange = { 1.0, 0.4, 0.0, 0.92 },
     paleRed = { 1.0, 0.45, 0.45, 0.7 },
@@ -603,7 +615,8 @@ local function RefreshTravelCost()
         travelCostSource = "test override"
     elseif isDruid then
         for _, form in ipairs(ESCAPE_FORM_SPELLS) do
-            if PlayerHasForm(form.id) then
+            local allowed = form.id ~= 1066 or db.useAquaticCost
+            if allowed and PlayerHasForm(form.id) then
                 local cost = GetManaCostFromSpell(form.id)
                 if IsReadableNumber(cost) and cost > 0 then
                     travelCost = cost
@@ -1244,7 +1257,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "Druid Forever Manabar Plus"
-panel:SetSize(460, 200)
+panel:SetSize(460, 240)
 
 local settingsCategory
 
@@ -1285,7 +1298,10 @@ local personalResourceCheckbox = CreateCheckbox("DFMPPersonalResourceCheckbox", 
     "Enable for Personal Resource Display", "enablePersonalResource")
 
 local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-note:SetPoint("TOPLEFT", personalResourceCheckbox, "BOTTOMLEFT", 0, -12)
+local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", personalResourceCheckbox,
+    "Use Aquatic Form's cost for the travel section when Travel Form isn't learned", "useAquaticCost")
+
+note:SetPoint("TOPLEFT", aquaticCheckbox, "BOTTOMLEFT", 0, -12)
 note:SetWidth(420)
 note:SetJustifyH("LEFT")
 note:SetText("The mana text follows the Player Frame's Status Text setting (Options > Interface).")
@@ -1293,6 +1309,7 @@ note:SetText("The mana text follows the Player Frame's Status Text setting (Opti
 panel:SetScript("OnShow", function()
     playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
     personalResourceCheckbox:SetChecked(db.enablePersonalResource)
+    aquaticCheckbox:SetChecked(db.useAquaticCost)
 end)
 
 if Settings and Settings.RegisterCanvasLayoutCategory then
