@@ -168,7 +168,7 @@ local WINDOW_DEFAULTS = {
     healthPercent = 50,
     holdSeconds = 5,    -- and keep showing this long after mana goes back above
     clickable = true,   -- fixed windows: click the Primary to cast
-    targets = { pvp = true, npcs = true, none = true }, -- what the fight is against (see lastEnemy)
+    fight = "all",      -- with onlyInCombat: "pvp", "pve" or "all" (see fightKind)
 }
 
 local function NewId()
@@ -202,10 +202,17 @@ local function MoveSequencesToLibrary()
         if window.clickable == nil then
             window.clickable = db.clickable ~= false
         end
-        -- "Players and their pets" became "PvP targets".
-        if window.targets.players ~= nil then
-            window.targets.pvp = window.targets.players
-            window.targets.players = nil
+        -- The per-kind target ticks became one choice of fight: PvP, PvE or all.
+        if window.targets then
+            local t = window.targets
+            local pvpFlag = t.pvp
+            if pvpFlag == nil then
+                pvpFlag = t.players
+            end
+            local pvp = pvpFlag ~= false
+            local pve = t.npcs ~= false
+            window.fight = (pvp and not pve) and "pvp" or (pve and not pvp) and "pve" or "all"
+            window.targets = nil
         end
     end
     for _, def in ipairs(db.library) do
@@ -2197,13 +2204,13 @@ local function ManaAgo(now, seconds)
     return samples[1].mana
 end
 
--- What the fight is against, from your last living non-friendly target (hostile or neutral):
--- "pvp" (a PvP-flagged unit, or anything a player controls: players, pets, totems, summons),
--- "npc", or "none" (none yet, or it died). Friendly targets, yourself included, never change
--- it. In combat it only moves towards "pvp": re-targeting, or a target dying, during the same
--- fight doesn't switch it back, so windows don't flick on and off. It settles again when
--- combat ends.
-local lastEnemy = "none"
+-- What the current fight is against: "pvp" or "pve". It starts from your target when combat
+-- starts (PvE if that isn't a living non-friendly PvP unit), and in combat only ever moves to
+-- PvP, when you target a PvP unit: anything PvP-flagged (players, guards and other PvP NPCs)
+-- or controlled by a player (pets, totems, summons). Friendly targets, yourself included,
+-- and targets dying don't change it, so windows don't flick on and off mid-fight. Only used
+-- in combat, by dynamic windows set to show only in combat.
+local fightKind = "pve"
 local inFight = false
 
 local function Flag(fn, unit)
@@ -2236,30 +2243,16 @@ local function TargetKind()
 end
 
 local function ReadTarget()
-    local kind = TargetKind()
-    if not kind then
-        return
-    end
-    if inFight then
-        if kind == "pvp" or (kind == "npc" and lastEnemy == "none") then
-            lastEnemy = kind
-        end
-    else
-        lastEnemy = kind == "dead" and "none" or kind
+    if inFight and TargetKind() == "pvp" then
+        fightKind = "pvp"
     end
 end
 
 local function SetInFight(fighting)
     inFight = fighting
-    if not fighting then
-        -- The fight is over: start again from what you're targeting now.
-        local kind = TargetKind()
-        lastEnemy = (kind == "pvp" or kind == "npc") and kind or "none"
-    end
-    ReadTarget()
+    -- Each fight starts from what you're targeting as it begins.
+    fightKind = (fighting and TargetKind() == "pvp") and "pvp" or "pve"
 end
-
-local TARGET_KEYS = { pvp = "pvp", npc = "npcs", none = "none" }
 
 local function FullSwitch(switch)
     switch:SetMinMaxValues(-2, -1)
@@ -2312,8 +2305,8 @@ local function UpdateGates(now, mana)
             end
             root.gatesUsed = used
 
-            local targets = window.targets or {}
-            local show = editorOpen or root.fixed or targets[TARGET_KEYS[lastEnemy]] ~= false
+            local fight = window.onlyInCombat and window.fight or "all"
+            local show = editorOpen or root.fixed or fight == "all" or fight == fightKind
             if root.content:IsShown() ~= show then
                 root.content:SetShown(show)
             end
@@ -2802,7 +2795,7 @@ local function PrintDebug()
     end
     local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
     Print(string.format("health=%s (secret=%s), max health=%s, fighting=%s (in combat=%s)",
-        Describe(health), tostring(IsSecret(health)), Describe(maxHealth), lastEnemy, tostring(inFight)))
+        Describe(health), tostring(IsSecret(health)), Describe(maxHealth), fightKind, tostring(inFight)))
     if UnitExists("target") then
         local okA, canAttack = pcall(UnitCanAttack, "player", "target")
         Print(string.format("target: can attack=%s, dead=%s, player-controlled=%s, PvP flagged=%s, free-for-all=%s -> %s",
@@ -2820,15 +2813,11 @@ local function PrintDebug()
                 window.name or "?", window.type, tostring(window.enabled), tostring(window.onlyInCombat),
                 tostring(root:IsShown())))
             if not root.fixed then
-                local targets = {}
-                for key, on in pairs(window.targets or {}) do
-                    if on then targets[#targets + 1] = key end
-                end
-                table.sort(targets)
-                print(string.format("  mana threshold=%s (%s), health threshold=%s (%s%%), hold=%ss, switches used=%s, targets: %s, rows shown for target=%s",
+                print(string.format("  mana threshold=%s (%s), health threshold=%s (%s%%), hold=%ss, switches used=%s, fight against=%s%s, rows shown for this fight=%s",
                     tostring(window.manaGate), tostring(root.manaThreshold), tostring(window.healthGate),
                     tostring(window.healthPercent), tostring(window.holdSeconds), tostring(root.gatesUsed),
-                    table.concat(targets, ", "), tostring(root.content:IsShown())))
+                    tostring(window.fight), window.onlyInCombat and "" or " (off: not only-in-combat)",
+                    tostring(root.content:IsShown())))
             end
             for _, group in ipairs(root.groups) do
                 print(string.format("  \"%s\"%s", group.name, group.collapsed and " (closed up: nothing to show)" or ""))

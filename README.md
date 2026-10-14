@@ -99,13 +99,15 @@ for switching back, but only the current type's are used):
   - *Mana*: below the dearest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
     affording it, and stays up for a few seconds (up to 10) after mana goes back above.
   - *Health*: below a percentage. With both ticked, the window shows when either is low.
-  - *Targets*: what the fight is against, from your last living non-friendly target (hostile or neutral): *PvP*
-    (anything PvP-flagged, such as players, guards and other PvP NPCs, or anything a player controls: pets, totems,
-    summons), *NPCs*, or *none* (none yet, or it died). Friendly targets, yourself included, never change it, so
-    healing yourself mid-fight keeps the window up. In combat it only ever moves towards PvP: once a PvP target turns
-    up, the fight counts as PvP until combat ends, so re-targeting or a target dying doesn't flick windows on and
-    off. When combat ends it starts again from your current target. Useful for sequences with cooldowns or
-    consumables you'd only spend in PvP.
+  - *Fight against* (with *only show in combat*; greyed out without it): *PvP*, *PvE* or *All*. A fight starts
+    from your target as combat begins, and is PvE unless that's a PvP unit (anything PvP-flagged, such as players,
+    guards and other PvP NPCs, or anything a player controls: pets, totems, summons). In combat it only ever turns
+    to PvP, when you target a PvP unit, and stays PvP until combat ends; friendly targets (yourself included) and
+    targets dying don't change it, so windows don't flick on and off mid-fight. A fight that starts with no enemy
+    targeted counts as PvE until a PvP target turns up, and a player hitting you without being targeted isn't
+    noticed (that would need the combat log, which Midnight restricts). Useful for sequences with cooldowns or
+    consumables you'd only spend in PvP. The window needs the right kind of fight *and* (if ticked) low mana or
+    health.
   - Mana and health are secret, so this is done with hidden status bars too: the window is still there, just drawn
     empty.
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.

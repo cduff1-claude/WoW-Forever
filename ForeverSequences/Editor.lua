@@ -1223,10 +1223,37 @@ local function CreateEditor()
     end)
     f.windowClick:SetPoint("LEFT", f.onlyInCombat.label, "RIGHT", 24, -1)
 
-    -- Dynamic windows only: thresholds and targets.
+    -- Dynamic windows only: what the fight is against, then the thresholds.
+    local fightRow = CreateFrame("Frame", nil, windowPanel)
+    fightRow:SetPoint("TOPLEFT", 24, -54)
+    fightRow:SetSize(480, 22)
+    f.fightRow = fightRow
+    f.fightLabel = NewLabel(fightRow, "Fight against:", "GameFontHighlightSmall")
+    f.fightLabel:SetPoint("LEFT", 4, 0)
+    f.fightChecks = {}
+    local previousCheck
+    for _, choice in ipairs({ { "pvp", "PvP" }, { "pve", "PvE" }, { "all", "All" } }) do
+        local key = choice[1]
+        local check = NewCheck(fightRow, choice[2], function()
+            if selWindow then
+                selWindow.fight = key
+                Changed()
+            end
+        end)
+        check.key = key
+        check:SetPoint("LEFT", previousCheck and previousCheck.label or f.fightLabel, "RIGHT", 12, previousCheck and -1 or 0)
+        f.fightChecks[#f.fightChecks + 1] = check
+        previousCheck = check
+    end
+    Tooltip(f.fightChecks[1], "PvP fights",
+        "A fight counts as PvP once you target anything PvP-flagged (players, guards and other PvP NPCs) or " ..
+        "controlled by a player (pets, totems, summons), and stays PvP until combat ends. Until then it's PvE, " ..
+        "including when it starts with no enemy targeted. Friendly targets, yourself included, never count.")
+    Tooltip(f.fightChecks[2], "PvE fights", "Fights that haven't turned PvP (see PvP).")
+
     local gates = CreateFrame("Frame", nil, windowPanel)
-    gates:SetPoint("TOPLEFT", 0, -56)
-    gates:SetSize(520, 140)
+    gates:SetPoint("TOPLEFT", 0, -80)
+    gates:SetSize(520, 70)
     f.gates = gates
 
     f.manaGate = NewCheck(gates, "Only show when mana is below the dearest sequence's need, plus", function(checked)
@@ -1275,28 +1302,6 @@ local function CreateEditor()
     f.healthPercent:SetPoint("LEFT", f.healthGate.label, "RIGHT", 10, 0)
     local healthPercentLabel = NewLabel(gates, "%   (with both ticked, it shows when either is low)", "GameFontHighlightSmall")
     healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
-
-    local targetsLabel = NewLabel(gates, "Show when the fight is against (your last living non-friendly target):", "GameFontHighlightSmall")
-    targetsLabel:SetPoint("TOPLEFT", 4, -80)
-    local function TargetCheck(key, label)
-        return NewCheck(gates, label, function(checked)
-            if selWindow then
-                selWindow.targets = selWindow.targets or {}
-                selWindow.targets[key] = checked
-                Changed()
-            end
-        end)
-    end
-    f.targetPlayers = TargetCheck("pvp", "PvP targets")
-    f.targetPlayers:SetPoint("TOPLEFT", 0, -94)
-    f.targetNPCs = TargetCheck("npcs", "NPCs")
-    f.targetNPCs:SetPoint("LEFT", f.targetPlayers.label, "RIGHT", 16, -1)
-    f.targetNone = TargetCheck("none", "None yet, or it died")
-    f.targetNone:SetPoint("LEFT", f.targetNPCs.label, "RIGHT", 16, -1)
-    Tooltip(f.targetPlayers, "PvP targets",
-        "Anything PvP-flagged (players, guards and other PvP NPCs) or controlled by a player (pets, totems, " ..
-        "summons). Once one turns up in a fight, the fight counts as PvP until combat ends, so re-targeting " ..
-        "doesn't flick windows on and off. Friendly targets, yourself included, never count.")
 
     f.divider = f:CreateTexture(nil, "ARTWORK")
     f.divider:SetColorTexture(1, 0.82, 0, 0.25)
@@ -1536,11 +1541,16 @@ local function CreateEditor()
                         box:SetText(tostring(selWindow[key] or 0))
                     end
                 end
-                local targets = selWindow.targets or {}
-                self.targetPlayers:SetChecked(targets.pvp ~= false)
-                self.targetNPCs:SetChecked(targets.npcs ~= false)
-                self.targetNone:SetChecked(targets.none ~= false)
             end
+            -- Only applies with "only show in combat": greyed out without it.
+            self.fightRow:SetShown(dynamic)
+            local inCombatOnly = selWindow.onlyInCombat and true or false
+            for _, check in ipairs(self.fightChecks) do
+                check:SetChecked((selWindow.fight or "all") == check.key)
+                check:SetEnabled(inCombatOnly)
+                check.label:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
+            end
+            self.fightLabel:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
         end
         self.divider:Hide()
 
