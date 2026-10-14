@@ -85,11 +85,11 @@ each cost is taken. Everything is read from the game, not hard-coded:
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
 sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
 makes an independent copy to change for another window. Each window is named, can be turned off, remembers its
-position, and is one of:
+position, and is one of (chosen when you make the window; it can't be changed later):
 - **Dynamic:** one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
-- **Fixed:** the Primary is always shown and can be clicked to cast (one icon per click; forms as `/cast !Form`, so
+- **Fixed:** the Primary is always shown and, if the window's *click the Primary to cast* is ticked, can be clicked to cast (one icon per click; forms as `/cast !Form`, so
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
@@ -140,8 +140,8 @@ window is shown and can be dragged to move it; they lock again when the options 
 - Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
   options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence
   picked in the library: its name, *hide when unusable* and which windows use it; the
-  Primary and the sub-sequences, each labelled "Mana cost: X (Y gained)": X is its total cost, Y the mana regained
-  before its last icon plus any potions or other restores in it. Sub-sequences are listed by mana cost, dearest
+  Primary and the sub-sequences, each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the mana regained
+  before its last icon plus any potions or other restores in it (shown negative, as it comes off the cost). Sub-sequences are listed by mana cost, dearest
   first, each time the options open, in a scrolling list.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
   section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), then usable
@@ -156,8 +156,10 @@ window is shown and can be dragged to move it; they lock again when the options 
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
   spell to step down through the ranks you know, and back round to your highest.
-- Bottom: *click a fixed window's Primary to cast*, and the regen mode.
+- Bottom: the regen mode.
 - Changes made in combat reach the windows when combat ends.
+- If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5
+  seconds, rather than repeating many times a second.
 
 Druids only. Older settings move into a dynamic "Main" window, plus a fixed "Clickable" window for sequences that had
 *always show Primary*. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from

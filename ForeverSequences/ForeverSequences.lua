@@ -126,7 +126,6 @@ local db = ForeverSequencesDB
 
 local DEFAULTS = {
     regenMode = "smooth", -- "smooth" (Forever's regen), "ticks" (2-second ticks, worst timing) or "off"
-    clickable = true,     -- click a fixed window's Primary to cast
 }
 
 local function CopyTable(t)
@@ -168,6 +167,7 @@ local WINDOW_DEFAULTS = {
     healthGate = false, -- show only when health is below healthPercent %
     healthPercent = 50,
     holdSeconds = 5,    -- and keep showing this long after mana goes back above
+    clickable = true,   -- fixed windows: click the Primary to cast
     targets = { pvp = true, npcs = true, none = true }, -- what the fight is against (see lastEnemy)
 }
 
@@ -198,6 +198,9 @@ local function MoveSequencesToLibrary()
             if window[key] == nil then
                 window[key] = type(value) == "table" and CopyTable(value) or value
             end
+        end
+        if window.clickable == nil then
+            window.clickable = db.clickable ~= false
         end
         -- "Players and their pets" became "PvP targets".
         if window.targets.players ~= nil then
@@ -455,11 +458,19 @@ local function GetGlobalCooldown(spellID)
     return nil
 end
 
+-- Item spells' descriptions can be empty until the game has loaded them (mana potions at
+-- login); asking for one that's missing loads it, and SPELL_DATA_LOAD_RESULT says when.
+local descriptionsPending = false
+
 local function GetDescription(spellID)
     if spellID and C_Spell and C_Spell.GetSpellDescription then
         local ok, text = pcall(C_Spell.GetSpellDescription, spellID)
-        if ok then
-            return Text(text)
+        if ok and Text(text) then
+            return text
+        end
+        if C_Spell.RequestLoadSpellData then
+            pcall(C_Spell.RequestLoadSpellData, spellID)
+            descriptionsPending = true
         end
     end
     return nil
@@ -1200,7 +1211,7 @@ local function ApplyAction(cell)
         cell:SetAttribute("macrotext", table.concat(lines, "\n"))
     end
     -- Left clicks pass through when clicking is off; right-click still opens the options.
-    if db.clickable then
+    if cell.window and cell.window.clickable ~= false then
         SetPassThrough(cell)
     else
         SetPassThrough(cell, "LeftButton")
@@ -1351,9 +1362,11 @@ local function CreateRow(group, parent, line, def, size, label, secure)
     rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
     rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - GLOW_SIZE * 2), size)
     local row = { frame = rowFrame, group = group, def = def, label = label, cells = {}, total = 0 }
+    local window = group.root and group.root.window
     for i, entry in ipairs(def.entries) do
         local cell = CreateCell(row, i, size, secure)
         cell.entry = entry
+        cell.window = window
         row.cells[i] = cell
     end
     rows[#rows + 1] = row
@@ -2202,21 +2215,46 @@ local function Refresh()
     UpdateMana()
 end
 
+-- An error in the update loop would repeat 20 times a second; report it once and pause.
+local ERROR_PAUSE = 5
+local pausedUntil = 0
+local lastError
+
+local function Guarded(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        pausedUntil = GetTime() + ERROR_PAUSE
+        if err ~= lastError then
+            lastError = err
+            Print("|cffff6060error, pausing updates for " .. ERROR_PAUSE .. "s:|r " .. tostring(err))
+        end
+    end
+end
+
+local function Periodic()
+    RefreshEntries()
+    UpdateCooldowns()
+    UpdateClearcasting()
+    if descriptionsPending then
+        -- Some descriptions weren't loaded; look at the bags again (mana potions).
+        descriptionsPending = false
+        ScanBags()
+    end
+end
+
 driver:SetScript("OnUpdate", function(_, elapsed)
-    if not active then
+    if not active or GetTime() < pausedUntil then
         return
     end
     refreshElapsed = refreshElapsed + elapsed
     if refreshElapsed >= REFRESH then
         refreshElapsed = 0
-        RefreshEntries()
-        UpdateCooldowns()
-        UpdateClearcasting()
+        Guarded(Periodic)
     end
     tickElapsed = tickElapsed + elapsed
     if tickElapsed >= TICK then
         tickElapsed = 0
-        UpdateMana()
+        Guarded(UpdateMana)
     end
 end)
 
@@ -2281,6 +2319,7 @@ driver:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 driver:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 driver:RegisterEvent("BAG_UPDATE_COOLDOWN")
 driver:RegisterEvent("BAG_UPDATE_DELAYED")
+driver:RegisterEvent("SPELL_DATA_LOAD_RESULT")
 driver:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -2365,7 +2404,7 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         Refresh()
         if ns.RefreshEditor then ns.RefreshEditor() end
-    elseif event == "BAG_UPDATE_DELAYED" then
+    elseif event == "BAG_UPDATE_DELAYED" or event == "SPELL_DATA_LOAD_RESULT" then
         ScanBags()
         Refresh()
         if ns.RefreshEditor then ns.RefreshEditor() end
@@ -2542,8 +2581,8 @@ function ns.SaveAsClassDefault()
 end
 
 -- Clicking on/off, from the options. Secure buttons only change out of combat.
-function ns.SetClickable(value)
-    db.clickable = value
+function ns.SetClickable(window, value)
+    window.clickable = value
     for _, row in ipairs(rows) do
         for _, cell in ipairs(row.cells) do
             cell.actionPending = true

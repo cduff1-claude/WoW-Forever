@@ -483,7 +483,8 @@ local function CostText(entries)
         return "|cffff8080Not learned yet: " .. table.concat(missing, ", ") .. "|r (left out of windows until then)"
     end
     local cost, gained = ns.CostSummary(entries)
-    return string.format("Mana cost: %d (%d gained)", cost, gained)
+    -- The gain is shown negative: it comes off the cost.
+    return string.format("Mana cost: %d (%s gained)", cost, gained ~= 0 and ("-" .. gained) or "0")
 end
 
 ----------------------------------------------------------------------------------------------
@@ -525,12 +526,33 @@ local function Confirm(text, data)
     end
 end
 
-local function NewWindow()
+-- A window's type is chosen when it's made and can't be changed afterwards.
+local function AddWindow(windowType)
     local list = Windows()
     local window = ns.NewWindow("Window " .. (#list + 1))
+    window.type = windowType
     list[#list + 1] = window
     selWindow, selItem, selSeq = window, nil, nil
     Changed()
+end
+
+StaticPopupDialogs["FOREVERSEQUENCES_NEW_WINDOW"] = {
+    text = "New window. Which type?\n\nDynamic: one row per sequence, showing whichever of its sequences fits " ..
+        "your mana; can show only when mana or health is low, or for some targets.\n\nFixed: the Primary is " ..
+        "always shown and can be clicked to cast. Nothing moves.\n\nThe type can't be changed later.",
+    button1 = "Dynamic",
+    button2 = CANCEL or "Cancel",
+    button3 = "Fixed",
+    OnAccept = function() AddWindow("dynamic") end,
+    OnAlt = function() AddWindow("fixed") end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+local function NewWindow()
+    StaticPopup_Show("FOREVERSEQUENCES_NEW_WINDOW")
 end
 
 -- Show a library sequence in a window, before `beforeIndex` (default: at the end).
@@ -1171,14 +1193,14 @@ local function CreateEditor()
         end
     end)
     f.windowName:SetPoint("LEFT", windowLabel, "RIGHT", 12, 0)
-    f.windowType = NewButton(windowPanel, "", 190, function()
-        if selWindow then
-            selWindow.type = selWindow.type == "fixed" and "dynamic" or "fixed"
-            Changed()
-        end
-    end)
+    -- The type is set when the window is made; shown here, not changeable.
+    f.windowType = CreateFrame("Frame", nil, windowPanel)
+    f.windowType:SetSize(190, 22)
     f.windowType:SetPoint("LEFT", f.windowName, "RIGHT", 10, 0)
-    Tooltip(f.windowType, "Window type",
+    f.windowType:EnableMouse(true)
+    f.windowTypeText = NewLabel(f.windowType, "", "GameFontHighlight")
+    f.windowTypeText:SetPoint("LEFT", 0, 0)
+    Tooltip(f.windowType, "Window type (set when the window was made)",
         "Dynamic: one row per sequence, showing whichever of its sequences fits your mana; rows close up " ..
         "when a sequence has nothing to show. Can show only when mana or health is low, or for some targets.\n" ..
         "Fixed: the Primary is always shown and can be clicked to cast, with the best sub-sequence under it. " ..
@@ -1190,6 +1212,12 @@ local function CreateEditor()
         end
     end)
     f.onlyInCombat:SetPoint("TOPLEFT", 0, -30)
+    f.windowClick = NewCheck(windowPanel, "Click the Primary to cast", function(checked)
+        if selWindow then
+            ns.SetClickable(selWindow, checked)
+        end
+    end)
+    f.windowClick:SetPoint("LEFT", f.onlyInCombat.label, "RIGHT", 24, -1)
 
     -- Dynamic windows only: thresholds and targets.
     local gates = CreateFrame("Frame", nil, windowPanel)
@@ -1299,7 +1327,7 @@ local function CreateEditor()
         "windows always show the Primary.")
     f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
     f.usedIn:SetPoint("TOPLEFT", 0, -26)
-    f.usedIn:SetPoint("RIGHT", detail, "RIGHT", 0, 0)
+    f.usedIn:SetPoint("RIGHT", detail, "RIGHT", -130, 0)
     f.usedIn:SetJustifyH("LEFT")
 
     local primaryLabel = NewLabel(detail, "Primary")
@@ -1376,7 +1404,7 @@ local function CreateEditor()
         selWindow, selItem = nil, nil
         f:Refresh()
     end)
-    f.editButton:SetPoint("TOPRIGHT", 0, -2)
+    f.editButton:SetPoint("TOPRIGHT", 0, -22)
 
     local hint = NewLabel(detail,
         "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
@@ -1392,10 +1420,7 @@ local function CreateEditor()
     f.empty:SetPoint("CENTER", detail, "CENTER")
 
     -- Bottom: options for every window.
-    f.click = NewCheck(f, "Click a fixed window's Primary to cast", function(checked)
-        ns.SetClickable(checked)
-    end)
-    f.click:SetPoint("BOTTOMLEFT", LEFT, 22)
+
     f.regen = NewButton(f, "", 150, function()
         local current = 1
         for i, mode in ipairs(REGEN_MODES) do
@@ -1406,7 +1431,7 @@ local function CreateEditor()
         ns.SetRegenMode(REGEN_MODES[current % #REGEN_MODES + 1])
         f:Refresh()
     end)
-    f.regen:SetPoint("LEFT", f.click.label, "RIGHT", 24, 1)
+    f.regen:SetPoint("BOTTOMLEFT", LEFT, 22)
     Tooltip(f.regen, "Mana regen during a sequence",
         "Smooth: a steady flow (Forever's regen). 2s ticks: mana in 2-second ticks with the worst timing. " ..
         "Off: ignore regen.")
@@ -1493,7 +1518,9 @@ local function CreateEditor()
             if not self.windowName:HasFocus() then
                 self.windowName:SetText(selWindow.name or "")
             end
-            self.windowType:SetText(selWindow.type == "fixed" and "Fixed (click to cast)" or "Dynamic")
+            self.windowTypeText:SetText(selWindow.type == "fixed" and "Type: Fixed" or "Type: Dynamic")
+            self.windowClick:SetShown(selWindow.type == "fixed")
+            self.windowClick:SetChecked(selWindow.clickable ~= false)
             self.onlyInCombat:SetChecked(selWindow.onlyInCombat and true or false)
             self.gates:SetShown(dynamic)
             if dynamic then
@@ -1558,7 +1585,6 @@ local function CreateEditor()
         end
 
         self.profileButton:SetText(ProfileLabel(ns.CurrentProfile() or "?"))
-        self.click:SetChecked(ns.db.clickable and true or false)
         self.regen:SetText(REGEN_LABELS[ns.db.regenMode] or ns.db.regenMode)
         self.picker:Refresh()
     end
