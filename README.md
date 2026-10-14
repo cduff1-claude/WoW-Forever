@@ -113,6 +113,18 @@ position, and is one of:
   cooldown* (offered only where a spell or item has a cooldown of its own, and not for a fixed window's Primary) drops
   that sequence or sub-sequence out while that's true, and the next one shows.
 - **Ranks:** a spell follows your highest rank. A pinned lower rank shows "R3" on its icon.
+- **Spells not learned yet** (on an alt, say): a sequence whose Primary has one is left out of its windows, and a
+  sub-sequence with one is left out while the rest of the sequence works. They come in as soon as you learn the spell.
+  The editor shows them greyed out and says what's missing instead of a mana cost. (Spells added before this version
+  show a question mark until learned, since their icon wasn't saved.)
+
+**Profiles.** Windows, sequences, window positions and options are saved in a profile, shared across your account and
+tagged with its class. Each character uses one of its class's profiles (the button at the top of the options):
+switch, make a copy, rename, delete, or *save this profile as the class default*. A character without a profile (a
+new one, say) starts with its own copy of the class default, window positions included, so a level 1 alt needs no
+setup, and editing it never changes the class default. To tidy up the class default itself (take out bag items,
+say), switch to it, edit, and switch back. Settings from before profiles become a "Default" profile for the first
+character to log in, with a copy as the class default.
 
 **Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). While they're open, every
 window is shown and can be dragged to move it; they lock again when the options close.

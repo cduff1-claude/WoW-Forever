@@ -74,8 +74,10 @@ local REPLACED_BY = {
     ["Bear Form"] = "Dire Bear Form",
 }
 
-local function Spell(name, rank)
-    return { kind = "spell", name = name, rank = rank }
+-- spellID is any rank's ID, kept so the icon and name still show on a character that hasn't
+-- learned the spell yet.
+local function Spell(name, rank, spellID)
+    return { kind = "spell", name = name, rank = rank, spellID = spellID }
 end
 
 -- Starting windows and sequences, until you make your own in the editor. Dynamic windows
@@ -591,6 +593,14 @@ local function ResolveEntry(entry)
     local info = { kind = entry.kind }
     if entry.kind == "spell" then
         info.spellID, info.rank, info.maxRank, info.known = ResolveSpell(entry.name, entry.rank)
+        if not info.known and next(spellbook) == nil then
+            info.known = nil -- the spellbook couldn't be read: don't treat everything as unlearned
+        end
+        if info.known then
+            entry.spellID = info.spellID
+        elseif entry.spellID then
+            info.spellID = entry.spellID
+        end
         info.name = entry.name
         info.icon = GetSpellIcon(info.spellID)
         info.available = true
@@ -610,6 +620,28 @@ local function ResolveEntry(entry)
     return info
 end
 ns.ResolveEntry = ResolveEntry
+
+-- Whether every spell in a list of entries has been learned. Items and potions don't count:
+-- not having them greys the icon instead.
+function ns.AllLearned(entries)
+    for _, entry in ipairs(entries) do
+        if entry.kind == "spell" and ResolveEntry(entry).known == false then
+            return false
+        end
+    end
+    return true
+end
+
+-- Names of the spells in a list of entries that haven't been learned yet.
+function ns.Unlearned(entries)
+    local names = {}
+    for _, entry in ipairs(entries) do
+        if entry.kind == "spell" and ResolveEntry(entry).known == false then
+            names[#names + 1] = entry.name
+        end
+    end
+    return names
+end
 
 -- The rank label for an icon: "R3" when a lower rank than your best is pinned.
 function ns.RankText(info)
@@ -634,9 +666,9 @@ function ns.EntryFromCursor()
         local rank = rankOfSpell[spellID]
         local entry = BookEntry(name)
         if rank and entry and rank > 0 and rank < entry.maxRank then
-            return Spell(name, rank)
+            return Spell(name, rank, spellID)
         end
-        return Spell(name)
+        return Spell(name, nil, spellID)
     elseif kind == "item" and IsReadableNumber(first) then
         if not GetItemUseSpell(first) then
             return nil, "that item has no use effect."
@@ -746,7 +778,7 @@ function ns.PickerEntries(filter)
         local section = Section(line.name ~= "" and line.name or "Spells")
         for _, name in ipairs(line.spells) do
             local spellID = spellbook[name].maxID
-            Add(section, Spell(name), GetSpellIcon(spellID), name, SpellSummary(spellID))
+            Add(section, Spell(name, nil, spellID), GetSpellIcon(spellID), name, SpellSummary(spellID))
         end
     end
 
@@ -1210,12 +1242,14 @@ local function BuildWindow(root, window)
     for _, item in ipairs(window.items) do
         local def = ns.FindSequence(item.id)
         local subs = {}
+        -- A sequence waits until its Primary's spells are all learned; a sub-sequence with a
+        -- spell not learned yet is left out.
         for _, sub in ipairs(def and def.subs or {}) do
-            if #sub.entries > 0 then
+            if #sub.entries > 0 and ns.AllLearned(sub.entries) then
                 subs[#subs + 1] = sub
             end
         end
-        if def and item.enabled and #def.entries > 0 then
+        if def and item.enabled and #def.entries > 0 and ns.AllLearned(def.entries) then
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
@@ -1993,10 +2027,31 @@ end)
 -- Rebuilding moves and hides secure buttons, so in combat it waits for the end of combat.
 local pendingRebuild = false
 
+-- Which placed sequences and sub-sequences have all their spells learned; a change means the
+-- windows need rebuilding (a spell was learned, or unlearned by a talent reset).
+local learnedSignature = nil
+
+local function LearnedSignature()
+    local parts = {}
+    for _, window in ipairs(db.windows or {}) do
+        for _, item in ipairs(window.items or {}) do
+            local def = ns.FindSequence(item.id)
+            if def then
+                parts[#parts + 1] = ns.AllLearned(def.entries) and "1" or "0"
+                for _, sub in ipairs(def.subs) do
+                    parts[#parts + 1] = ns.AllLearned(sub.entries) and "1" or "0"
+                end
+            end
+        end
+    end
+    return table.concat(parts)
+end
+
 local function Rebuild()
     if not active then
         return
     end
+    learnedSignature = LearnedSignature()
     if InCombatLockdown() then
         if not pendingRebuild then
             Print("the windows will update after combat.")
@@ -2014,6 +2069,8 @@ ns.Rebuild = Rebuild
 ----------------------------------------------------------------------------------------------
 -- Events
 ----------------------------------------------------------------------------------------------
+
+local LoadProfile -- defined with the profiles below
 
 local function IsDruid()
     local _, class = UnitClass("player")
@@ -2048,16 +2105,8 @@ local manaEventTimes = {}
 
 driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
     if event == "PLAYER_LOGIN" then
-        -- SavedVariables are loaded by now; pick up the saved table.
-        ForeverSequencesDB = ForeverSequencesDB or {}
-        db = ForeverSequencesDB
-        ns.db = db
-        for key, value in pairs(DEFAULTS) do
-            if db[key] == nil then
-                db[key] = value
-            end
-        end
-        MigrateSettings()
+        -- SavedVariables are loaded by now: pick this character's profile.
+        LoadProfile()
         inFight = InCombatLockdown() and true or false
         active = IsDruid()
         ScanSpellbook()
@@ -2114,6 +2163,9 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         UpdateMana()
     elseif event == "SPELLS_CHANGED" or event == "UPDATE_SHAPESHIFT_FORMS" then
         ScanSpellbook()
+        if LearnedSignature() ~= learnedSignature then
+            Rebuild()
+        end
         Refresh()
         if ns.RefreshEditor then ns.RefreshEditor() end
     elseif event == "BAG_UPDATE_DELAYED" then
@@ -2124,6 +2176,173 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         Refresh()
     end
 end)
+
+----------------------------------------------------------------------------------------------
+-- Profiles
+----------------------------------------------------------------------------------------------
+
+-- ForeverSequencesDB (account-wide) holds the profiles, each tagged with its class, and each
+-- class's default profile. ForeverSequencesCharDB (per character) says which profile this
+-- character uses. A character without one (a new character, say) gets its own copy of its
+-- class default, window positions and all, so editing it never changes the class default.
+local root, charDB, playerClass, className
+
+local function ProfileName(base)
+    local name, n = base, 1
+    while root.profiles[name] do
+        n = n + 1
+        name = base .. " " .. n
+    end
+    return name
+end
+
+local function UseProfileTable(name)
+    db = root.profiles[name]
+    charDB.profile = name
+    ns.db = db
+    for key, value in pairs(DEFAULTS) do
+        if db[key] == nil then
+            db[key] = value
+        end
+    end
+    MigrateSettings()
+end
+
+LoadProfile = function()
+    ForeverSequencesDB = ForeverSequencesDB or {}
+    ForeverSequencesCharDB = ForeverSequencesCharDB or {}
+    root, charDB = ForeverSequencesDB, ForeverSequencesCharDB
+    root.profiles = root.profiles or {}
+    root.classDefaults = root.classDefaults or {}
+    className, playerClass = UnitClass("player")
+
+    -- Settings from before profiles were shared by every character: they become a profile
+    -- for whoever logs in first, and a copy becomes the class default.
+    if root.windows or root.sequences or root.library then
+        local old = {}
+        for key, value in pairs(root) do
+            if key ~= "profiles" and key ~= "classDefaults" then
+                old[key] = value
+            end
+        end
+        for key in pairs(old) do
+            root[key] = nil
+        end
+        old.class = playerClass
+        local name = ProfileName("Default")
+        root.profiles[name] = old
+        charDB.profile = charDB.profile or name
+        if not root.classDefaults[playerClass] then
+            local defaultName = ProfileName(className .. " class default")
+            root.profiles[defaultName] = CopyTable(old)
+            root.classDefaults[playerClass] = defaultName
+        end
+    end
+
+    local current = charDB.profile and root.profiles[charDB.profile]
+    if not (current and current.class == playerClass) then
+        local base = root.classDefaults[playerClass] and root.profiles[root.classDefaults[playerClass]]
+        local name = ProfileName(UnitName("player") .. " - " .. (GetRealmName() or "?"))
+        root.profiles[name] = base and CopyTable(base) or { class = playerClass }
+        root.profiles[name].class = playerClass
+        charDB.profile = name
+    end
+    UseProfileTable(charDB.profile)
+end
+
+function ns.CurrentProfile()
+    return charDB.profile
+end
+
+function ns.ClassDefault()
+    return root.classDefaults[playerClass]
+end
+
+-- This class's profiles, sorted.
+function ns.ProfileNames()
+    local names = {}
+    for name, profile in pairs(root.profiles) do
+        if profile.class == playerClass then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+local function AfterSwitch()
+    if ns.RefreshEditor then
+        ns.RefreshEditor()
+    end
+    Rebuild()
+end
+
+function ns.UseProfile(name)
+    if root.profiles[name] and root.profiles[name].class == playerClass and name ~= charDB.profile then
+        UseProfileTable(name)
+        AfterSwitch()
+    end
+end
+
+-- A copy of the current profile under a new name, and switch to it.
+function ns.NewProfile(name)
+    name = ProfileName(name ~= "" and name or "Profile")
+    root.profiles[name] = CopyTable(db)
+    UseProfileTable(name)
+    AfterSwitch()
+    return name
+end
+
+function ns.RenameProfile(name)
+    if name == "" or name == charDB.profile then
+        return
+    end
+    name = ProfileName(name)
+    local old = charDB.profile
+    root.profiles[name], root.profiles[old] = root.profiles[old], nil
+    for class, defaultName in pairs(root.classDefaults) do
+        if defaultName == old then
+            root.classDefaults[class] = name
+        end
+    end
+    charDB.profile = name
+    AfterSwitch()
+end
+
+-- Delete the current profile and switch to another of this class (or a fresh one).
+function ns.DeleteProfile()
+    local old = charDB.profile
+    root.profiles[old] = nil
+    if root.classDefaults[playerClass] == old then
+        root.classDefaults[playerClass] = nil
+    end
+    local others = ns.ProfileNames()
+    if others[1] then
+        UseProfileTable(others[1])
+    else
+        local name = ProfileName(UnitName("player") .. " - " .. (GetRealmName() or "?"))
+        root.profiles[name] = { class = playerClass }
+        UseProfileTable(name)
+    end
+    AfterSwitch()
+end
+
+-- Copy the current profile into this class's default (made if there isn't one yet).
+function ns.SaveAsClassDefault()
+    local name = root.classDefaults[playerClass]
+    if name == charDB.profile then
+        return name
+    end
+    if not (name and root.profiles[name]) then
+        name = ProfileName(className .. " class default")
+        root.classDefaults[playerClass] = name
+    end
+    root.profiles[name] = CopyTable(db)
+    if ns.RefreshEditor then
+        ns.RefreshEditor()
+    end
+    return name
+end
 
 -- Clicking on/off, from the options. Secure buttons only change out of combat.
 function ns.SetClickable(value)

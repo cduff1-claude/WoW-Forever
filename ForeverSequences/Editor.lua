@@ -438,6 +438,9 @@ local function RefreshSlotRow(row)
         if entry then
             local info = ns.ResolveEntry(entry)
             slot.icon:SetTexture(info.icon)
+            local unlearned = info.known == false
+            slot.icon:SetDesaturated(unlearned)
+            slot.icon:SetVertexColor(unlearned and 0.5 or 1, unlearned and 0.5 or 1, unlearned and 0.5 or 1)
             slot.icon:Show()
             slot.plus:Hide()
             slot.rank:SetText(ns.RankText(info) or "")
@@ -458,6 +461,10 @@ end
 local function CostText(entries)
     if not entries or #entries == 0 then
         return ""
+    end
+    local missing = ns.Unlearned(entries)
+    if #missing > 0 then
+        return "|cffff8080Not learned yet: " .. table.concat(missing, ", ") .. "|r (left out of windows until then)"
     end
     local cost, gained = ns.CostSummary(entries)
     return string.format("Mana cost: %d (%d gained)", cost, gained)
@@ -873,6 +880,150 @@ local function CreatePicker(f)
     return picker
 end
 
+----------------------------------------------------------------------------------------------
+-- Profiles
+----------------------------------------------------------------------------------------------
+
+local function PopupEditBox(popup)
+    return popup.editBox or popup.EditBox or (popup.GetEditBox and popup:GetEditBox())
+end
+
+StaticPopupDialogs["FOREVERSEQUENCES_PROFILE_NAME"] = {
+    text = "%s",
+    button1 = ACCEPT or "Accept",
+    button2 = CANCEL or "Cancel",
+    hasEditBox = 1,
+    maxLetters = 40,
+    OnShow = function(self, data)
+        local box = PopupEditBox(self)
+        if box and data then
+            box:SetText(data.text or "")
+            box:HighlightText()
+        end
+    end,
+    OnAccept = function(self, data)
+        local box = PopupEditBox(self)
+        local text = box and box:GetText() or ""
+        if data and text ~= "" then
+            data.action(text)
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local popup = self:GetParent()
+        local text = self:GetText()
+        if popup.data and text ~= "" then
+            popup.data.action(text)
+        end
+        popup:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["FOREVERSEQUENCES_CONFIRM"] = {
+    text = "%s",
+    button1 = YES or "Yes",
+    button2 = NO or "No",
+    OnAccept = function(_, data)
+        if data then
+            data()
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+local function AskName(prompt, text, action)
+    local popup = StaticPopup_Show("FOREVERSEQUENCES_PROFILE_NAME", prompt, nil, { text = text, action = action })
+    if popup then
+        popup.data = { text = text, action = action }
+        local box = PopupEditBox(popup)
+        if box then
+            box:SetText(text or "")
+            box:HighlightText()
+        end
+    end
+end
+
+local function AskConfirm(text, action)
+    local popup = StaticPopup_Show("FOREVERSEQUENCES_CONFIRM", text)
+    if popup then
+        popup.data = action
+    end
+end
+
+local function ProfileLabel(name)
+    return name == ns.ClassDefault() and (name .. " (class default)") or name
+end
+
+local function ProfileActions()
+    return {
+        { text = "New profile (a copy of this one)...", action = function()
+            AskName("Name for the new profile (a copy of this one):", ns.CurrentProfile() .. " copy", function(name)
+                ns.NewProfile(name)
+            end)
+        end },
+        { text = "Rename this profile...", action = function()
+            AskName("New name for this profile:", ns.CurrentProfile(), function(name)
+                ns.RenameProfile(name)
+            end)
+        end },
+        { text = "Save this profile as the class default", action = function()
+            local existing = ns.ClassDefault()
+            local function Save()
+                local name = ns.SaveAsClassDefault()
+                Print("saved as the class default (\"" .. name .. "\"). New characters of this class start with a copy.")
+            end
+            if existing and existing ~= ns.CurrentProfile() then
+                AskConfirm("Replace the class default (\"" .. existing .. "\") with a copy of this profile?", Save)
+            else
+                Save()
+            end
+        end },
+        { text = "Delete this profile", action = function()
+            AskConfirm("Delete the profile \"" .. ns.CurrentProfile() .. "\"?", function()
+                ns.DeleteProfile()
+            end)
+        end },
+    }
+end
+
+local function OpenProfileMenu(owner)
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
+            rootDescription:CreateTitle("Profiles (" .. (UnitClass("player")) .. ")")
+            for _, name in ipairs(ns.ProfileNames()) do
+                rootDescription:CreateRadio(ProfileLabel(name),
+                    function() return name == ns.CurrentProfile() end,
+                    function() ns.UseProfile(name) end)
+            end
+            rootDescription:CreateDivider()
+            for _, item in ipairs(ProfileActions()) do
+                rootDescription:CreateButton(item.text, item.action)
+            end
+        end)
+    else
+        -- No menu API: cycle through this class's profiles.
+        local names = ns.ProfileNames()
+        local index = 1
+        for i, name in ipairs(names) do
+            if name == ns.CurrentProfile() then
+                index = i
+            end
+        end
+        if #names > 1 then
+            ns.UseProfile(names[index % #names + 1])
+        end
+    end
+end
+
 local function NewNumberBox(parent, onSave)
     local box = NewEditBox(parent, 32, function(text)
         local value = tonumber(text)
@@ -904,6 +1055,17 @@ local function CreateEditor()
     title:SetPoint("TOP", 0, -18)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -6, -6)
+
+    local profileLabel = NewLabel(f, "Profile", "GameFontNormalSmall")
+    profileLabel:SetPoint("TOPLEFT", LEFT + 4, -20)
+    f.profileButton = NewButton(f, "", 200, function(self)
+        OpenProfileMenu(self)
+    end)
+    f.profileButton:SetPoint("LEFT", profileLabel, "RIGHT", 6, 0)
+    Tooltip(f.profileButton, "Profiles",
+        "Windows and sequences are saved per profile. Every character of a class can use any of that class's " ..
+        "profiles. A character without one starts with its own copy of the class default, window positions and " ..
+        "all; editing it never changes the class default. To tidy up the class default itself, switch to it here.")
 
     -- Left, top: windows and the sequences they show.
     local windowsLabel = NewLabel(f, "Windows")
@@ -1217,7 +1379,9 @@ local function CreateEditor()
                 if isWindow then
                     row.text:SetText((data.window.name or "?") .. (data.window.type == "fixed" and " (fixed)" or " (dynamic)"))
                 else
-                    row.text:SetText(data.def.name or "?")
+                    local learned = ns.AllLearned(data.def.entries)
+                    row.text:SetText(learned and (data.def.name or "?") or
+                        ("|cff808080" .. (data.def.name or "?") .. " (not learned)|r"))
                 end
                 row.enabled:SetChecked(target.enabled and true or false)
                 local selected = (isWindow and data.window == selWindow and selItem == nil)
@@ -1241,7 +1405,9 @@ local function CreateEditor()
             row.def = def
             if def then
                 local used = #UsedIn(def)
-                row.text:SetText((def.name or "?") .. (used > 0 and ("  |cff808080(" .. used .. ")|r") or "  |cff808080(unused)|r"))
+                local learned = ns.AllLearned(def.entries)
+                row.text:SetText((learned and "" or "|cff808080") .. (def.name or "?") .. (learned and "" or "|r") ..
+                    (used > 0 and ("  |cff808080(" .. used .. ")|r") or "  |cff808080(unused)|r"))
                 row.selectedTexture:SetShown(def == selSeq and selItem == nil)
                 row:Show()
             else
@@ -1328,6 +1494,7 @@ local function CreateEditor()
             self.addSub:SetShown(#def.subs < MAX_SUBS)
         end
 
+        self.profileButton:SetText(ProfileLabel(ns.CurrentProfile() or "?"))
         self.click:SetChecked(ns.db.clickable and true or false)
         self.regen:SetText(REGEN_LABELS[ns.db.regenMode] or ns.db.regenMode)
         self.picker:Refresh()
