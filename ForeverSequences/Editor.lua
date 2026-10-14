@@ -539,7 +539,7 @@ end
 StaticPopupDialogs["FOREVERSEQUENCES_NEW_WINDOW"] = {
     text = "New window. Which type?\n\nDynamic: one row per sequence, showing whichever of its sequences fits " ..
         "your mana; can show only when mana or health is low, or for some targets.\n\nFixed: the Primary is " ..
-        "always shown and can be clicked to cast. Nothing moves.\n\nThe type can't be changed later.",
+        "always shown and can be clicked to cast. Nothing moves.\n\nYou can switch it later.",
     button1 = "Dynamic",
     button2 = CANCEL or "Cancel",
     button3 = "Fixed",
@@ -1193,18 +1193,22 @@ local function CreateEditor()
         end
     end)
     f.windowName:SetPoint("LEFT", windowLabel, "RIGHT", 12, 0)
-    -- The type is set when the window is made; shown here, not changeable.
-    f.windowType = CreateFrame("Frame", nil, windowPanel)
-    f.windowType:SetSize(190, 22)
+    -- Switching type keeps the other type's settings (thresholds and targets for dynamic,
+    -- click to cast for fixed) on the window for switching back; only the current type's
+    -- settings are used.
+    f.windowType = NewButton(windowPanel, "", 190, function()
+        if selWindow then
+            selWindow.type = selWindow.type == "fixed" and "dynamic" or "fixed"
+            Changed()
+        end
+    end)
     f.windowType:SetPoint("LEFT", f.windowName, "RIGHT", 10, 0)
-    f.windowType:EnableMouse(true)
-    f.windowTypeText = NewLabel(f.windowType, "", "GameFontHighlight")
-    f.windowTypeText:SetPoint("LEFT", 0, 0)
-    Tooltip(f.windowType, "Window type (set when the window was made)",
+    f.windowTypeText = f.windowType
+    Tooltip(f.windowType, "Window type (click to switch)",
         "Dynamic: one row per sequence, showing whichever of its sequences fits your mana; rows close up " ..
         "when a sequence has nothing to show. Can show only when mana or health is low, or for some targets.\n" ..
         "Fixed: the Primary is always shown and can be clicked to cast, with the best sub-sequence under it. " ..
-        "Nothing moves.")
+        "Nothing moves.\nSwitching keeps each type's own settings for when you switch back.")
     f.onlyInCombat = NewCheck(windowPanel, "Only show in combat", function(checked)
         if selWindow then
             selWindow.onlyInCombat = checked
@@ -1518,7 +1522,7 @@ local function CreateEditor()
             if not self.windowName:HasFocus() then
                 self.windowName:SetText(selWindow.name or "")
             end
-            self.windowTypeText:SetText(selWindow.type == "fixed" and "Type: Fixed" or "Type: Dynamic")
+            self.windowTypeText:SetText(selWindow.type == "fixed" and "Type: Fixed (switch)" or "Type: Dynamic (switch)")
             self.windowClick:SetShown(selWindow.type == "fixed")
             self.windowClick:SetChecked(selWindow.clickable ~= false)
             self.onlyInCombat:SetChecked(selWindow.onlyInCombat and true or false)

@@ -85,7 +85,8 @@ each cost is taken. Everything is read from the game, not hard-coded:
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
 sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
 makes an independent copy to change for another window. Each window is named, can be turned off, remembers its
-position, and is one of (chosen when you make the window; it can't be changed later):
+position, and is one of (chosen when you make the window, and switchable later; each type's own settings are kept
+for switching back, but only the current type's are used):
 - **Dynamic:** one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
