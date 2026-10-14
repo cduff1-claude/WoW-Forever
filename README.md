@@ -112,7 +112,12 @@ for switching back, but only the current type's are used):
     empty.
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.
 
-**Sequences.** Each has a Primary and any number of sub-sequences (any spells or items, up to 8 each).
+**Sequences.** Each has a Primary and any number of sub-sequences (any spells or items, up to 8 each). The Primary is
+always the variation you can cast that costs the most mana: variations with every spell learned come first, then the
+dearest. They're re-sorted after every edit, when you learn a spell or rank, and when you switch profile, so adding a
+spell to a sub-sequence (or learning a dearer rank) can make it the Primary, and on a character that hasn't learned
+one of the Primary's spells the dearest variation it can cast takes its place until it does. Each variation keeps
+its own *hide when unusable*.
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
   them (or you have no enemy target), is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
@@ -145,9 +150,9 @@ a window selects it; they lock again when the options close.
 - Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
   options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence
   picked in the library: its name, *hide when unusable* and which windows use it; the
-  Primary and the sub-sequences, each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the mana regained
-  before its last icon plus any potions or other restores in it (shown negative, as it comes off the cost). Sub-sequences are listed by mana cost, dearest
-  first, each time the options open, in a scrolling list.
+  Primary and the sub-sequences (dearest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
+  mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
+  cost), in a scrolling list.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
   section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), then usable
   items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a

@@ -2068,6 +2068,54 @@ function ns.CostSummary(entries)
     return cost, math.floor((regained or 0) + restored)
 end
 
+-- A sequence's variations (its Primary and sub-sequences) are kept sorted, so the Primary is
+-- always the one you can cast that costs the most mana: variations with every spell learned
+-- first, then by total mana cost, dearest first; ties keep their order. Each variation keeps
+-- its own "hide when unusable". Re-sorted after edits, when spells or ranks are learned, and
+-- on switching profile, so a sub-sequence that becomes dearer, or a Primary with a spell this
+-- character hasn't learned, swaps places. Returns whether anything moved.
+local function SortVariations(def)
+    local variations = { { entries = def.entries, hideOnCooldown = def.hideOnCooldown, index = 0 } }
+    for i, sub in ipairs(def.subs) do
+        variations[#variations + 1] = { entries = sub.entries, hideOnCooldown = sub.hideOnCooldown, index = i }
+    end
+    for _, v in ipairs(variations) do
+        v.learned = #v.entries > 0 and ns.AllLearned(v.entries)
+        v.cost = (#v.entries > 0) and ns.CostSummary(v.entries) or -1
+    end
+    table.sort(variations, function(a, b)
+        if a.learned ~= b.learned then
+            return a.learned
+        end
+        if a.cost ~= b.cost then
+            return a.cost > b.cost
+        end
+        return a.index < b.index
+    end)
+    local moved = false
+    for i, v in ipairs(variations) do
+        moved = moved or v.index ~= i - 1
+    end
+    if not moved then
+        return false
+    end
+    def.entries, def.hideOnCooldown = variations[1].entries, variations[1].hideOnCooldown
+    local subs = {}
+    for i = 2, #variations do
+        subs[#subs + 1] = { entries = variations[i].entries, hideOnCooldown = variations[i].hideOnCooldown }
+    end
+    def.subs = subs
+    return true
+end
+
+function ns.SortAllVariations()
+    local moved = false
+    for _, def in ipairs(db.library or {}) do
+        moved = SortVariations(def) or moved
+    end
+    return moved
+end
+
 function ns.Need(entries)
     local row = { cells = {} }
     local cost = 0
@@ -2513,6 +2561,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
         active = IsDruid()
         ScanSpellbook()
         ScanBags()
+        ns.SortAllVariations()
         if active then
             Rebuild()
         end
@@ -2566,7 +2615,9 @@ local function OnEvent(_, event, unit, arg2, arg3)
         UpdateMana()
     elseif event == "SPELLS_CHANGED" or event == "UPDATE_SHAPESHIFT_FORMS" then
         ScanSpellbook()
-        if LearnedSignature() ~= learnedSignature then
+        -- A spell or rank learned can change which variation is the dearest one you can cast.
+        local moved = ns.SortAllVariations()
+        if moved or LearnedSignature() ~= learnedSignature then
             Rebuild()
         end
         Refresh()
@@ -2686,6 +2737,7 @@ function ns.ProfileNames()
 end
 
 local function AfterSwitch()
+    ns.SortAllVariations()
     if ns.RefreshEditor then
         ns.RefreshEditor()
     end

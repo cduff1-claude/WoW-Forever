@@ -58,6 +58,8 @@ local function Library()
 end
 
 local function Changed()
+    -- An edit can make a sub-sequence the dearest; the Primary is always the dearest.
+    ns.SortAllVariations()
     ns.RequestRebuild()
     if editor then
         editor:Refresh()
@@ -622,30 +624,6 @@ local function WindowListItems()
     return items
 end
 
--- Sub-sequences listed by mana cost, dearest first, when the options open.
-local function SortSubs()
-    local changed = false
-    for _, def in ipairs(Library()) do
-        local costs = {}
-        for _, sub in ipairs(def.subs) do
-            costs[sub] = ns.CostSummary(sub.entries)
-        end
-        local before = {}
-        for i, sub in ipairs(def.subs) do
-            before[i] = sub
-        end
-        table.sort(def.subs, function(a, b)
-            if costs[a] ~= costs[b] then
-                return costs[a] > costs[b]
-            end
-            return IndexOf(before, a) < IndexOf(before, b)
-        end)
-        for i, sub in ipairs(def.subs) do
-            changed = changed or before[i] ~= sub
-        end
-    end
-    return changed
-end
 
 ----------------------------------------------------------------------------------------------
 -- The two lists on the left
@@ -1628,7 +1606,7 @@ local function CreateEditor()
     end)
 
     f:SetScript("OnShow", function(self)
-        if SortSubs() then
+        if ns.SortAllVariations() then
             ns.Rebuild()
         end
         ns.SetEditorOpen(true)
