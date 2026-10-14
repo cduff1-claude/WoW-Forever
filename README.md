@@ -67,3 +67,29 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - Snap to the main-hand swing timer or unlock and drag; width, height and opacity sliders.
 
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
+
+## Myslot
+A copy of [*Myslot*](https://github.com/tg123/myslot) v6.2.1 (by Boshi Lian, Apache 2.0) with two WoW Forever changes. It
+saves a character's action bars, macros and key bindings as a profile and imports them onto another character.
+
+- **Macro placement fix:** macros are kept sorted by name, so creating one shifts the index of every macro that sorts
+  after it. The original looked up the new character's macros once, then created and placed them one by one. If another
+  addon had already made macros, those lookups went stale after the first create and macros landed in the wrong slots.
+  The import now creates every missing macro first, then re-reads the macro list and places each one by name and body.
+- **Level 1 default per class:** pick a saved profile per class. A character imports it automatically 5 seconds after
+  its first login while it is level 1 (waiting out combat if needed). It happens once per character; a character seen
+  past level 1 is marked done and never imports. Set it from the profile dropdown (*Set selected as level 1 default for
+  my class*) or with commands.
+
+Commands:
+- `/myslot default <profile name>`: set this class's level 1 default (names may contain spaces).
+- `/myslot default clear`: remove this class's default.
+- `/myslot default now`: import this class's default right away.
+- `/myslot default skip`: mark this character as done so it never auto-imports.
+- `/myslot default reset`: let this character auto-import again at next login (if still level 1).
+- `/myslot default`: debug: class, level, whether this character has already imported, the default and whether it
+  exists, and every class's default.
+- `/myslot load <profile name>` now accepts names with spaces too.
+
+Existing level 1 characters that haven't imported yet will also get the default at their next login. To stop that on
+a character, log in and run `/myslot default skip` before (or right after) setting a default.

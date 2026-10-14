@@ -37,6 +37,7 @@ locales.lua
 keys.lua
 Myslot.lua
 gui.lua
+autoimport.lua
 share.lua
 options.lua
 

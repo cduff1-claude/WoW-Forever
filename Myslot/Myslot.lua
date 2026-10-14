@@ -1828,29 +1828,50 @@ function MySlot:RecoverData(msg, opt)
         end
     end
 
-    local macroProcessed = 0
+    -- Macro indexes are sorted by name, so every CreateMacro shifts the index of
+    -- each macro that sorts after it (including ones other addons created before
+    -- the import). An index found before a create can point at a different macro
+    -- after it. So: create every missing macro first, then re-index and place
+    -- each macro by name + body.
+    local macroInfos = {}
     for _, m in pairs(msg.macro or {}) do
-        local macroId = m.id
-        local icon = m.icon
-        local name = m.name
-        local body = m.body
-
-        local info = {
-            ["oldid"] = macroId,
-            ["name"] = name,
-            ["icon"] = icon,
-            ["body"] = body,
+        macroInfos[#macroInfos + 1] = {
+            ["oldid"] = m.id,
+            ["name"] = m.name,
+            ["icon"] = m.icon,
+            ["body"] = m.body,
         }
+    end
 
-        local newid = nil
-
+    -- Pass 1: create the missing macros. The indexes returned here go stale, so
+    -- only existence matters.
+    for _, info in ipairs(macroInfos) do
+        local macroId = info.oldid
         if (not opt.actionOpt.ignoreMacros["ACCOUNT"] and macroId <= MAX_ACCOUNT_MACROS)
         or (not opt.actionOpt.ignoreMacros["CHARACTOR"] and macroId > MAX_ACCOUNT_MACROS)
         then
-            newid = self:FindOrCreateMacro(info, localMacro)
+            self:FindOrCreateMacro(info, localMacro)
         end
+    end
 
-        if not newid then
+    -- True when local macro `idx` still has the body described by `info`.
+    local function MacroMatches(idx, info)
+        local name, _, body = GetMacroInfo(idx)
+        return name ~= nil and UnifyCRLF(body) == UnifyCRLF(info.body)
+    end
+
+    -- Pass 2: re-index now that no more macros will be created, then place.
+    localMacro = MySlot:BuildMacroIndex()
+
+    local macroProcessed = 0
+    for _, info in ipairs(macroInfos) do
+        local macroId = info.oldid
+        local newid = self:FindMacro(info, localMacro)
+
+        -- Another addon may create a macro while the import yields between
+        -- frames; re-index if the macro has moved.
+        if newid and not MacroMatches(newid, info) then
+            localMacro = MySlot:BuildMacroIndex()
             newid = self:FindMacro(info, localMacro)
         end
 
@@ -1860,6 +1881,9 @@ function MySlot:RecoverData(msg, opt)
                 if not opt.actionOpt.ignoreActionBars[math.ceil(slotId / 12)] then
                     PickupMacro(newid)
                     PlaceAction(slotId)
+                    -- PlaceAction swaps whatever was in the slot onto the
+                    -- cursor; drop it so it can't land in a later slot.
+                    ClearCursor()
                 end
             end
         else

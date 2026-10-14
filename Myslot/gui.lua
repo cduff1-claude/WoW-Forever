@@ -1345,6 +1345,22 @@ RegEvent("ADDON_LOADED", function()
                     end)
                 end
             end
+
+            -- WoW Forever: choose the profile a new level 1 character of this
+            -- class imports automatically on first login.
+            root:CreateDivider()
+            local current = MySlot:GetLevelOneDefault()
+            local setDefault = root:CreateButton(L["Set selected as level 1 default for my class"], function()
+                if selectedIdx and exports[selectedIdx] then
+                    MySlot:SetLevelOneDefault(exports[selectedIdx].name)
+                end
+            end)
+            setDefault:SetEnabled(selectedIdx ~= nil and exports[selectedIdx] ~= nil)
+            local clearDefault = root:CreateButton(
+                L["Clear level 1 default"] .. (current and (" (" .. current .. ")") or ""), function()
+                MySlot:SetLevelOneDefault(nil)
+            end)
+            clearDefault:SetEnabled(current ~= nil)
         end
 
         openMenu = function()
@@ -1629,8 +1645,15 @@ end)
 
 SlashCmdList["MYSLOT"] = function(msg, editbox)
     local cmd, what = msg:match("^(%S*)%s*(%S*)%s*$")
+    -- The pattern above fails on 3+ words; take the command and everything
+    -- after it separately so profile names can contain spaces.
+    cmd = msg:match("^%s*(%S*)")
+    local rest = msg:match("^%s*%S*%s*(.-)%s*$") or ""
 
-    if cmd == "load" then
+    if cmd == "default" then
+        MySlot:LevelOneDefaultCommand(rest)
+    elseif cmd == "load" then
+        what = rest
 
         if not MyslotExports then
             MyslotExports = {}
