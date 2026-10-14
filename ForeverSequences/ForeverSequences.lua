@@ -1,5 +1,9 @@
--- Forever Sequences: rows of spell icons, one row per sequence. Each icon fills with colour
--- (left to right) as you gain the mana to cast it after everything before it in the row.
+-- Forever Sequences: rows of spell icons. Each icon fills with colour (left to right) as you
+-- gain the mana to cast it after everything before it in the row.
+--
+-- A sequence is a Primary row plus optional sub-sequences (shorter rows made from its spells).
+-- Only one of them shows in the sequence's row, chosen by how much mana you have; with
+-- "always show Primary" the Primary keeps its row and the best sub-sequence shows below it.
 --
 -- Player mana is a secret value on Forever, so Lua never compares it. Every comparison is
 -- done by StatusBars (which accept secret values) and frames that clip to their fill edges:
@@ -13,22 +17,28 @@
 --   prev switch: the same, but its value is the mana reading from FLASH_HOLD seconds ago.
 --   highlight  : clipped to "now full" and "prev empty", so it shows for FLASH_HOLD seconds
 --                after the mana for this spell arrives, then disappears by itself.
+--   band       : every candidate row of a sequence sits in the same place, clipped to
+--                "mana >= low" and "mana < high". The bands don't overlap, so one row shows.
 
 local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
 
 local ICON_SIZE = 36
+local SUB_ICON_SIZE = 28     -- the sub-sequence row under an always-shown Primary
+local SUB_INDENT = 14
 local ICON_GAP = 4
 local ROW_GAP = 6
 local PADDING = 6
 local GLOW_SIZE = 3          -- highlight border width, drawn just outside the icon
 local FLASH_HOLD = 2.0       -- seconds the highlight stays after a spell becomes affordable
 local TICK = 0.05            -- how often mana is re-read
-local COST_REFRESH = 1.0     -- how often spell costs are re-read
+local COST_REFRESH = 1.0     -- how often spell costs and cooldowns are re-read
 local TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
 local FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
 local GLOBAL_COOLDOWN = 1.5  -- seconds before the next spell after an instant
 local REGEN_TICK = 2.0       -- seconds between mana ticks in "ticks" regen mode
 local TICK_PHASE_STEPS = 20  -- tick timings tried when working out the worst case
+local FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
+local NEVER = 1e9            -- a mana value no one reaches
 
 local GREY_SHADE = 0.5
 local GLOW_COLOR = { 1.0, 0.85, 0.2 }
@@ -43,10 +53,39 @@ local SPELL_RANKS = {
     ["Travel Form"] = { 783 },
 }
 
--- Proof of concept: fixed sequences. These will come from the settings once there's a UI.
-local SEQUENCES = {
-    { "Regrowth", "Rejuvenation", "Bear Form" },
-    { "Entangling Roots", "Rejuvenation", "Travel Form" },
+-- Forms are cast as "/cast !Form" so clicking them never shifts you back out.
+local FORMS = {
+    ["Bear Form"] = true,
+    ["Cat Form"] = true,
+    ["Travel Form"] = true,
+    ["Aquatic Form"] = true,
+    ["Moonkin Form"] = true,
+}
+
+-- Prototype sequences, in the shape the editor will save. The second one shows its Primary
+-- all the time, so both display modes can be tried at once.
+local DEFAULT_SEQUENCES = {
+    {
+        name = "Bear out",
+        enabled = true,
+        alwaysPrimary = false,
+        hideOnCooldown = false,
+        spells = { "Regrowth", "Rejuvenation", "Bear Form" },
+        subs = {
+            { spells = { "Regrowth", "Bear Form" }, hideOnCooldown = false },
+            { spells = { "Rejuvenation", "Bear Form" }, hideOnCooldown = false },
+        },
+    },
+    {
+        name = "Root and run",
+        enabled = true,
+        alwaysPrimary = true,
+        hideOnCooldown = false,
+        spells = { "Entangling Roots", "Rejuvenation", "Travel Form" },
+        subs = {
+            { spells = { "Entangling Roots", "Travel Form" }, hideOnCooldown = false },
+        },
+    },
 }
 
 ForeverSequencesDB = ForeverSequencesDB or {}
@@ -59,7 +98,17 @@ local DEFAULTS = {
     y = -150,
     locked = false,
     regenMode = "ticks", -- "ticks" (safe: worst-case tick timing), "smooth" or "off"
+    clickable = true,
+    clickLog = false,
 }
+
+local function CopyTable(t)
+    local copy = {}
+    for k, v in pairs(t) do
+        copy[k] = type(v) == "table" and CopyTable(v) or v
+    end
+    return copy
+end
 
 local function Print(msg)
     print("|cff66ccffForever Sequences:|r " .. msg)
@@ -172,54 +221,63 @@ local function GetIcon(spellID)
     return 134400 -- question mark
 end
 
+local function GetSpellName(spellID)
+    if spellID and C_Spell and C_Spell.GetSpellName then
+        local ok, name = pcall(C_Spell.GetSpellName, spellID)
+        if ok and type(name) == "string" and not IsSecret(name) then
+            return name
+        end
+    end
+    return nil
+end
+
 ----------------------------------------------------------------------------------------------
 -- Frames
 ----------------------------------------------------------------------------------------------
 
-local root = CreateFrame("Frame", "ForeverSequencesFrame", UIParent, "BackdropTemplate")
+local root = CreateFrame("Frame", "ForeverSequencesFrame", UIParent)
 root:SetSize(100, 50)
 root:SetPoint(DEFAULTS.point, UIParent, DEFAULTS.relativePoint, DEFAULTS.x, DEFAULTS.y)
 root:SetMovable(true)
 root:SetClampedToScreen(true)
-root:RegisterForDrag("LeftButton")
-root:SetBackdrop({
+
+-- While unlocked, a cover over the whole display takes the drags (and the clicks, so you
+-- can't cast while moving it).
+local mover = CreateFrame("Frame", nil, root, "BackdropTemplate")
+mover:SetAllPoints(root)
+mover:SetFrameStrata("DIALOG")
+mover:EnableMouse(true)
+mover:RegisterForDrag("LeftButton")
+mover:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Buttons\\WHITE8X8",
     edgeSize = 1,
 })
-root:SetBackdropColor(0, 0, 0, 0.4)
-root:SetBackdropBorderColor(0.4, 0.8, 1, 0.8)
+mover:SetBackdropColor(0.1, 0.3, 0.5, 0.35)
+mover:SetBackdropBorderColor(0.4, 0.8, 1, 0.9)
 
-local unlockedLabel = root:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-unlockedLabel:SetPoint("BOTTOM", root, "TOP", 0, 2)
-unlockedLabel:SetText("Forever Sequences: drag to move, /fseq lock")
+local moverLabel = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+moverLabel:SetPoint("BOTTOM", mover, "TOP", 0, 2)
+moverLabel:SetText("Forever Sequences: drag to move, /fseq lock")
 
 local function SavePosition()
     local point, _, relativePoint, x, y = root:GetPoint(1)
     db.point, db.relativePoint, db.x, db.y = point, relativePoint, x, y
 end
 
-root:SetScript("OnDragStart", function(self)
-    if not db.locked then
-        self:StartMoving()
+mover:SetScript("OnDragStart", function()
+    -- The display holds secure buttons, so it can't move in combat.
+    if not InCombatLockdown() then
+        root:StartMoving()
     end
 end)
-root:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
+mover:SetScript("OnDragStop", function()
+    root:StopMovingOrSizing()
     SavePosition()
 end)
 
 local function ApplyLock()
-    local unlocked = not db.locked
-    root:EnableMouse(unlocked)
-    unlockedLabel:SetShown(unlocked)
-    if unlocked then
-        root:SetBackdropColor(0, 0, 0, 0.4)
-        root:SetBackdropBorderColor(0.4, 0.8, 1, 0.8)
-    else
-        root:SetBackdropColor(0, 0, 0, 0)
-        root:SetBackdropBorderColor(0, 0, 0, 0)
-    end
+    mover:SetShown(not db.locked)
 end
 
 local function ApplyPosition()
@@ -244,6 +302,17 @@ local function NewSwitch(parent, area)
     return bar
 end
 
+-- Point a binary switch at a mana value: full from `at` upwards. +-math.huge allowed.
+local function SetSwitchAt(switch, at)
+    if at == -math.huge then
+        switch:SetMinMaxValues(-2, -1)
+    elseif at >= NEVER then
+        switch:SetMinMaxValues(NEVER - 1, NEVER)
+    else
+        switch:SetMinMaxValues(at - 1, at)
+    end
+end
+
 -- A frame clipping its children to the span from left's leftPoint to right's rightPoint.
 local function NewClip(parent, left, leftPoint, right, rightPoint)
     local clip = NewFrame("Frame", parent)
@@ -260,10 +329,36 @@ local function NewIconTexture(frame, layer, area)
     return texture
 end
 
-local function CreateCell(row, index)
-    local cell = NewFrame("Frame", row.frame)
-    cell:SetSize(ICON_SIZE, ICON_SIZE)
-    cell:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (index - 1) * (ICON_SIZE + ICON_GAP), 0)
+local buttonCount = 0
+local pendingActions = false -- secure attributes waiting for the end of combat
+
+-- What a click does. Secure attributes can only change out of combat.
+local function ApplyAction(cell)
+    if InCombatLockdown() then
+        pendingActions = true
+        return
+    end
+    local name = GetSpellName(cell.spellID)
+    if FORMS[cell.spellName] and name then
+        cell:SetAttribute("type", "macro")
+        cell:SetAttribute("macrotext", "/cast !" .. name)
+        cell:SetAttribute("spell", nil)
+    else
+        cell:SetAttribute("type", "spell")
+        cell:SetAttribute("spell", cell.spellID)
+        cell:SetAttribute("macrotext", nil)
+    end
+    cell:EnableMouse(db.clickable)
+end
+
+local function CreateCell(row, index, size)
+    buttonCount = buttonCount + 1
+    local cell = CreateFrame("Button", "ForeverSequencesButton" .. buttonCount, row.frame, "SecureActionButtonTemplate")
+    cell:SetFrameLevel(row.frame:GetFrameLevel() + 1)
+    cell:SetSize(size, size)
+    cell:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (index - 1) * (size + ICON_GAP), 0)
+    cell:RegisterForClicks("AnyUp", "AnyDown")
+    local level = cell:GetFrameLevel()
 
     local edge = cell:CreateTexture(nil, "BACKGROUND")
     edge:SetPoint("TOPLEFT", cell, "TOPLEFT", -1, 1)
@@ -281,6 +376,14 @@ local function CreateCell(row, index)
     colorHolder:SetAllPoints(cell)
     local color = NewIconTexture(colorHolder, "ARTWORK", cell)
 
+    -- Blizzard's cooldown swipe and countdown, over the icon.
+    local cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(cell)
+    cooldown:SetFrameLevel(level + 3)
+    if cooldown.SetHideCountdownNumbers then
+        cooldown:SetHideCountdownNumbers(false)
+    end
+
     -- Highlight: shown only while "enough now" and "not enough FLASH_HOLD seconds ago".
     local glowArea = NewFrame("Frame", cell)
     glowArea:SetPoint("TOPLEFT", cell, "TOPLEFT", -GLOW_SIZE, GLOW_SIZE)
@@ -289,8 +392,7 @@ local function CreateCell(row, index)
     local prevSwitch = NewSwitch(cell, glowArea)
     local enoughNow = NewClip(cell, nowSwitch, "LEFT", nowSwitch:GetStatusBarTexture(), "RIGHT")
     local fresh = NewClip(enoughNow, prevSwitch:GetStatusBarTexture(), "RIGHT", prevSwitch, "RIGHT")
-    -- Above the colour icon.
-    fresh:SetFrameLevel(colorHolder:GetFrameLevel() + 1)
+    fresh:SetFrameLevel(level + 4)
     local glow = NewFrame("Frame", fresh)
     glow:SetAllPoints(glowArea)
 
@@ -321,42 +423,146 @@ local function CreateCell(row, index)
     fade:SetDuration(0.35)
     pulse:Play()
 
-    return {
-        frame = cell,
-        grey = grey,
-        color = color,
-        fill = fill,
-        nowSwitch = nowSwitch,
-        prevSwitch = prevSwitch,
-        spellID = nil,
-        known = nil,
-        cost = nil,
-        start = 0,
-        total = 0,
-    }
+    -- Mouse-over highlight, on top of everything.
+    local top = NewFrame("Frame", cell)
+    top:SetAllPoints(cell)
+    top:SetFrameLevel(level + 6)
+    local hover = top:CreateTexture(nil, "OVERLAY")
+    hover:SetAllPoints(cell)
+    hover:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+    hover:SetBlendMode("ADD")
+    hover:Hide()
+
+    cell:HookScript("OnEnter", function(self)
+        hover:Show()
+        if self.spellID then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetSpellByID(self.spellID)
+            GameTooltip:Show()
+        end
+    end)
+    cell:HookScript("OnLeave", function()
+        hover:Hide()
+        GameTooltip:Hide()
+    end)
+    cell:HookScript("OnClick", function(self, mouseButton, down)
+        if db.clickLog then
+            Print(string.format("click (%s %s): %s, row \"%s\" of \"%s\"",
+                tostring(mouseButton), down and "down" or "up", self.spellName, row.label, row.group.name))
+        end
+    end)
+
+    cell.grey = grey
+    cell.color = color
+    cell.colorClip = colorClip
+    cell.fresh = fresh
+    cell.fill = fill
+    cell.cooldown = cooldown
+    cell.nowSwitch = nowSwitch
+    cell.prevSwitch = prevSwitch
+    cell.start = 0
+    cell.total = 0
+    return cell
 end
 
-local rows = {}
-local fsrEndTime = 0
+local groups = {}
+local rows = {}       -- every candidate row of every group, for the threshold maths
+local oldLines = {}   -- frames from earlier builds, hidden
 
-local function BuildRows()
-    local width = 0
-    for rowIndex, names in ipairs(SEQUENCES) do
-        local rowFrame = NewFrame("Frame", root)
-        rowFrame:SetSize(#names * ICON_SIZE + (#names - 1) * ICON_GAP, ICON_SIZE)
-        rowFrame:SetPoint("TOPLEFT", root, "TOPLEFT", PADDING, -PADDING - (rowIndex - 1) * (ICON_SIZE + ROW_GAP))
-        width = math.max(width, rowFrame:GetWidth())
+local function LineWidth(cellCount, size)
+    return cellCount * size + math.max(0, cellCount - 1) * ICON_GAP + GLOW_SIZE * 2
+end
 
-        local row = { frame = rowFrame, names = names, cells = {} }
-        for i, name in ipairs(names) do
-            local cell = CreateCell(row, i)
-            cell.name = name
-            row.cells[i] = cell
-        end
-        rows[rowIndex] = row
+-- One row of icons inside `parent`, placed at the top left of `line`.
+local function CreateRow(group, parent, line, def, size, label)
+    local rowFrame = NewFrame("Frame", parent)
+    rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
+    rowFrame:SetSize(LineWidth(#def.spells, size) - GLOW_SIZE * 2, size)
+    local row = { frame = rowFrame, group = group, def = def, label = label, cells = {}, total = 0 }
+    for i, name in ipairs(def.spells) do
+        local cell = CreateCell(row, i, size)
+        cell.spellName = name
+        row.cells[i] = cell
     end
-    local height = #SEQUENCES * ICON_SIZE + (#SEQUENCES - 1) * ROW_GAP
-    root:SetSize(width + PADDING * 2, height + PADDING * 2)
+    rows[#rows + 1] = row
+    return row
+end
+
+-- A row that only shows while mana is inside its band.
+local function CreateBandedRow(group, line, def, size, label)
+    local low = NewSwitch(line, line)
+    local high = NewSwitch(line, line)
+    local aboveLow = NewClip(line, low, "LEFT", low:GetStatusBarTexture(), "RIGHT")
+    local belowHigh = NewClip(aboveLow, high:GetStatusBarTexture(), "RIGHT", high, "RIGHT")
+    local row = CreateRow(group, belowHigh, line, def, size, label)
+    row.low, row.high = low, high
+    return row
+end
+
+local function NewLine(width, height, x, y)
+    local line = NewFrame("Frame", root)
+    line:SetSize(width, height)
+    line:SetPoint("TOPLEFT", root, "TOPLEFT", x, y)
+    oldLines[#oldLines + 1] = line
+    return line
+end
+
+local function BuildDisplay()
+    for _, line in ipairs(oldLines) do
+        line:Hide()
+    end
+    wipe(oldLines)
+    wipe(groups)
+    wipe(rows)
+
+    local y = -PADDING
+    local width = 0
+    for _, def in ipairs(db.sequences) do
+        if def.enabled then
+            local group = { name = def.name or "?", def = def, subs = {} }
+            local subLabel = function(i) return "sub " .. i end
+
+            local mainCount = #def.spells
+            if not def.alwaysPrimary then
+                for _, sub in ipairs(def.subs or {}) do
+                    mainCount = math.max(mainCount, #sub.spells)
+                end
+            end
+            local mainWidth = LineWidth(mainCount, ICON_SIZE)
+            local mainHeight = ICON_SIZE + GLOW_SIZE * 2
+            local mainLine = NewLine(mainWidth, mainHeight, PADDING - GLOW_SIZE, y + GLOW_SIZE)
+            width = math.max(width, mainWidth)
+            y = y - ICON_SIZE
+
+            if def.alwaysPrimary then
+                group.primary = CreateRow(group, mainLine, mainLine, def, ICON_SIZE, "primary")
+                local subCount = 0
+                for _, sub in ipairs(def.subs or {}) do
+                    subCount = math.max(subCount, #sub.spells)
+                end
+                if subCount > 0 then
+                    -- Its space is always kept: Lua can't tell when the Primary is affordable.
+                    local subWidth = LineWidth(subCount, SUB_ICON_SIZE)
+                    local subLine = NewLine(subWidth, SUB_ICON_SIZE + GLOW_SIZE * 2,
+                        PADDING - GLOW_SIZE + SUB_INDENT, y - ICON_GAP + GLOW_SIZE)
+                    width = math.max(width, subWidth + SUB_INDENT)
+                    y = y - ICON_GAP - SUB_ICON_SIZE
+                    for i, sub in ipairs(def.subs) do
+                        group.subs[i] = CreateBandedRow(group, subLine, sub, SUB_ICON_SIZE, subLabel(i))
+                    end
+                end
+            else
+                group.primary = CreateBandedRow(group, mainLine, def, ICON_SIZE, "primary")
+                for i, sub in ipairs(def.subs or {}) do
+                    group.subs[i] = CreateBandedRow(group, mainLine, sub, ICON_SIZE, subLabel(i))
+                end
+            end
+            groups[#groups + 1] = group
+            y = y - ROW_GAP
+        end
+    end
+    local height = -y - ROW_GAP + PADDING
+    root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 40), math.max(height, 20))
 end
 
 ----------------------------------------------------------------------------------------------
@@ -367,17 +573,101 @@ end
 local function RefreshCosts()
     for _, row in ipairs(rows) do
         for _, cell in ipairs(row.cells) do
-            local spellID, known = ResolveSpell(cell.name)
-            if spellID ~= cell.spellID then
+            local spellID, known = ResolveSpell(cell.spellName)
+            if spellID ~= cell.spellID or cell.actionPending then
                 cell.spellID = spellID
                 local icon = GetIcon(spellID)
                 cell.grey:SetTexture(icon)
                 cell.color:SetTexture(icon)
+                cell.actionPending = InCombatLockdown()
+                ApplyAction(cell)
             end
             cell.known = known
             cell.cost = GetManaCost(spellID)
             cell.castTime = GetCastTime(spellID)
         end
+    end
+end
+
+-- Whether a spell is on a real cooldown (not just the global one): true / false / nil when
+-- the game won't say. Also draws Blizzard's swipe and countdown on the cell.
+local function UpdateCellCooldown(cell, now)
+    local cooldown = cell.cooldown
+    if cell.fakeCooldownEnd and cell.fakeCooldownEnd > now then
+        cooldown:SetCooldown(cell.fakeCooldownEnd - FAKE_COOLDOWN, FAKE_COOLDOWN)
+        cell.onCooldown = true
+        cell.cooldownNote = "fake"
+        return
+    end
+    if cell.fakeCooldownEnd then
+        cell.fakeCooldownEnd = nil
+        cell.shownStart, cell.shownDuration = nil, nil
+        cooldown:Clear()
+    end
+
+    local info
+    if cell.spellID and C_Spell and C_Spell.GetSpellCooldown then
+        local ok, result = pcall(C_Spell.GetSpellCooldown, cell.spellID)
+        if ok and type(result) == "table" then
+            info = result
+        end
+    end
+    if not info then
+        cell.onCooldown = nil
+        cell.cooldownNote = "no answer"
+        cooldown:Clear()
+        return
+    end
+
+    local start, duration = info.startTime, info.duration
+    if IsReadableNumber(start) and IsReadableNumber(duration) then
+        local onGCD = info.isOnGCD
+        local isGCD = (onGCD ~= nil and not IsSecret(onGCD) and onGCD) or duration <= GLOBAL_COOLDOWN
+        if start > 0 and duration > 0 and not isGCD then
+            if cell.shownStart ~= start or cell.shownDuration ~= duration then
+                cooldown:SetCooldown(start, duration, info.modRate)
+                cell.shownStart, cell.shownDuration = start, duration
+            end
+            cell.onCooldown = true
+        else
+            if cell.shownStart then
+                cooldown:Clear()
+                cell.shownStart, cell.shownDuration = nil, nil
+            end
+            cell.onCooldown = false
+        end
+        cell.cooldownNote = string.format("start=%.1f duration=%.1f", start, duration)
+        return
+    end
+
+    -- Secret: Lua can't tell, but Blizzard's widget may still draw it.
+    cell.onCooldown = nil
+    cell.cooldownNote = "secret"
+    local drawn = false
+    if C_Spell.GetSpellCooldownDuration and cooldown.SetCooldownFromDurationObject then
+        local ok, durationObject = pcall(C_Spell.GetSpellCooldownDuration, cell.spellID)
+        if ok and durationObject then
+            drawn = pcall(cooldown.SetCooldownFromDurationObject, cooldown, durationObject)
+        end
+    end
+    if not drawn then
+        pcall(cooldown.SetCooldown, cooldown, start, duration)
+    end
+end
+
+local function UpdateCooldowns()
+    local now = GetTime()
+    for _, row in ipairs(rows) do
+        local onCooldown = false
+        for _, cell in ipairs(row.cells) do
+            UpdateCellCooldown(cell, now)
+            -- Greyed out while on cooldown: no colour, no highlight.
+            local alpha = cell.onCooldown and 0 or 1
+            cell.colorClip:SetAlpha(alpha)
+            cell.fresh:SetAlpha(alpha)
+            onCooldown = onCooldown or cell.onCooldown == true
+        end
+        row.onCooldown = onCooldown
     end
 end
 
@@ -477,6 +767,9 @@ local function RowThresholds(row, regen, phase, fsrRemaining, maxMana)
     return thresholds
 end
 
+
+local fsrEndTime = 0
+
 -- Lay the thresholds out along each row. Tick mode takes the worst case over every tick timing.
 local function UpdateThresholds(now)
     local regen = nil
@@ -507,6 +800,7 @@ local function UpdateThresholds(now)
         end
 
         local previous = 0
+        row.total = 0
         for i, cell in ipairs(row.cells) do
             -- Whole mana points: mana is an integer, so round the requirement up.
             local need = math.ceil(thresholds[i])
@@ -521,6 +815,76 @@ local function UpdateThresholds(now)
             cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             previous = need
+            row.total = need
+        end
+    end
+end
+
+local function SetBand(row, low, high)
+    low, high = low or -math.huge, high or math.huge
+    if low >= high then
+        low, high = NEVER, NEVER -- never shown
+    end
+    row.bandLow, row.bandHigh = low, high
+    SetSwitchAt(row.low, low)
+    SetSwitchAt(row.high, high)
+end
+
+-- Rows that may show, cheapest first. Rows set to hide on cooldown drop out while one of
+-- their spells is on cooldown.
+local function Candidates(list)
+    local result = {}
+    for _, row in ipairs(list) do
+        if row.def.hideOnCooldown and row.onCooldown then
+            SetBand(row, NEVER, NEVER)
+        else
+            result[#result + 1] = row
+        end
+    end
+    table.sort(result, function(a, b)
+        if a.total ~= b.total then
+            return a.total < b.total
+        end
+        return a.label < b.label
+    end)
+    return result
+end
+
+-- Decide which row of each group shows, as mana bands.
+local function UpdateBands()
+    for _, group in ipairs(groups) do
+        if group.def.alwaysPrimary then
+            -- Primary always shown. Below it: the most complete sub-sequence you can afford
+            -- (the cheapest if none), until you can afford the Primary.
+            local list = Candidates(group.subs)
+            local primaryTotal = group.primary.total
+            for k, row in ipairs(list) do
+                local low = (k == 1) and -math.huge or row.total
+                local nextRow = list[k + 1]
+                local high = math.min(nextRow and nextRow.total or math.huge, primaryTotal)
+                SetBand(row, low, high)
+            end
+        else
+            -- One row: the cheapest sequence you can't afford yet, i.e. the one you're working
+            -- towards, and the Primary once you can afford everything.
+            local all = { group.primary }
+            for _, row in ipairs(group.subs) do
+                all[#all + 1] = row
+            end
+            local list = Candidates(all)
+            for k, row in ipairs(list) do
+                if row == group.primary then
+                    table.remove(list, k)
+                    list[#list + 1] = row
+                    break
+                end
+            end
+            for k, row in ipairs(list) do
+                local previous = list[k - 1]
+                local low = previous and previous.total or -math.huge
+                local high = (k < #list) and row.total or math.huge
+                SetBand(row, low, high)
+            end
         end
     end
 end
@@ -528,10 +892,7 @@ end
 local function GetHighestTotal()
     local highest = 0
     for _, row in ipairs(rows) do
-        local last = row.cells[#row.cells]
-        if last and last.total > highest then
-            highest = last.total
-        end
+        highest = math.max(highest, row.total)
     end
     return highest
 end
@@ -567,9 +928,14 @@ end
 local function UpdateMana()
     local now = GetTime()
     UpdateThresholds(now)
+    UpdateBands()
     local mana = ReadMana()
     local previous = PreviousMana(now, mana)
     for _, row in ipairs(rows) do
+        if row.low then
+            row.low:SetValue(mana)
+            row.high:SetValue(mana)
+        end
         for _, cell in ipairs(row.cells) do
             cell.fill:SetValue(mana)
             cell.nowSwitch:SetValue(mana)
@@ -590,6 +956,7 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if costElapsed >= COST_REFRESH then
         costElapsed = 0
         RefreshCosts()
+        UpdateCooldowns()
     end
     tickElapsed = tickElapsed + elapsed
     if tickElapsed >= TICK then
@@ -597,6 +964,27 @@ driver:SetScript("OnUpdate", function(_, elapsed)
         UpdateMana()
     end
 end)
+
+local function Refresh()
+    RefreshCosts()
+    UpdateCooldowns()
+    UpdateMana()
+end
+
+-- Rebuilding moves and hides secure buttons, so it waits for the end of combat.
+local pendingRebuild = false
+
+local function Rebuild()
+    if InCombatLockdown() then
+        pendingRebuild = true
+        Print("will update after combat.")
+        return
+    end
+    pendingRebuild = false
+    BuildDisplay()
+    wipe(samples)
+    Refresh()
+end
 
 ----------------------------------------------------------------------------------------------
 -- Events
@@ -608,8 +996,10 @@ local function IsDruid()
 end
 
 driver:RegisterEvent("PLAYER_LOGIN")
+driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 driver:RegisterEvent("SPELLS_CHANGED")
 driver:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+driver:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 driver:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -627,17 +1017,25 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 db[key] = value
             end
         end
-        BuildRows()
+        if type(db.sequences) ~= "table" then
+            db.sequences = CopyTable(DEFAULT_SEQUENCES)
+        end
         ApplyPosition()
         ApplyLock()
         active = IsDruid()
         root:SetShown(active)
         if active then
-            RefreshCosts()
-            UpdateMana()
+            Rebuild()
         end
     elseif not active then
         return
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if pendingRebuild then
+            Rebuild()
+        elseif pendingActions then
+            pendingActions = false
+            Refresh()
+        end
     elseif event == "UNIT_POWER_FREQUENT" then
         if arg2 == "MANA" then
             manaEventTimes[#manaEventTimes + 1] = GetTime()
@@ -656,9 +1054,11 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
         end
         UpdateMana()
-    else
-        RefreshCosts()
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        UpdateCooldowns()
         UpdateMana()
+    else
+        Refresh()
     end
 end)
 
@@ -666,12 +1066,20 @@ end)
 -- Slash commands
 ----------------------------------------------------------------------------------------------
 
+local function Band(value)
+    if value == nil then return "-" end
+    if value == -math.huge then return "-inf" end
+    if value == math.huge then return "inf" end
+    if value >= NEVER then return "never" end
+    return tostring(value)
+end
+
 local function PrintDebug()
     local mana = UnitPower("player", MANA_POWER_TYPE)
     local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
-    Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s",
+    Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s, clickable=%s, in combat=%s",
         tostring(IsDruid()), Describe(mana), tostring(IsSecret(mana)), Describe(maxMana),
-        tostring(testStartTime ~= nil)))
+        tostring(testStartTime ~= nil), tostring(db.clickable), tostring(InCombatLockdown())))
     local okRegen, base, casting = pcall(GetManaRegen)
     if not okRegen then base, casting = "error", "error" end
     local gaps = {}
@@ -681,27 +1089,57 @@ local function PrintDebug()
     Print(string.format("regen mode=%s, regen/s outside 5SR=%s, inside=%s, 5SR left=%.1fs, mana update gaps: %s",
         db.regenMode, Describe(base), Describe(casting), math.max(0, fsrEndTime - GetTime()),
         #gaps > 0 and table.concat(gaps, " ") or "none yet"))
-    for rowIndex, row in ipairs(rows) do
-        Print("Sequence " .. rowIndex .. ": " .. table.concat(row.names, " > "))
-        for _, cell in ipairs(row.cells) do
-            local usable, noMana
-            if cell.spellID and C_Spell and C_Spell.IsSpellUsable then
-                local ok, u, n = pcall(C_Spell.IsSpellUsable, cell.spellID)
-                if ok then usable, noMana = u, n end
+    for _, group in ipairs(groups) do
+        Print(string.format("\"%s\": always show Primary=%s", group.name, tostring(group.def.alwaysPrimary and true or false)))
+        local list = { group.primary }
+        for _, row in ipairs(group.subs) do
+            list[#list + 1] = row
+        end
+        for _, row in ipairs(list) do
+            print(string.format("  %s: %s, needs %s, shows from %s to %s, on cooldown=%s, hide on cooldown=%s",
+                row.label, table.concat(row.def.spells, " > "), tostring(row.total),
+                row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
+                tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
+            for _, cell in ipairs(row.cells) do
+                local usable, noMana
+                if cell.spellID and C_Spell and C_Spell.IsSpellUsable then
+                    local ok, u, n = pcall(C_Spell.IsSpellUsable, cell.spellID)
+                    if ok then usable, noMana = u, n end
+                end
+                print(string.format("     %s: id=%s known=%s cost=%s cast=%ss, needs %s-%s, usable=%s noMana=%s, cooldown: %s",
+                    cell.spellName, tostring(cell.spellID), tostring(cell.known),
+                    tostring(cell.cost), tostring(cell.castTime), tostring(cell.start), tostring(cell.total),
+                    Describe(usable), Describe(noMana), tostring(cell.cooldownNote)))
             end
-            local okWidth, fillWidth = pcall(cell.fill:GetStatusBarTexture().GetWidth, cell.fill:GetStatusBarTexture())
-            if not okWidth then fillWidth = "error" end
-            print(string.format("   %s: id=%s known=%s cost=%s cast=%ss, needs %s-%s, usable=%s noMana=%s, fill width=%s",
-                cell.name, tostring(cell.spellID), tostring(cell.known),
-                tostring(cell.cost), tostring(cell.castTime), tostring(cell.start), tostring(cell.total),
-                Describe(usable), Describe(noMana), Describe(fillWidth)))
         end
     end
 end
 
+-- Toggle a flag on every sequence (prototype: until the editor exists).
+local function ToggleAll(key, includeSubs)
+    if not db.sequences[1] then
+        return false
+    end
+    local value = not db.sequences[1][key]
+    for _, def in ipairs(db.sequences) do
+        def[key] = value
+        if includeSubs then
+            for _, sub in ipairs(def.subs or {}) do
+                sub[key] = value
+            end
+        end
+    end
+    return value
+end
+
+local function OnOff(value)
+    return value and "on" or "off"
+end
+
 SLASH_FOREVERSEQUENCES1 = "/fseq"
 SlashCmdList["FOREVERSEQUENCES"] = function(msg)
-    local cmd = (msg or ""):lower():match("^%s*(%S*)")
+    msg = (msg or ""):lower()
+    local cmd, arg = msg:match("^%s*(%S*)%s*(.-)%s*$")
     if cmd == "lock" then
         db.locked = true
         ApplyLock()
@@ -714,8 +1152,12 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
         for _, key in ipairs({ "point", "relativePoint", "x", "y" }) do
             db[key] = DEFAULTS[key]
         end
-        ApplyPosition()
-        Print("position reset.")
+        if InCombatLockdown() then
+            Print("can't move it in combat.")
+        else
+            ApplyPosition()
+            Print("position reset.")
+        end
     elseif cmd == "test" then
         if testStartTime then
             testStartTime = nil
@@ -729,19 +1171,67 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateMana()
         end
     elseif cmd == "regen" then
-        local mode = (msg or ""):lower():match("^%s*%S+%s+(%S+)")
-        if mode == "ticks" or mode == "smooth" or mode == "off" then
-            db.regenMode = mode
+        if arg == "ticks" or arg == "smooth" or arg == "off" then
+            db.regenMode = arg
             if active then
                 UpdateMana()
             end
-            Print("regen mode: " .. mode .. ".")
+            Print("regen mode: " .. arg .. ".")
         else
             Print("regen mode is " .. db.regenMode .. ". /fseq regen ticks | smooth | off")
         end
+    elseif cmd == "click" then
+        if InCombatLockdown() then
+            Print("can't change that in combat.")
+            return
+        end
+        if arg == "on" or arg == "off" then
+            db.clickable = arg == "on"
+        else
+            db.clickable = not db.clickable
+        end
+        Refresh()
+        for _, row in ipairs(rows) do
+            for _, cell in ipairs(row.cells) do
+                cell:EnableMouse(db.clickable)
+            end
+        end
+        Print("clicking to cast " .. OnOff(db.clickable) .. ".")
+    elseif cmd == "clicklog" then
+        db.clickLog = not db.clickLog
+        Print("click log " .. OnOff(db.clickLog) .. ".")
+    elseif cmd == "primary" then
+        Print("always show Primary " .. OnOff(ToggleAll("alwaysPrimary", false)) .. " for every sequence.")
+        Rebuild()
+    elseif cmd == "hidecd" then
+        Print("hide on cooldown " .. OnOff(ToggleAll("hideOnCooldown", true)) .. " for every sequence and sub-sequence.")
+        if active then
+            UpdateMana()
+        end
+    elseif cmd == "cdtest" then
+        local target = arg ~= "" and arg or "rejuvenation"
+        local count = 0
+        local ends = GetTime() + FAKE_COOLDOWN
+        for _, row in ipairs(rows) do
+            for _, cell in ipairs(row.cells) do
+                if cell.spellName:lower() == target then
+                    cell.fakeCooldownEnd = ends
+                    count = count + 1
+                end
+            end
+        end
+        Print(string.format("fake %ds cooldown on %d %s icon(s).", FAKE_COOLDOWN, count, target))
+        if active then
+            UpdateCooldowns()
+            UpdateMana()
+        end
+    elseif cmd == "defaults" then
+        db.sequences = CopyTable(DEFAULT_SEQUENCES)
+        Print("sequences reset to the defaults.")
+        Rebuild()
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq lock | unlock | reset | test | regen | debug")
+        Print("/fseq lock | unlock | reset | test | regen | click [on|off] | clicklog | primary | hidecd | cdtest [spell] | defaults | debug")
     end
 end

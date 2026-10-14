@@ -58,7 +58,7 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 Slash command: `/druidrange` (options), `/druidrange debug` (prints what the game answers for each spell).
 
 ## ForeverSequences
-*Proof of concept.* Rows of spell icons, one row per spell sequence, stacked vertically. Each icon fills with colour
+*Prototype.* Rows of spell icons, one row per sequence, stacked vertically. Each icon fills with colour
 from left to right as you gain the mana to cast it **after** everything before it in its row:
 - An icon you can afford (on top of the earlier ones) is in full colour. The next one is part colour, part grey,
   in proportion to how much of its cost you have. The rest are grey.
@@ -74,11 +74,34 @@ from left to right as you gain the mana to cast it **after** everything before i
   `/fseq regen off` ignores regen.
 - Mana is secret on Forever, so the comparisons are done with hidden status bars and clipping, not in Lua.
 
-The sequences are fixed for now (a UI to build them comes next):
-1. Regrowth > Rejuvenation > Bear Form (Dire Bear Form once known)
-2. Entangling Roots > Rejuvenation > Travel Form
+**Sub-sequences.** Each sequence has a Primary and optional sub-sequences made from its spells:
+- Normally the sequence has one row, showing the cheapest sequence you can't afford yet (the one you're working
+  towards), and the Primary once you can afford everything.
+- With *always show Primary*, the Primary keeps its row. Below it, smaller and indented, is the most complete
+  sub-sequence you can afford (the cheapest if none), until you can afford the Primary. That space is always reserved,
+  because Lua can't tell when the Primary is affordable.
 
-Druids only. Commands: `/fseq unlock` (drag to move) / `/fseq lock`, `/fseq reset` (back to the default position),
-`/fseq test` (fake mana sweeping from empty to full, to check the visuals), `/fseq regen ticks|smooth|off`,
-`/fseq debug` (spell IDs, known ranks, costs, cast times, thresholds, regen rates, time left on the 5-second rule,
-the gaps between recent mana updates, and whether mana, `IsSpellUsable` and the fill width read as secret).
+**Cooldowns.** A spell on cooldown (not just the global cooldown) is greyed out with Blizzard's cooldown swipe. The
+countdown numbers follow your "show numbers for cooldowns" setting. A sequence or sub-sequence set to *hide on cooldown*
+drops out while one of its spells is on cooldown, and the next one shows instead. If the game won't say whether a spell
+is on cooldown, it's never treated as on cooldown (Blizzard's swipe may still show).
+
+**Clicking.** Each icon is a secure button: one click casts that spell (forms as `/cast !Form`, so they never shift you
+out). Targeting works as on your action bars. Out of combat only: changing sequences, moving the display, and turning
+clicking on or off.
+
+Prototype sequences (the editor comes next):
+1. *Bear out*: Regrowth > Rejuvenation > Bear Form, with subs Regrowth > Bear Form and Rejuvenation > Bear Form.
+2. *Root and run* (always show Primary): Entangling Roots > Rejuvenation > Travel Form, with sub Entangling Roots >
+   Travel Form.
+
+Druids only. Commands:
+- `/fseq unlock` (drag to move; clicks are blocked while unlocked) / `/fseq lock`, `/fseq reset` (default position).
+- `/fseq test`: fake mana sweeping from empty to full, to check the visuals and the row switching.
+- `/fseq regen ticks|smooth|off`.
+- `/fseq click [on|off]`: clicking to cast. `/fseq clicklog`: prints which button each click reached.
+- Prototype toggles for every sequence at once: `/fseq primary` (always show Primary), `/fseq hidecd` (hide on
+  cooldown). `/fseq cdtest [spell]` puts a fake 10s cooldown on that spell's icons (Rejuvenation by default).
+  `/fseq defaults` restores the prototype sequences.
+- `/fseq debug`: spell IDs, known ranks, costs, cast times, thresholds, each row's mana band and cooldown state, regen
+  rates, time left on the 5-second rule, the gaps between recent mana updates, and which values read as secret.
