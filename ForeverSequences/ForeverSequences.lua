@@ -1207,6 +1207,13 @@ local function ApplyAction(cell)
     cell:SetAttribute("spell", nil)
     cell:SetAttribute("item", nil)
     cell:SetAttribute("macrotext", nil)
+    -- Clicking off: no action, so a left click does nothing. (Not SetPassThroughButtons:
+    -- clearing it on a secure button, with no arguments, is the likely cause of client
+    -- crashes when fixed windows were built.)
+    if not (cell.window and cell.window.clickable ~= false) then
+        cell:SetAttribute("type", nil)
+        return
+    end
     if info.kind == "spell" and spellName and IsForm(entry.name, info.spellID) then
         cell:SetAttribute("type", "macro")
         cell:SetAttribute("macrotext", "/cast !" .. spellName)
@@ -1225,12 +1232,6 @@ local function ApplyAction(cell)
         end
         cell:SetAttribute("type", "macro")
         cell:SetAttribute("macrotext", table.concat(lines, "\n"))
-    end
-    -- Left clicks pass through when clicking is off; right-click still opens the options.
-    if cell.window and cell.window.clickable ~= false then
-        SetPassThrough(cell)
-    else
-        SetPassThrough(cell, "LeftButton")
     end
 end
 
@@ -1494,11 +1495,16 @@ local function CreatePlainRow(group, line, def, size, label, secure)
 end
 
 local function NewLine(root, width, height)
+    -- Fixed windows' rows sit straight in the window, away from the threshold clipping
+    -- (which fixed windows don't use) and its status bars.
+    local parent = root.fixed and root or root.content
     local line = table.remove(root.linePool)
-    if not line then
-        line = NewFrame("Frame", root.content)
+    if line then
+        line:SetParent(parent)
+    else
+        line = NewFrame("Frame", parent)
     end
-    SetLevelAbove(line, root.content)
+    SetLevelAbove(line, parent)
     line:SetSize(width, height)
     line:Show()
     root.lines[#root.lines + 1] = line
@@ -1557,7 +1563,9 @@ local function BuildWindow(root, window)
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
-                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
+                -- /fseq noclick builds fixed windows with display-only icons.
+                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary",
+                    not db.noClickButtons)
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
@@ -2884,6 +2892,11 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateCooldowns()
             UpdateMana()
         end
+    elseif cmd == "noclick" then
+        db.noClickButtons = not db.noClickButtons
+        Print(db.noClickButtons and "fixed windows now use display-only icons (no click to cast)." or
+            "fixed windows use click-to-cast buttons again.")
+        Rebuild()
     elseif cmd == "defaults" then
         ns.ResetToDefaults()
         Print("windows and sequences reset to the defaults.")
@@ -2892,6 +2905,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq (options) | reset | test | cdtest [spell] | defaults | debug")
+        Print("/fseq (options) | reset | test | cdtest [spell] | noclick | defaults | debug")
     end
 end

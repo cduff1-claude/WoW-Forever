@@ -167,7 +167,8 @@ window is shown and can be dragged to move it; they lock again when the options 
 
 Druids only. Older settings move into a dynamic "Main" window, plus a fixed "Clickable" window for sequences that had
 *always show Primary*. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
-empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults` (restore the
+empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq noclick` (fixed windows use display-only
+icons instead of click-to-cast buttons; for testing), `/fseq defaults` (restore the
 starting windows), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
 instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule, mana update gaps,
 Clearcasting and the mana potions found).
