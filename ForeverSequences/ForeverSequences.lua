@@ -459,8 +459,11 @@ local function GetGlobalCooldown(spellID)
 end
 
 -- Item spells' descriptions can be empty until the game has loaded them (mana potions at
--- login); asking for one that's missing loads it, and SPELL_DATA_LOAD_RESULT says when.
-local descriptionsPending = false
+-- login). Each missing one is asked for once; when SPELL_DATA_LOAD_RESULT says one arrived,
+-- the next periodic update looks at the bags again. (Many spells' descriptions are simply
+-- empty, so asking again on every refresh would loop: the game answers at once.)
+local requestedDescriptions = {}
+local descriptionsLoaded = false
 
 local function GetDescription(spellID)
     if spellID and C_Spell and C_Spell.GetSpellDescription then
@@ -468,9 +471,9 @@ local function GetDescription(spellID)
         if ok and Text(text) then
             return text
         end
-        if C_Spell.RequestLoadSpellData then
+        if C_Spell.RequestLoadSpellData and not requestedDescriptions[spellID] then
+            requestedDescriptions[spellID] = true
             pcall(C_Spell.RequestLoadSpellData, spellID)
-            descriptionsPending = true
         end
     end
     return nil
@@ -2359,10 +2362,13 @@ local function Periodic()
     RefreshEntries()
     UpdateCooldowns()
     UpdateClearcasting()
-    if descriptionsPending then
-        -- Some descriptions weren't loaded; look at the bags again (mana potions).
-        descriptionsPending = false
+    if descriptionsLoaded then
+        -- Descriptions we asked for have arrived; look at the bags again (mana potions).
+        descriptionsLoaded = false
         ScanBags()
+        if ns.RefreshEditor then
+            ns.RefreshEditor()
+        end
     end
 end
 
@@ -2476,7 +2482,7 @@ end)
 -- Times of recent mana updates, for /fseq debug: steady 2s gaps would mean regen in ticks.
 local manaEventTimes = {}
 
-driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
+local function OnEvent(_, event, unit, arg2, arg3)
     if event == "PLAYER_LOGIN" then
         -- SavedVariables are loaded by now: pick this character's profile.
         LoadProfile()
@@ -2542,13 +2548,25 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
         Refresh()
         if ns.RefreshEditor then ns.RefreshEditor() end
-    elseif event == "BAG_UPDATE_DELAYED" or event == "SPELL_DATA_LOAD_RESULT" then
+    elseif event == "SPELL_DATA_LOAD_RESULT" then
+        -- Only note it: the work waits for the next periodic update (see GetDescription).
+        if unit and not IsSecret(unit) and requestedDescriptions[unit] then
+            descriptionsLoaded = true
+        end
+    elseif event == "BAG_UPDATE_DELAYED" then
         ScanBags()
         Refresh()
         if ns.RefreshEditor then ns.RefreshEditor() end
     else
         Refresh()
     end
+end
+
+driver:SetScript("OnEvent", function(self, event, ...)
+    local count, args = select("#", ...), { ... }
+    Guarded(function()
+        OnEvent(self, event, unpack(args, 1, count))
+    end)
 end)
 
 ----------------------------------------------------------------------------------------------

@@ -75,6 +75,10 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
 - **"Script ran too long"** comes from creating too many frames in one go. Frames can't be deleted, so
   hiding old ones and making new ones on every rebuild piles them up and slows every later `CreateFrame`.
   Pool and reuse frames instead; after `SetParent`, set frame levels explicitly.
+- **Spell descriptions** can be empty until loaded. `C_Spell.RequestLoadSpellData` may answer at once
+  with `SPELL_DATA_LOAD_RESULT`, and many spells' descriptions are always empty. Request each spell only
+  once, and in the event handler only set a flag for later. Refreshing from the event, which reads
+  descriptions and requests again, loops and froze or crashed the client.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
   - Open from a slash command with `pcall(Settings.OpenToCategory, category:GetID())`. See the existing addons.
