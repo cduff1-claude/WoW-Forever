@@ -20,9 +20,9 @@
 local _, ns = ...
 
 local MAX_ENTRIES = 8
-local MAX_SUBS = 4
 local SLOT_SIZE = 34
 local SLOT_GAP = 4
+local SUB_BLOCK_HEIGHT = SLOT_SIZE + 20
 local WINDOW_ROWS = 11
 local LIBRARY_ROWS = 9
 local LIST_ROW_HEIGHT = 22
@@ -40,6 +40,10 @@ local selSeq    -- the selected sequence (from the library), or nil
 local windowOffset, libraryOffset = 0, 0
 local drag      -- an icon being dragged: { entry, row (nil from the list of spells), index }
 local listDrag  -- a sequence being dragged: { def, window and item (nil from the library) }
+-- A sequence picked under a window is only shown; it's edited from the library.
+local function ReadOnly()
+    return selItem ~= nil
+end
 
 local function Print(msg)
     ns.Print(msg)
@@ -223,8 +227,11 @@ local function PrimaryOrderIndex(target, primary, fromIndex)
 end
 
 local function SlotUnderMouse()
+    if ReadOnly() then
+        return nil
+    end
     for _, row in ipairs(slotRows) do
-        if row.frame:IsVisible() then
+        if row.frame:IsVisible() and (not row.clip or row.clip:IsMouseOver()) then
             for index, slot in ipairs(row.slots) do
                 if slot:IsVisible() and slot:IsMouseOver() then
                     return row, index
@@ -349,11 +356,15 @@ local function SlotTooltip(slot)
         if entry.kind == "spell" and entry.rank then
             GameTooltip:AddLine("Pinned to rank " .. entry.rank, 0.4, 0.8, 1)
         end
-        GameTooltip:AddLine("Drag to move or copy, or off the window to remove.", 0.6, 0.6, 0.6, true)
-        if entry.kind == "spell" then
-            GameTooltip:AddLine("Right-click: change rank. Shift-right-click: remove.", 0.6, 0.6, 0.6, true)
+        if ReadOnly() then
+            GameTooltip:AddLine("Press Edit in library to change this sequence.", 0.6, 0.6, 0.6, true)
         else
-            GameTooltip:AddLine("Shift-right-click: remove.", 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine("Drag to move or copy, or off the window to remove.", 0.6, 0.6, 0.6, true)
+            if entry.kind == "spell" then
+                GameTooltip:AddLine("Right-click: remove. Shift-right-click: change rank.", 0.6, 0.6, 0.6, true)
+            else
+                GameTooltip:AddLine("Right-click: remove.", 0.6, 0.6, 0.6, true)
+            end
         end
     else
         GameTooltip:SetOwner(slot, "ANCHOR_RIGHT")
@@ -392,23 +403,28 @@ local function CreateSlot(row, index)
     slot:RegisterForDrag("LeftButton")
 
     slot:SetScript("OnClick", function(self, button)
+        if ReadOnly() then
+            return
+        end
         if GetCursorInfo() then
             DropCursor(self.row, self.index)
         elseif button == "RightButton" and self.row.list()[self.index] then
             if IsShiftKeyDown() then
+                CycleRank(self.row, self.index)
+            else
                 table.remove(self.row.list(), self.index)
                 Changed()
-            else
-                CycleRank(self.row, self.index)
             end
         end
     end)
     slot:SetScript("OnReceiveDrag", function(self)
-        DropCursor(self.row, self.index)
+        if not ReadOnly() then
+            DropCursor(self.row, self.index)
+        end
     end)
     slot:SetScript("OnDragStart", function(self)
         local entry = self.row.list()[self.index]
-        if entry and not GetCursorInfo() then
+        if entry and not GetCursorInfo() and not ReadOnly() then
             StartDrag(entry, self.row, self.index)
         end
     end)
@@ -445,7 +461,7 @@ local function RefreshSlotRow(row)
             slot.plus:Hide()
             slot.rank:SetText(ns.RankText(info) or "")
             slot:Show()
-        elseif i == #list + 1 and i <= MAX_ENTRIES then
+        elseif i == #list + 1 and i <= MAX_ENTRIES and not ReadOnly() then
             slot.icon:Hide()
             slot.plus:Show()
             slot.rank:SetText("")
@@ -704,6 +720,7 @@ local function CreateWindowRow(f, area, i)
 
     row:SetScript("OnClick", function(self)
         selWindow, selItem, selSeq = self.data.window, self.data.item, self.data.def
+        f.subScroll:SetVerticalScroll(0)
         f:Refresh()
     end)
     row:SetScript("OnDragStart", function(self)
@@ -721,6 +738,7 @@ local function CreateLibraryRow(f, area, i)
     row.text:SetPoint("RIGHT", -4, 0)
     row:SetScript("OnClick", function(self)
         selWindow, selItem, selSeq = nil, nil, self.def
+        f.subScroll:SetVerticalScroll(0)
         f:Refresh()
     end)
     row:SetScript("OnDragStart", function(self)
@@ -762,6 +780,8 @@ local function CreatePicker(f)
     picker:SetSize(PICKER_WIDTH, f:GetHeight())
     Backdrop(picker)
     picker:EnableMouse(true)
+    picker:EnableMouseWheel(true)
+    picker:SetScript("OnMouseWheel", function() end)
 
     local title = NewLabel(picker, "Spells and items", "GameFontNormal")
     title:SetPoint("TOP", 0, -18)
@@ -838,10 +858,12 @@ local function CreatePicker(f)
         end)
         row:SetScript("OnDragStop", FinishDrag)
         row:SetScript("OnClick", function(self)
-            if selSeq and Insert(selSeq.entries, #selSeq.entries + 1, ns.CopyTable(self.item.entry)) then
+            if ReadOnly() then
+                Print("press Edit in library to change this sequence.")
+            elseif selSeq and Insert(selSeq.entries, #selSeq.entries + 1, ns.CopyTable(self.item.entry)) then
                 Changed()
             elseif not selSeq then
-                Print("select a sequence first.")
+                Print("select a sequence in the library first.")
             end
         end)
         row:SetScript("OnEnter", function(self)
@@ -1061,6 +1083,9 @@ local function CreateEditor()
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     Backdrop(f)
     tinsert(UISpecialFrames, "ForeverSequencesEditor") -- Escape closes it
+    -- Take the mouse wheel anywhere over the window, so it never reaches a key binding.
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function() end)
 
     local title = NewLabel(f, "Forever Sequences", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -18)
@@ -1248,6 +1273,7 @@ local function CreateEditor()
 
     -- Right: the selected sequence.
     local detail = CreateFrame("Frame", nil, f)
+    detail:SetPoint("TOPLEFT", RIGHT_X, -44)
     detail:SetPoint("BOTTOMRIGHT", -20, 60)
     f.detail = detail
 
@@ -1286,47 +1312,77 @@ local function CreateEditor()
     local subsLabel = NewLabel(detail, "Sub-sequences")
     subsLabel:SetPoint("TOPLEFT", 0, -104)
 
+    -- Sub-sequences: any number, in a scroll frame.
+    local subScroll = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
+    subScroll:SetPoint("TOPLEFT", 0, -120)
+    subScroll:SetPoint("BOTTOMRIGHT", -24, 40)
+    local subContent = CreateFrame("Frame", nil, subScroll)
+    subContent:SetSize(500, 10)
+    subScroll:SetScrollChild(subContent)
+    f.subScroll, f.subContent = subScroll, subContent
+
     f.subBlocks = {}
-    for i = 1, MAX_SUBS do
-        local block = CreateFrame("Frame", nil, detail)
-        block:SetSize(520, SLOT_SIZE + 20)
-        block:SetPoint("TOPLEFT", 0, -120 - (i - 1) * (SLOT_SIZE + 20))
+    local function SubAt(block)
+        return selSeq and selSeq.subs[block.index]
+    end
+    function f:SubBlock(i)
+        local block = self.subBlocks[i]
+        if block then
+            return block
+        end
+        block = CreateFrame("Frame", nil, subContent)
+        block:SetSize(500, SUB_BLOCK_HEIGHT)
+        block:SetPoint("TOPLEFT", 0, -(i - 1) * SUB_BLOCK_HEIGHT)
+        block.index = i
         block.row = CreateSlotRow(block, function()
-            local sub = selSeq and selSeq.subs[i]
+            local sub = SubAt(block)
             return sub and sub.entries
         end, false)
+        block.row.clip = subScroll
         block.row.frame:SetPoint("TOPLEFT", 0, -14)
         block.cost = NewLabel(block, "", "GameFontHighlightSmall")
         block.cost:SetPoint("TOPLEFT", 0, 0)
         block.remove = NewButton(block, "Remove", 70, function()
-            if selSeq and selSeq.subs[i] then
-                table.remove(selSeq.subs, i)
+            if SubAt(block) and not ReadOnly() then
+                table.remove(selSeq.subs, block.index)
                 Changed()
             end
         end)
         block.remove:SetPoint("LEFT", block.row.frame, "LEFT", 6 * (SLOT_SIZE + SLOT_GAP) + 150, 0)
         block.hide = NewCheck(block, "Hide when unusable", function(checked)
-            local sub = selSeq and selSeq.subs[i]
+            local sub = SubAt(block)
             if sub then
                 sub.hideOnCooldown = checked
                 Changed()
             end
         end)
         block.hide:SetPoint("BOTTOMLEFT", block.remove, "TOPLEFT", 0, 0)
-        f.subBlocks[i] = block
+        self.subBlocks[i] = block
+        return block
     end
 
-    f.addSub = NewButton(detail, "Add sub-sequence", 140, function()
-        if selSeq and #selSeq.subs < MAX_SUBS then
+    f.addSub = NewButton(subContent, "Add sub-sequence", 140, function()
+        if selSeq and not ReadOnly() then
             selSeq.subs[#selSeq.subs + 1] = { entries = {}, hideOnCooldown = false }
             Changed()
+            subScroll:SetVerticalScroll(subScroll:GetVerticalScrollRange())
         end
     end)
+
+    -- A sequence picked under a window is shown read-only, with a way into the library.
+    f.nameText = NewLabel(detail, "", "GameFontHighlight")
+    f.nameText:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
+    f.editButton = NewButton(detail, "Edit in library", 120, function()
+        selWindow, selItem = nil, nil
+        f:Refresh()
+    end)
+    f.editButton:SetPoint("TOPRIGHT", 0, -2)
 
     local hint = NewLabel(detail,
         "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
         "Drag icons to move them, onto another row to copy them, or off the window to remove them. " ..
-        "Right-click a spell to change its rank. Changes show in every window using this sequence.",
+        "Right-click an icon to remove it, shift-right-click a spell to change its rank. " ..
+        "Changes show in every window using this sequence.",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 0, 4)
     hint:SetPoint("BOTTOMRIGHT", 0, 4)
@@ -1455,25 +1511,20 @@ local function CreateEditor()
                 self.targetNone:SetChecked(targets.none ~= false)
             end
         end
-        local top = -44
-        if selWindow then
-            top = dynamic and -252 or -104
-        end
-        self.divider:SetShown(selWindow ~= nil)
-        self.divider:ClearAllPoints()
-        self.divider:SetPoint("TOPLEFT", RIGHT_X, top + 4)
-        self.divider:SetPoint("RIGHT", self, "RIGHT", -20, 0)
-        self.detail:ClearAllPoints()
-        self.detail:SetPoint("TOPLEFT", RIGHT_X, top - 4)
-        self.detail:SetPoint("BOTTOMRIGHT", -20, 60)
+        self.divider:Hide()
 
-        -- The sequence.
+        -- The sequence: editable from the library, read-only when picked under a window.
         local def = selSeq
+        local readOnly = ReadOnly()
+        self.windowPanel:SetShown(selWindow ~= nil and not readOnly)
         self.detail:SetShown(def ~= nil)
-        self.empty:SetShown(def == nil)
-        self.empty:SetText(selWindow and "Select a sequence, or press New under the library." or
-            "Press New window to start.")
+        self.empty:SetShown(def == nil and selWindow == nil)
+        self.empty:SetText("Press New window to start.")
         if def then
+            self.nameBox:SetShown(not readOnly)
+            self.nameText:SetShown(readOnly)
+            self.nameText:SetText(def.name or "")
+            self.editButton:SetShown(readOnly)
             if not self.nameBox:HasFocus() then
                 self.nameBox:SetText(def.name or "")
             end
@@ -1482,29 +1533,28 @@ local function CreateEditor()
                 or "Not in any window yet: drag it from the library onto one.")
             self.primaryHide:SetShown(ns.AnyCooldown(def.entries))
             self.primaryHide:SetChecked(def.hideOnCooldown and true or false)
+            self.primaryHide:SetEnabled(not readOnly)
             self.primaryCost:SetText(CostText(def.entries))
             RefreshSlotRow(self.primaryRow)
-            local lastBlock
-            for i, block in ipairs(self.subBlocks) do
+            for i = 1, math.max(#def.subs, #self.subBlocks) do
                 local sub = def.subs[i]
                 if sub then
+                    local block = self:SubBlock(i)
                     block.hide:SetShown(ns.AnyCooldown(sub.entries))
                     block.hide:SetChecked(sub.hideOnCooldown and true or false)
+                    block.hide:SetEnabled(not readOnly)
+                    block.remove:SetShown(not readOnly)
                     block.cost:SetText(i .. ". " .. CostText(sub.entries))
                     RefreshSlotRow(block.row)
                     block:Show()
-                    lastBlock = block
-                else
-                    block:Hide()
+                elseif self.subBlocks[i] then
+                    self.subBlocks[i]:Hide()
                 end
             end
             self.addSub:ClearAllPoints()
-            if lastBlock then
-                self.addSub:SetPoint("TOPLEFT", lastBlock, "BOTTOMLEFT", 0, 0)
-            else
-                self.addSub:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 0, -120)
-            end
-            self.addSub:SetShown(#def.subs < MAX_SUBS)
+            self.addSub:SetPoint("TOPLEFT", 0, -#def.subs * SUB_BLOCK_HEIGHT - 2)
+            self.addSub:SetShown(not readOnly)
+            self.subContent:SetHeight(#def.subs * SUB_BLOCK_HEIGHT + 30)
         end
 
         self.profileButton:SetText(ProfileLabel(ns.CurrentProfile() or "?"))
@@ -1524,7 +1574,7 @@ local function CreateEditor()
         self.primaryCost:SetText(CostText(selSeq.entries))
         for i, block in ipairs(self.subBlocks) do
             local sub = selSeq.subs[i]
-            if sub then
+            if sub and block:IsShown() then
                 block.cost:SetText(i .. ". " .. CostText(sub.entries))
             end
         end

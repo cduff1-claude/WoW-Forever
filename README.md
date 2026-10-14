@@ -109,7 +109,7 @@ position, and is one of:
     empty.
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.
 
-**Sequences.** Each has a Primary and up to 4 sub-sequences (any spells or items, up to 8 each).
+**Sequences.** Each has a Primary and any number of sub-sequences (any spells or items, up to 8 each).
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
   them (or you have no enemy target), is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
@@ -137,11 +137,12 @@ window is shown and can be dragged to move it; they lock again when the options 
   a window (it stays in the library); *Delete* deletes a window.
 - Left, bottom: the library (with how many windows use each). Drag a sequence onto a window to show it there.
   New (also added to the selected window), Copy, Delete (from the library and every window).
-- Right: the window's name, type, *only show in combat*, and for dynamic windows the mana, health and target
-  options; the sequence's name, *hide when on cooldown* and which windows use it; the
+- Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
+  options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence
+  picked in the library: its name, *hide when unusable* and which windows use it; the
   Primary and the sub-sequences, each labelled "Mana cost: X (Y gained)": X is its total cost, Y the mana regained
   before its last icon plus any potions or other restores in it. Sub-sequences are listed by mana cost, dearest
-  first, each time the options open.
+  first, each time the options open, in a scrolling list.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
   section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), then usable
   items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
@@ -150,9 +151,10 @@ window is shown and can be dragged to move it; they lock again when the options 
   anything that can't be cast in combat (Revive), or the rest of General and Feral. *Show all* lists every spell.
   Never listed, even then: passives, internal spells ("(DND)", "Shapeshift"), quest items, items with no "Use:",
   hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
-  The spellbook and bags work too. Escape closes the options.
+  The spellbook and bags work too. Escape closes the options, and the mouse wheel over them never reaches your
+  key bindings.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
-  slot they go in Primary order), or off the window to remove them. Shift-right-click also removes. Right-click a
+  slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
   spell to step down through the ranks you know, and back round to your highest.
 - Bottom: *click a fixed window's Primary to cast*, and the regen mode.
 - Changes made in combat reach the windows when combat ends.
