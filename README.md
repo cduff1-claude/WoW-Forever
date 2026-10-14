@@ -76,8 +76,12 @@ saves a character's action bars, macros and key bindings as a profile and import
   after it. The original looked up the new character's macros once, then created and placed them one by one. If another
   addon had already made macros, those lookups went stale after the first create and macros landed in the wrong slots.
   The import now creates every missing macro first, then re-reads the macro list and places each one by name and body.
+- **Matching by name:** a macro in the profile is matched to this character's macros by name + body, then by name
+  alone (account macros only match account macros, character only character), then by body alone. So macros other
+  addons rewrite, like targeting macros, are reused and placed instead of duplicated.
 - **Level 1 default per class:** pick a saved profile per class. A character imports it automatically 5 seconds after
-  its first login while it is level 1 (waiting out combat if needed). It happens once per character; a character seen
+  its first login while it is level 1. It never creates account macros: an account macro in the profile is placed if
+one with that name exists, otherwise its slot is left empty. Character macros are still created (waiting out combat if needed). It happens once per character; a character seen
   past level 1 is marked done and never imports. Set it from the profile dropdown (*Set selected as level 1 default for
   my class*) or with commands.
 
@@ -90,6 +94,9 @@ Commands:
 - `/myslot default`: debug: class, level, whether this character has already imported, the default and whether it
   exists, and every class's default.
 - `/myslot load <profile name>` now accepts names with spaces too.
+
+For the same no-create behaviour on a manual import, open the arrow next to *Import* and tick *IGNORE during Import →
+Macros → General Macros*. Ignored macros are still placed if they exist; they just aren't created.
 
 Existing level 1 characters that haven't imported yet will also get the default at their next login. To stop that on
 a character, log in and run `/myslot default skip` before (or right after) setting a default.

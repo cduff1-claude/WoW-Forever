@@ -53,7 +53,9 @@ function MySlot:SetLevelOneDefault(name, classToken)
     end
 end
 
--- The same options as "/myslot load": everything imported, nothing ignored.
+-- Everything imported except account macros: those are shared by all
+-- characters, so they are only placed if a macro of that name already
+-- exists, never created.
 local function FullImportOptions()
     local ignoreActionBars = {}
     for i = 1, 15 do
@@ -62,7 +64,7 @@ local function FullImportOptions()
     return {
         ignoreActionBars = ignoreActionBars,
         ignoreBinding = false,
-        ignoreMacros = { ["ACCOUNT"] = false, ["CHARACTOR"] = false },
+        ignoreMacros = { ["ACCOUNT"] = true, ["CHARACTOR"] = false },
         ignorePetActionBar = false,
         ignoreCooldownManager = false,
         ignoreClickBindings = false,

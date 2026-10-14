@@ -1170,10 +1170,16 @@ local function UnifyCRLF(text)
     return strtrim(text)
 end
 
--- Build a lookup of the character's current macros keyed by both "name_body"
--- and "body". Scanning all 138 macro slots is expensive, so callers that do
+-- Build a lookup of the character's current macros keyed by "name_body",
+-- "body", and name within the account/character scope (NameKey). Scanning all 138 macro slots is expensive, so callers that do
 -- many lookups (RecoverData) should build this once and reuse it instead of
 -- rebuilding per lookup.
+-- Name lookup key. The "\0" prefix can't occur in macro text, so it can't
+-- collide with the body keys; A/C keeps account and character macros apart.
+local function NameKey(name, id)
+    return (id > MAX_ACCOUNT_MACROS and "\0C" or "\0A") .. name
+end
+
 function MySlot:BuildMacroIndex()
     local localMacro = {}
     for i = 1, MAX_ACCOUNT_MACROS + MAX_CHARACTER_MACROS do
@@ -1182,6 +1188,9 @@ function MySlot:BuildMacroIndex()
             body = UnifyCRLF(body)
             localMacro[name .. "_" .. body] = i
             localMacro[body] = i
+            -- First macro with this name wins.
+            local key = NameKey(name, i)
+            localMacro[key] = localMacro[key] or i
         end
         if i % 30 == 0 then
             MaybeYield()
@@ -1203,8 +1212,13 @@ function MySlot:FindMacro(macroInfo, localMacro)
     local body = macroInfo["body"]
     body = UnifyCRLF(body)
 
+    -- Exact match first, then the same name in the same scope (account or
+    -- character), so macros other addons rewrite (e.g. targeting macros) are
+    -- matched instead of duplicated. Then the same body under another name.
     -- Return index if found or nil
-    return localMacro[name .. "_" .. body] or localMacro[body]
+    return localMacro[name .. "_" .. body]
+        or (macroInfo["oldid"] and localMacro[NameKey(name, macroInfo["oldid"])])
+        or localMacro[body]
 end
 
 -- {{{ FindOrCreateMacro
@@ -1250,6 +1264,7 @@ function MySlot:FindOrCreateMacro(macroInfo, localMacro)
                 -- recovery pass find this macro instead of creating a duplicate.
                 localMacro[name .. "_" .. body] = newid
                 localMacro[body] = newid
+                localMacro[NameKey(name, newid)] = localMacro[NameKey(name, newid)] or newid
                 return newid
             end
         end
@@ -1854,10 +1869,10 @@ function MySlot:RecoverData(msg, opt)
         end
     end
 
-    -- True when local macro `idx` still has the body described by `info`.
+    -- True when local macro `idx` still has the name or body in `info`.
     local function MacroMatches(idx, info)
         local name, _, body = GetMacroInfo(idx)
-        return name ~= nil and UnifyCRLF(body) == UnifyCRLF(info.body)
+        return name ~= nil and (name == info.name or UnifyCRLF(body) == UnifyCRLF(info.body))
     end
 
     -- Pass 2: re-index now that no more macros will be created, then place.
@@ -1887,7 +1902,7 @@ function MySlot:RecoverData(msg, opt)
                 end
             end
         else
-            MySlot:Print(L["Ignore unknown macro [id=%s]"]:format(macroId))
+            MySlot:Print(L["Ignore unknown macro [id=%s]"]:format(macroId) .. " " .. (info.name or ""))
         end
 
         macroProcessed = macroProcessed + 1
