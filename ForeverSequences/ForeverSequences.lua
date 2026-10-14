@@ -1104,10 +1104,14 @@ local function GetRoot(index)
     label:SetPoint("BOTTOMLEFT", mover, "TOPLEFT", 0, 2)
 
     -- Dynamic windows can be set to show only when mana or health is low. The rows sit in
-    -- `content`, which clips to "any condition true". Each switch is full while its condition
-    -- is false; switch k+1 is squeezed to switch k's fill, so if any switch is empty the ones
-    -- after it have no width, and the clip (from the last switch's fill edge to the right)
-    -- opens fully. Unused switches are kept full; with no conditions the first is kept empty.
+    -- `content`, which clips to "any condition true", from the last switch's fill edge to the
+    -- window's right. Each switch is full while its condition is false. Switch 1 covers the
+    -- window; each later one is as wide as the window, with its right edge on the previous
+    -- switch's fill edge. While the previous ones are full it covers the window too; once one
+    -- is empty, every later switch slides off to the left, so the last fill edge is left of the
+    -- window and the clip opens fully. (No switch is ever squeezed to no width: an empty-width
+    -- status bar doesn't redraw its fill, which made this behave like "all low".) Unused
+    -- switches are kept full; with no conditions the first is kept empty.
     root.gates = {}
     local previous
     for i = 1, MAX_GATES do
@@ -1116,11 +1120,13 @@ local function GetRoot(index)
         gate:SetStatusBarColor(0, 0, 0, 0)
         gate:SetMinMaxValues(NEVER - 1, NEVER)
         gate:SetValue(0)
-        gate:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
         if previous then
-            gate:SetPoint("BOTTOMRIGHT", previous:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            local edge = previous:GetStatusBarTexture()
+            gate:SetPoint("TOPRIGHT", edge, "TOPRIGHT", 0, 0)
+            gate:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", 0, 0)
+            gate:SetWidth(100)
         else
-            gate:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+            gate:SetAllPoints(root)
         end
         root.gates[i] = gate
         previous = gate
@@ -1605,6 +1611,10 @@ local function LayoutWindows()
                 end
                 local height = -y - ROW_GAP + PADDING
                 root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 60), math.max(height, 24))
+                -- The later threshold switches are as wide as the window (see GetRoot).
+                for i = 2, #root.gates do
+                    root.gates[i]:SetWidth(root:GetWidth())
+                end
             end
         end
     end
