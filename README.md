@@ -80,8 +80,10 @@ each cost is taken. Everything is read from the game, not hard-coded:
   items and Wrath don't use it.
 - Regen modes: *smooth* (default, as Forever regens), *2s ticks* (worst tick timing), *off*.
 
-**Windows.** Make as many as you like (PvP, tanking, healing...); each is named, can be turned off, and remembers its
-position. Each window is one of:
+**Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
+sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
+makes an independent copy to change for another window. Each window is named, can be turned off, remembers its
+position, and is one of:
 - **Dynamic:** one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
@@ -89,7 +91,16 @@ position. Each window is one of:
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
-- *Only show in combat* hides the window out of combat.
+- *Only show in combat* (any window) hides it out of combat.
+- Dynamic windows can also show only when you're low, and only for some targets:
+  - *Mana*: below the dearest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
+    affording it, and stays up for a few seconds (up to 10) after mana goes back above.
+  - *Health*: below a percentage. With both ticked, the window shows when either is low.
+  - *Targets*: your last living non-friendly target (hostile or neutral) is a player or their pet, an NPC, or none (none
+    yet, or it died while targeted). Friendly targets, yourself included, don't change it, so healing yourself
+    mid-fight keeps the window up. An enemy that dies while you're targeting someone else isn't noticed.
+  - Mana and health are secret, so this is done with hidden status bars too: the window is still there, just drawn
+    empty.
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.
 
 **Sequences.** Each has a Primary and up to 4 sub-sequences (any spells or items, up to 8 each).
@@ -101,9 +112,13 @@ position. Each window is one of:
 
 **Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). While they're open, every
 window is shown and can be dragged to move it; they lock again when the options close.
-- Left: windows and their sequences, in display order. Tick to show or hide (hidden ones take no space), arrows to
-  reorder, drag a sequence onto another window or sequence to move it there. New window / New sequence / Delete.
-- Right: the window's name, type and *only show in combat*; the sequence's name and *hide when on cooldown*; the
+- Left, top: windows and the sequences they show, in display order. Tick to show or hide (hidden ones take no space),
+  arrows to reorder, drag a sequence onto another window or sequence to move it there. *Remove* takes a sequence out of
+  a window (it stays in the library); *Delete* deletes a window.
+- Left, bottom: the library (with how many windows use each). Drag a sequence onto a window to show it there.
+  New (also added to the selected window), Copy, Delete (from the library and every window).
+- Right: the window's name, type, *only show in combat*, and for dynamic windows the mana, health and target
+  options; the sequence's name, *hide when on cooldown* and which windows use it; the
   Primary and the sub-sequences, each labelled "Mana cost: X (Y gained)": X is its total cost, Y the mana regained
   before its last icon plus any potions or other restores in it. Sub-sequences are listed by mana cost, dearest
   first, each time the options open.

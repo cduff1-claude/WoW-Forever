@@ -1,7 +1,12 @@
--- Forever Sequences editor: windows, the sequences in them, and their rows of icons.
+-- Forever Sequences editor: a library of sequences, the windows that show them, and the
+-- sequences' rows of icons.
 --
---   - Left: windows and their sequences, in display order. Tick to show or hide, arrows to
---     reorder, drag a sequence onto another window (or another sequence) to move it there.
+--   - Left, top: windows, each with the sequences it shows, in display order. Tick to show or
+--     hide, arrows to reorder, drag a sequence onto another window (or before another
+--     sequence) to move it there.
+--   - Left, bottom: the library, every sequence you've made. Drag one onto a window to show
+--     it there too; the same sequence can be in several windows. Copy makes an independent
+--     copy to change for another window.
 --   - Right: the selected window's settings, then the selected sequence's rows.
 --   - Beside it: every spell you know (in spellbook order) and every usable item you carry,
 --     to drag into a row (or click to add to the end of the Primary).
@@ -18,7 +23,8 @@ local MAX_ENTRIES = 8
 local MAX_SUBS = 4
 local SLOT_SIZE = 34
 local SLOT_GAP = 4
-local VISIBLE_ROWS = 18
+local WINDOW_ROWS = 11
+local LIBRARY_ROWS = 9
 local LIST_ROW_HEIGHT = 22
 local LEFT = 20
 local RIGHT_X = 250
@@ -28,10 +34,12 @@ local REGEN_MODES = { "smooth", "ticks", "off" }
 local REGEN_LABELS = { smooth = "Regen: smooth", ticks = "Regen: 2s ticks", off = "Regen: off" }
 
 local editor
-local selWindow, selSeq   -- the selected window, and sequence (nil when a window is selected)
-local listOffset = 0
-local drag                -- an icon being dragged: { entry, row (nil from the list of spells), index }
-local listDrag            -- a sequence being dragged in the list: { def, window }
+local selWindow -- the selected window (nil when a library sequence is picked on its own)
+local selItem   -- the selected placement of a sequence in selWindow, or nil
+local selSeq    -- the selected sequence (from the library), or nil
+local windowOffset, libraryOffset = 0, 0
+local drag      -- an icon being dragged: { entry, row (nil from the list of spells), index }
+local listDrag  -- a sequence being dragged: { def, window and item (nil from the library) }
 
 local function Print(msg)
     ns.Print(msg)
@@ -39,6 +47,10 @@ end
 
 local function Windows()
     return ns.db.windows
+end
+
+local function Library()
+    return ns.db.library
 end
 
 local function Changed()
@@ -57,13 +69,24 @@ local function IndexOf(list, value)
     return nil
 end
 
-local function WindowOf(def)
-    for _, window in ipairs(Windows()) do
-        if IndexOf(window.sequences, def) then
-            return window
+local function ItemIndex(window, id)
+    for i, item in ipairs(window.items) do
+        if item.id == id then
+            return i
         end
     end
     return nil
+end
+
+-- Names of the windows a sequence is in.
+local function UsedIn(def)
+    local names = {}
+    for _, window in ipairs(Windows()) do
+        if ItemIndex(window, def.id) then
+            names[#names + 1] = window.name or "?"
+        end
+    end
+    return names
 end
 
 ----------------------------------------------------------------------------------------------
@@ -441,7 +464,7 @@ local function CostText(entries)
 end
 
 ----------------------------------------------------------------------------------------------
--- Windows and sequences
+-- Windows, the library, and placements
 ----------------------------------------------------------------------------------------------
 
 StaticPopupDialogs["FOREVERSEQUENCES_DELETE"] = {
@@ -450,11 +473,19 @@ StaticPopupDialogs["FOREVERSEQUENCES_DELETE"] = {
     button2 = NO or "No",
     OnAccept = function(_, data)
         if data and data.def then
-            table.remove(data.window.sequences, IndexOf(data.window.sequences, data.def))
-            selSeq = nil
+            -- Delete from the library, and from every window that shows it.
+            table.remove(Library(), IndexOf(Library(), data.def))
+            for _, window in ipairs(Windows()) do
+                local index = ItemIndex(window, data.def.id)
+                while index do
+                    table.remove(window.items, index)
+                    index = ItemIndex(window, data.def.id)
+                end
+            end
+            selSeq, selItem = nil, nil
         elseif data and data.window then
             table.remove(Windows(), IndexOf(Windows(), data.window))
-            selWindow, selSeq = Windows()[1], nil
+            selWindow, selItem = Windows()[1], nil
         end
         Changed()
     end,
@@ -464,33 +495,60 @@ StaticPopupDialogs["FOREVERSEQUENCES_DELETE"] = {
     preferredIndex = 3,
 }
 
+local function Confirm(text, data)
+    local popup = StaticPopup_Show("FOREVERSEQUENCES_DELETE", text)
+    if popup then
+        popup.data = data
+    end
+end
+
 local function NewWindow()
     local list = Windows()
-    local window = {
-        name = "Window " .. (#list + 1),
-        type = "dynamic",
-        enabled = true,
-        onlyInCombat = false,
-        sequences = {},
-    }
+    local window = ns.NewWindow("Window " .. (#list + 1))
     list[#list + 1] = window
-    selWindow, selSeq = window, nil
+    selWindow, selItem, selSeq = window, nil, nil
     Changed()
 end
 
-local function NewSequence()
-    if not selWindow then
-        NewWindow()
+-- Show a library sequence in a window, before `beforeIndex` (default: at the end).
+local function Place(def, window, beforeIndex)
+    if ItemIndex(window, def.id) then
+        Print("\"" .. (def.name or "?") .. "\" is already in " .. (window.name or "?") .. ".")
+        return nil
     end
+    local item = { id = def.id, enabled = true }
+    table.insert(window.items, math.min(beforeIndex or #window.items + 1, #window.items + 1), item)
+    return item
+end
+
+-- A new sequence goes in the library, and in the selected window if there is one.
+local function NewSequence()
+    local library = Library()
     local def = {
-        name = "Sequence " .. (#selWindow.sequences + 1),
-        enabled = true,
+        id = ns.NewId(),
+        name = "Sequence " .. (#library + 1),
         hideOnCooldown = false,
         entries = {},
         subs = {},
     }
-    selWindow.sequences[#selWindow.sequences + 1] = def
+    library[#library + 1] = def
     selSeq = def
+    selItem = selWindow and Place(def, selWindow) or nil
+    Changed()
+end
+
+-- An independent copy, next to the original in the library, to change for another window.
+local function CopySequence()
+    if not selSeq then
+        return
+    end
+    local copy = ns.CopyTable(selSeq)
+    copy.id = ns.NewId()
+    copy.name = (selSeq.name or "?") .. " (copy)"
+    local library = Library()
+    table.insert(library, (IndexOf(library, selSeq) or #library) + 1, copy)
+    selWindow, selItem, selSeq = nil, nil, copy
+    Print("copied. Drag \"" .. copy.name .. "\" from the library onto a window to show it there.")
     Changed()
 end
 
@@ -504,13 +562,16 @@ local function Move(list, item, delta)
     Changed()
 end
 
--- The list on the left: each window, then its sequences.
-local function ListItems()
+-- The windows list: each window, then the sequences it shows.
+local function WindowListItems()
     local items = {}
     for _, window in ipairs(Windows()) do
         items[#items + 1] = { window = window }
-        for _, def in ipairs(window.sequences) do
-            items[#items + 1] = { window = window, def = def }
+        for _, item in ipairs(window.items) do
+            local def = ns.FindSequence(item.id)
+            if def then
+                items[#items + 1] = { window = window, item = item, def = def }
+            end
         end
     end
     return items
@@ -519,114 +580,172 @@ end
 -- Sub-sequences listed by mana cost, dearest first, when the options open.
 local function SortSubs()
     local changed = false
-    for _, window in ipairs(Windows()) do
-        for _, def in ipairs(window.sequences) do
-            local needs = {}
-            for _, sub in ipairs(def.subs) do
-                needs[sub] = ns.CostSummary(sub.entries)
+    for _, def in ipairs(Library()) do
+        local costs = {}
+        for _, sub in ipairs(def.subs) do
+            costs[sub] = ns.CostSummary(sub.entries)
+        end
+        local before = {}
+        for i, sub in ipairs(def.subs) do
+            before[i] = sub
+        end
+        table.sort(def.subs, function(a, b)
+            if costs[a] ~= costs[b] then
+                return costs[a] > costs[b]
             end
-            local before = {}
-            for i, sub in ipairs(def.subs) do
-                before[i] = sub
-            end
-            table.sort(def.subs, function(a, b)
-                if needs[a] ~= needs[b] then
-                    return needs[a] > needs[b]
-                end
-                return IndexOf(before, a) < IndexOf(before, b)
-            end)
-            for i, sub in ipairs(def.subs) do
-                changed = changed or before[i] ~= sub
-            end
+            return IndexOf(before, a) < IndexOf(before, b)
+        end)
+        for i, sub in ipairs(def.subs) do
+            changed = changed or before[i] ~= sub
         end
     end
     return changed
 end
 
 ----------------------------------------------------------------------------------------------
--- The window
+-- The two lists on the left
 ----------------------------------------------------------------------------------------------
 
-local function CreateListRow(f, listArea, i)
-    local item = CreateFrame("Button", nil, listArea)
-    item:SetSize(listArea:GetWidth(), LIST_ROW_HEIGHT)
-    item:SetPoint("TOPLEFT", 0, -(i - 1) * LIST_ROW_HEIGHT)
-    item:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-    item:RegisterForDrag("LeftButton")
-    item.selectedTexture = item:CreateTexture(nil, "BACKGROUND")
-    item.selectedTexture:SetAllPoints()
-    item.selectedTexture:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    item.selectedTexture:SetBlendMode("ADD")
-    item.selectedTexture:SetVertexColor(1, 0.82, 0)
+local windowRows, libraryRows = {}, {}
 
-    item.enabled = NewCheck(item, "", function(checked)
-        local target = item.data and (item.data.def or item.data.window)
+local function StartListDrag(data)
+    listDrag = data
+    local first = data.def.entries[1]
+    ghostIcon:SetTexture(first and ns.ResolveEntry(first).icon or 134400)
+    ghost:Show()
+end
+
+-- Dropped on the windows list: onto a window (to the end of it) or a sequence (before it).
+local function FinishListDrag()
+    if not listDrag then
+        return
+    end
+    ghost:Hide()
+    local source = listDrag
+    listDrag = nil
+    for _, row in ipairs(windowRows) do
+        local data = row.data
+        if row:IsVisible() and row:IsMouseOver() and data and not (source.item and data.item == source.item) then
+            local target = data.window
+            if source.window then
+                -- Move from one window (or place in it) to another.
+                local from = IndexOf(source.window.items, source.item)
+                if source.window ~= target and ItemIndex(target, source.def.id) then
+                    Print("\"" .. (source.def.name or "?") .. "\" is already in " .. (target.name or "?") .. ".")
+                    return
+                end
+                table.remove(source.window.items, from)
+                local index = data.item and IndexOf(target.items, data.item) or #target.items + 1
+                table.insert(target.items, index, source.item)
+                selWindow, selItem, selSeq = target, source.item, source.def
+            else
+                -- From the library: show it in this window too.
+                local index = data.item and IndexOf(target.items, data.item) or nil
+                local item = Place(source.def, target, index)
+                if not item then
+                    return
+                end
+                selWindow, selItem, selSeq = target, item, source.def
+            end
+            Changed()
+            return
+        end
+    end
+end
+
+local function NewListRow(parent, i)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetSize(parent:GetWidth(), LIST_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", 0, -(i - 1) * LIST_ROW_HEIGHT)
+    row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    row:RegisterForDrag("LeftButton")
+    row.selectedTexture = row:CreateTexture(nil, "BACKGROUND")
+    row.selectedTexture:SetAllPoints()
+    row.selectedTexture:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    row.selectedTexture:SetBlendMode("ADD")
+    row.selectedTexture:SetVertexColor(1, 0.82, 0)
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+    return row
+end
+
+local function CreateWindowRow(f, area, i)
+    local row = NewListRow(area, i)
+    row.enabled = NewCheck(row, "", function(checked)
+        local target = row.data and (row.data.item or row.data.window)
         if target then
             target.enabled = checked
             Changed()
         end
     end)
-    item.enabled:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Show on screen")
-        GameTooltip:AddLine("Unticked ones are kept but hidden, and take no space.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    item.enabled:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    Tooltip(row.enabled, "Show on screen", "Unticked ones are kept but hidden, and take no space.")
 
     local function Shift(delta)
-        local data = item.data
-        if data.def then
-            Move(data.window.sequences, data.def, delta)
+        local data = row.data
+        if data.item then
+            Move(data.window.items, data.item, delta)
         else
             Move(Windows(), data.window, delta)
         end
     end
-    item.down = NewArrow(item, false, function() Shift(1) end)
-    item.down:SetPoint("RIGHT", 0, 0)
-    item.up = NewArrow(item, true, function() Shift(-1) end)
-    item.up:SetPoint("RIGHT", item.down, "LEFT", 0, 0)
+    row.down = NewArrow(row, false, function() Shift(1) end)
+    row.down:SetPoint("RIGHT", 0, 0)
+    row.up = NewArrow(row, true, function() Shift(-1) end)
+    row.up:SetPoint("RIGHT", row.down, "LEFT", 0, 0)
+    row.text:SetPoint("RIGHT", row.up, "LEFT", -2, 0)
 
-    item.text = item:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    item.text:SetPoint("RIGHT", item.up, "LEFT", -2, 0)
-    item.text:SetJustifyH("LEFT")
-    item.text:SetWordWrap(false)
-
-    item:SetScript("OnClick", function(self)
-        selWindow = self.data.window
-        selSeq = self.data.def
+    row:SetScript("OnClick", function(self)
+        selWindow, selItem, selSeq = self.data.window, self.data.item, self.data.def
         f:Refresh()
     end)
-
-    -- Drag a sequence onto a window (to the end of it) or onto another sequence (before it).
-    item:SetScript("OnDragStart", function(self)
-        if self.data and self.data.def then
-            listDrag = { def = self.data.def, window = self.data.window }
-            local first = self.data.def.entries[1]
-            ghostIcon:SetTexture(first and ns.ResolveEntry(first).icon or 134400)
-            ghost:Show()
+    row:SetScript("OnDragStart", function(self)
+        if self.data and self.data.item then
+            StartListDrag({ def = self.data.def, window = self.data.window, item = self.data.item })
         end
     end)
-    item:SetScript("OnDragStop", function()
-        if not listDrag then
+    row:SetScript("OnDragStop", FinishListDrag)
+    return row
+end
+
+local function CreateLibraryRow(f, area, i)
+    local row = NewListRow(area, i)
+    row.text:SetPoint("LEFT", 4, 0)
+    row.text:SetPoint("RIGHT", -4, 0)
+    row:SetScript("OnClick", function(self)
+        selWindow, selItem, selSeq = nil, nil, self.def
+        f:Refresh()
+    end)
+    row:SetScript("OnDragStart", function(self)
+        if self.def then
+            StartListDrag({ def = self.def })
+        end
+    end)
+    row:SetScript("OnDragStop", FinishListDrag)
+    row:SetScript("OnEnter", function(self)
+        if not self.def then
             return
         end
-        ghost:Hide()
-        local source = listDrag
-        listDrag = nil
-        for _, other in ipairs(f.listRows) do
-            if other:IsVisible() and other:IsMouseOver() and other.data and other.data.def ~= source.def then
-                table.remove(source.window.sequences, IndexOf(source.window.sequences, source.def))
-                local target = other.data.window.sequences
-                local index = other.data.def and IndexOf(target, other.data.def) or #target + 1
-                table.insert(target, index, source.def)
-                selWindow, selSeq = other.data.window, source.def
-                Changed()
-                return
-            end
-        end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.def.name or "?")
+        local used = UsedIn(self.def)
+        GameTooltip:AddLine(#used > 0 and ("Used in: " .. table.concat(used, ", ")) or "Not in any window yet.", 1, 1, 1, true)
+        GameTooltip:AddLine("Drag onto a window to show it there.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
     end)
-    return item
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return row
+end
+
+local function ScrollArea(f, rowsShown, onWheel)
+    local area = CreateFrame("Frame", nil, f)
+    area:SetSize(RIGHT_X - LEFT - 16, rowsShown * LIST_ROW_HEIGHT)
+    area:EnableMouseWheel(true)
+    area:SetScript("OnMouseWheel", function(_, delta)
+        onWheel(delta)
+        f:Refresh()
+    end)
+    return area
 end
 
 -- Beside the editor: sections of rows (icon, name, a short line) in a scroll frame.
@@ -754,9 +873,21 @@ local function CreatePicker(f)
     return picker
 end
 
+local function NewNumberBox(parent, onSave)
+    local box = NewEditBox(parent, 32, function(text)
+        local value = tonumber(text)
+        if value then
+            onSave(value)
+        end
+    end)
+    box:SetNumeric(true)
+    box:SetMaxLetters(3)
+    return box
+end
+
 local function CreateEditor()
     local f = CreateFrame("Frame", "ForeverSequencesEditor", UIParent, "BackdropTemplate")
-    f:SetSize(800, 600)
+    f:SetSize(800, 680)
     f:SetPoint("CENTER", -150, 0)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
@@ -767,7 +898,6 @@ local function CreateEditor()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     Backdrop(f)
-
     tinsert(UISpecialFrames, "ForeverSequencesEditor") -- Escape closes it
 
     local title = NewLabel(f, "Forever Sequences", "GameFontNormalLarge")
@@ -775,51 +905,63 @@ local function CreateEditor()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -6, -6)
 
-    -- Left: windows and their sequences, in display order.
-    local listLabel = NewLabel(f, "Windows and sequences")
-    listLabel:SetPoint("TOPLEFT", LEFT, -48)
-
-    local listArea = CreateFrame("Frame", nil, f)
-    listArea:SetPoint("TOPLEFT", LEFT, -66)
-    listArea:SetSize(RIGHT_X - LEFT - 16, VISIBLE_ROWS * LIST_ROW_HEIGHT)
-    listArea:EnableMouseWheel(true)
-    listArea:SetScript("OnMouseWheel", function(_, delta)
-        local most = math.max(0, #ListItems() - VISIBLE_ROWS)
-        listOffset = math.max(0, math.min(most, listOffset - delta))
-        f:Refresh()
+    -- Left, top: windows and the sequences they show.
+    local windowsLabel = NewLabel(f, "Windows")
+    windowsLabel:SetPoint("TOPLEFT", LEFT, -48)
+    local windowArea = ScrollArea(f, WINDOW_ROWS, function(delta)
+        local most = math.max(0, #WindowListItems() - WINDOW_ROWS)
+        windowOffset = math.max(0, math.min(most, windowOffset - delta))
     end)
-    f.listRows = {}
-    for i = 1, VISIBLE_ROWS do
-        f.listRows[i] = CreateListRow(f, listArea, i)
+    windowArea:SetPoint("TOPLEFT", LEFT, -66)
+    for i = 1, WINDOW_ROWS do
+        windowRows[i] = CreateWindowRow(f, windowArea, i)
     end
-
     local newWindow = NewButton(f, "New window", 104, NewWindow)
-    newWindow:SetPoint("TOPLEFT", listArea, "BOTTOMLEFT", 0, -8)
-    local newSequence = NewButton(f, "New sequence", 110, NewSequence)
-    newSequence:SetPoint("LEFT", newWindow, "RIGHT", 4, 0)
-    f.deleteButton = NewButton(f, "Delete", 104, function()
-        local text, data
-        if selSeq then
-            text = string.format("Delete the sequence \"%s\"?", selSeq.name or "?")
-            data = { def = selSeq, window = WindowOf(selSeq) }
+    newWindow:SetPoint("TOPLEFT", windowArea, "BOTTOMLEFT", 0, -6)
+    f.windowDelete = NewButton(f, "Delete", 104, function()
+        if selItem and selWindow then
+            -- Take the sequence out of this window; it stays in the library.
+            table.remove(selWindow.items, IndexOf(selWindow.items, selItem))
+            selItem = nil
+            Changed()
         elseif selWindow then
-            text = string.format("Delete the window \"%s\" and its %d sequence(s)?",
-                selWindow.name or "?", #selWindow.sequences)
-            data = { window = selWindow }
-        end
-        if text then
-            local popup = StaticPopup_Show("FOREVERSEQUENCES_DELETE", text)
-            if popup then
-                popup.data = data
-            end
+            Confirm(string.format("Delete the window \"%s\"? Its sequences stay in the library.",
+                selWindow.name or "?"), { window = selWindow })
         end
     end)
-    f.deleteButton:SetPoint("TOPLEFT", newWindow, "BOTTOMLEFT", 0, -4)
+    f.windowDelete:SetPoint("LEFT", newWindow, "RIGHT", 4, 0)
+
+    -- Left, bottom: the library.
+    local libraryLabel = NewLabel(f, "Library")
+    libraryLabel:SetPoint("TOPLEFT", newWindow, "BOTTOMLEFT", 0, -14)
+    local libraryHint = NewLabel(f, "drag onto a window", "GameFontDisableSmall")
+    libraryHint:SetPoint("LEFT", libraryLabel, "RIGHT", 8, 0)
+    local libraryArea = ScrollArea(f, LIBRARY_ROWS, function(delta)
+        local most = math.max(0, #Library() - LIBRARY_ROWS)
+        libraryOffset = math.max(0, math.min(most, libraryOffset - delta))
+    end)
+    libraryArea:SetPoint("TOPLEFT", libraryLabel, "BOTTOMLEFT", 0, -4)
+    for i = 1, LIBRARY_ROWS do
+        libraryRows[i] = CreateLibraryRow(f, libraryArea, i)
+    end
+    local newSequence = NewButton(f, "New", 68, NewSequence)
+    newSequence:SetPoint("TOPLEFT", libraryArea, "BOTTOMLEFT", 0, -6)
+    f.copySequence = NewButton(f, "Copy", 68, CopySequence)
+    f.copySequence:SetPoint("LEFT", newSequence, "RIGHT", 4, 0)
+    Tooltip(f.copySequence, "Copy", "Makes an independent copy of the selected sequence, to change for another window.")
+    f.librarySequenceDelete = NewButton(f, "Delete", 68, function()
+        if selSeq then
+            local used = UsedIn(selSeq)
+            Confirm(string.format("Delete the sequence \"%s\"%s?", selSeq.name or "?",
+                #used > 0 and (" from the library and from " .. table.concat(used, ", ")) or ""), { def = selSeq })
+        end
+    end)
+    f.librarySequenceDelete:SetPoint("LEFT", f.copySequence, "RIGHT", 4, 0)
 
     -- Right, top: the selected window.
     local windowPanel = CreateFrame("Frame", nil, f)
     windowPanel:SetPoint("TOPLEFT", RIGHT_X, -44)
-    windowPanel:SetSize(520, 56)
+    windowPanel:SetSize(520, 200)
     f.windowPanel = windowPanel
 
     local windowLabel = NewLabel(windowPanel, "Window")
@@ -840,8 +982,9 @@ local function CreateEditor()
     f.windowType:SetPoint("LEFT", f.windowName, "RIGHT", 10, 0)
     Tooltip(f.windowType, "Window type",
         "Dynamic: one row per sequence, showing whichever of its sequences fits your mana; rows close up " ..
-        "when a sequence has nothing to show.\nFixed: the Primary is always shown and can be clicked to cast, " ..
-        "with the best sub-sequence under it. Nothing moves.")
+        "when a sequence has nothing to show. Can show only when mana or health is low, or for some targets.\n" ..
+        "Fixed: the Primary is always shown and can be clicked to cast, with the best sub-sequence under it. " ..
+        "Nothing moves.")
     f.onlyInCombat = NewCheck(windowPanel, "Only show in combat", function(checked)
         if selWindow then
             selWindow.onlyInCombat = checked
@@ -850,15 +993,86 @@ local function CreateEditor()
     end)
     f.onlyInCombat:SetPoint("TOPLEFT", 0, -30)
 
-    local divider = f:CreateTexture(nil, "ARTWORK")
-    divider:SetColorTexture(1, 0.82, 0, 0.25)
-    divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", RIGHT_X, -104)
-    divider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    -- Dynamic windows only: thresholds and targets.
+    local gates = CreateFrame("Frame", nil, windowPanel)
+    gates:SetPoint("TOPLEFT", 0, -56)
+    gates:SetSize(520, 140)
+    f.gates = gates
+
+    f.manaGate = NewCheck(gates, "Only show when mana is below the dearest sequence's need, plus", function(checked)
+        if selWindow then
+            selWindow.manaGate = checked
+            Changed()
+        end
+    end)
+    f.manaGate:SetPoint("TOPLEFT", 0, 0)
+    f.manaMargin = NewNumberBox(gates, function(value)
+        if selWindow and value ~= selWindow.manaMargin then
+            selWindow.manaMargin = value
+            Changed()
+        end
+    end)
+    f.manaMargin:SetPoint("LEFT", f.manaGate.label, "RIGHT", 10, 0)
+    local percent = NewLabel(gates, "%", "GameFontHighlightSmall")
+    percent:SetPoint("LEFT", f.manaMargin, "RIGHT", 2, 0)
+
+    local holdLabel = NewLabel(gates, "and keep showing for", "GameFontHighlightSmall")
+    holdLabel:SetPoint("TOPLEFT", 28, -26)
+    f.holdSeconds = NewNumberBox(gates, function(value)
+        value = math.min(value, 10)
+        if selWindow and value ~= selWindow.holdSeconds then
+            selWindow.holdSeconds = value
+            Changed()
+        end
+    end)
+    f.holdSeconds:SetPoint("LEFT", holdLabel, "RIGHT", 10, 0)
+    local seconds = NewLabel(gates, "seconds after it goes back above (up to 10)", "GameFontHighlightSmall")
+    seconds:SetPoint("LEFT", f.holdSeconds, "RIGHT", 4, 0)
+
+    f.healthGate = NewCheck(gates, "Only show when health is below", function(checked)
+        if selWindow then
+            selWindow.healthGate = checked
+            Changed()
+        end
+    end)
+    f.healthGate:SetPoint("TOPLEFT", 0, -46)
+    f.healthPercent = NewNumberBox(gates, function(value)
+        if selWindow and value ~= selWindow.healthPercent then
+            selWindow.healthPercent = value
+            Changed()
+        end
+    end)
+    f.healthPercent:SetPoint("LEFT", f.healthGate.label, "RIGHT", 10, 0)
+    local healthPercentLabel = NewLabel(gates, "%   (with both ticked, it shows when either is low)", "GameFontHighlightSmall")
+    healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
+
+    local targetsLabel = NewLabel(gates, "Show for your last living non-friendly target:", "GameFontHighlightSmall")
+    targetsLabel:SetPoint("TOPLEFT", 4, -80)
+    local function TargetCheck(key, label)
+        return NewCheck(gates, label, function(checked)
+            if selWindow then
+                selWindow.targets = selWindow.targets or {}
+                selWindow.targets[key] = checked
+                Changed()
+            end
+        end)
+    end
+    f.targetPlayers = TargetCheck("players", "Players and their pets")
+    f.targetPlayers:SetPoint("TOPLEFT", 0, -94)
+    f.targetNPCs = TargetCheck("npcs", "NPCs")
+    f.targetNPCs:SetPoint("LEFT", f.targetPlayers.label, "RIGHT", 16, -1)
+    f.targetNone = TargetCheck("none", "None yet, or it died")
+    f.targetNone:SetPoint("LEFT", f.targetNPCs.label, "RIGHT", 16, -1)
+    Tooltip(f.targetPlayers, "Last living non-friendly target",
+        "Friendly targets (yourself included) don't count, so healing yourself mid-fight keeps the window up.")
+
+    f.divider = f:CreateTexture(nil, "ARTWORK")
+    f.divider:SetColorTexture(1, 0.82, 0, 0.25)
+    f.divider:SetHeight(1)
+    f.divider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
 
     -- Right: the selected sequence.
     local detail = CreateFrame("Frame", nil, f)
-    detail:SetPoint("TOPLEFT", RIGHT_X, -112)
     detail:SetPoint("BOTTOMRIGHT", -20, 60)
     f.detail = detail
 
@@ -871,7 +1085,6 @@ local function CreateEditor()
         end
     end)
     f.nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
-
     f.primaryHide = NewCheck(detail, "Hide when on cooldown", function(checked)
         if selSeq then
             selSeq.hideOnCooldown = checked
@@ -879,22 +1092,28 @@ local function CreateEditor()
         end
     end)
     f.primaryHide:SetPoint("LEFT", f.nameBox, "RIGHT", 16, 0)
+    Tooltip(f.primaryHide, "Hide when on cooldown",
+        "In dynamic windows. Fixed windows always show the Primary.")
+    f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
+    f.usedIn:SetPoint("TOPLEFT", 0, -26)
+    f.usedIn:SetPoint("RIGHT", detail, "RIGHT", 0, 0)
+    f.usedIn:SetJustifyH("LEFT")
 
     local primaryLabel = NewLabel(detail, "Primary")
-    primaryLabel:SetPoint("TOPLEFT", 0, -38)
+    primaryLabel:SetPoint("TOPLEFT", 0, -44)
     f.primaryCost = NewLabel(detail, "", "GameFontHighlightSmall")
     f.primaryCost:SetPoint("LEFT", primaryLabel, "RIGHT", 10, 0)
     f.primaryRow = CreateSlotRow(detail, function() return selSeq and selSeq.entries end, true)
-    f.primaryRow.frame:SetPoint("TOPLEFT", 0, -56)
+    f.primaryRow.frame:SetPoint("TOPLEFT", 0, -62)
 
     local subsLabel = NewLabel(detail, "Sub-sequences")
-    subsLabel:SetPoint("TOPLEFT", 0, -102)
+    subsLabel:SetPoint("TOPLEFT", 0, -104)
 
     f.subBlocks = {}
     for i = 1, MAX_SUBS do
         local block = CreateFrame("Frame", nil, detail)
         block:SetSize(520, SLOT_SIZE + 20)
-        block:SetPoint("TOPLEFT", 0, -120 - (i - 1) * (SLOT_SIZE + 22))
+        block:SetPoint("TOPLEFT", 0, -120 - (i - 1) * (SLOT_SIZE + 20))
         block.row = CreateSlotRow(block, function()
             local sub = selSeq and selSeq.subs[i]
             return sub and sub.entries
@@ -930,7 +1149,7 @@ local function CreateEditor()
     local hint = NewLabel(detail,
         "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
         "Drag icons to move them, onto another row to copy them, or off the window to remove them. " ..
-        "Right-click a spell to change its rank. Sub-sequences are listed by mana cost when this opens.",
+        "Right-click a spell to change its rank. Changes show in every window using this sequence.",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 0, 4)
     hint:SetPoint("BOTTOMRIGHT", 0, 4)
@@ -966,34 +1185,42 @@ local function CreateEditor()
     function f:Refresh()
         local windows = Windows()
         if selWindow and not IndexOf(windows, selWindow) then
-            selWindow, selSeq = nil, nil
+            selWindow, selItem = nil, nil
         end
-        if selSeq and WindowOf(selSeq) ~= selWindow then
+        if selItem and not (selWindow and IndexOf(selWindow.items, selItem)) then
+            selItem = nil
+        end
+        if selSeq and not IndexOf(Library(), selSeq) then
             selSeq = nil
         end
-        selWindow = selWindow or windows[1]
+        if not selWindow and not selSeq then
+            selWindow = windows[1]
+        end
 
-        local items = ListItems()
-        listOffset = math.max(0, math.min(listOffset, #items - VISIBLE_ROWS))
-        for i, row in ipairs(self.listRows) do
-            local data = items[i + listOffset]
+        -- Windows list.
+        local items = WindowListItems()
+        windowOffset = math.max(0, math.min(windowOffset, #items - WINDOW_ROWS))
+        for i, row in ipairs(windowRows) do
+            local data = items[i + windowOffset]
             row.data = data
             if data then
-                local isWindow = data.def == nil
-                local target = data.def or data.window
-                local list = isWindow and windows or data.window.sequences
+                local isWindow = data.item == nil
+                local target = data.item or data.window
+                local list = isWindow and windows or data.window.items
                 local index = IndexOf(list, target)
                 row.enabled:ClearAllPoints()
                 row.enabled:SetPoint("LEFT", isWindow and 0 or 16, 0)
                 row.text:SetPoint("LEFT", row.enabled, "RIGHT", 2, 0)
                 row.text:SetFontObject(isWindow and "GameFontNormal" or "GameFontHighlight")
                 if isWindow then
-                    row.text:SetText((target.name or "?") .. (target.type == "fixed" and " (fixed)" or " (dynamic)"))
+                    row.text:SetText((data.window.name or "?") .. (data.window.type == "fixed" and " (fixed)" or " (dynamic)"))
                 else
-                    row.text:SetText(target.name or "?")
+                    row.text:SetText(data.def.name or "?")
                 end
                 row.enabled:SetChecked(target.enabled and true or false)
-                row.selectedTexture:SetShown(target == (selSeq or selWindow) and (isWindow == (selSeq == nil)))
+                local selected = (isWindow and data.window == selWindow and selItem == nil)
+                    or (not isWindow and data.item == selItem)
+                row.selectedTexture:SetShown(selected)
                 row.up:SetEnabled(index > 1)
                 row.down:SetEnabled(index < #list)
                 row:Show()
@@ -1001,29 +1228,78 @@ local function CreateEditor()
                 row:Hide()
             end
         end
-        self.deleteButton:SetEnabled(selWindow ~= nil)
+        self.windowDelete:SetText(selItem and "Remove" or "Delete")
+        self.windowDelete:SetEnabled(selWindow ~= nil)
 
+        -- Library.
+        local library = Library()
+        libraryOffset = math.max(0, math.min(libraryOffset, #library - LIBRARY_ROWS))
+        for i, row in ipairs(libraryRows) do
+            local def = library[i + libraryOffset]
+            row.def = def
+            if def then
+                local used = #UsedIn(def)
+                row.text:SetText((def.name or "?") .. (used > 0 and ("  |cff808080(" .. used .. ")|r") or "  |cff808080(unused)|r"))
+                row.selectedTexture:SetShown(def == selSeq and selItem == nil)
+                row:Show()
+            else
+                row:Hide()
+            end
+        end
+        self.copySequence:SetEnabled(selSeq ~= nil)
+        self.librarySequenceDelete:SetEnabled(selSeq ~= nil)
+
+        -- Window settings.
         self.windowPanel:SetShown(selWindow ~= nil)
+        local dynamic = selWindow and selWindow.type ~= "fixed"
         if selWindow then
             if not self.windowName:HasFocus() then
                 self.windowName:SetText(selWindow.name or "")
             end
             self.windowType:SetText(selWindow.type == "fixed" and "Fixed (click to cast)" or "Dynamic")
             self.onlyInCombat:SetChecked(selWindow.onlyInCombat and true or false)
+            self.gates:SetShown(dynamic)
+            if dynamic then
+                self.manaGate:SetChecked(selWindow.manaGate and true or false)
+                self.healthGate:SetChecked(selWindow.healthGate and true or false)
+                for box, key in pairs({ [self.manaMargin] = "manaMargin", [self.holdSeconds] = "holdSeconds",
+                    [self.healthPercent] = "healthPercent" }) do
+                    if not box:HasFocus() then
+                        box:SetText(tostring(selWindow[key] or 0))
+                    end
+                end
+                local targets = selWindow.targets or {}
+                self.targetPlayers:SetChecked(targets.players ~= false)
+                self.targetNPCs:SetChecked(targets.npcs ~= false)
+                self.targetNone:SetChecked(targets.none ~= false)
+            end
         end
+        local top = -44
+        if selWindow then
+            top = dynamic and -252 or -104
+        end
+        self.divider:SetShown(selWindow ~= nil)
+        self.divider:ClearAllPoints()
+        self.divider:SetPoint("TOPLEFT", RIGHT_X, top + 4)
+        self.divider:SetPoint("RIGHT", self, "RIGHT", -20, 0)
+        self.detail:ClearAllPoints()
+        self.detail:SetPoint("TOPLEFT", RIGHT_X, top - 4)
+        self.detail:SetPoint("BOTTOMRIGHT", -20, 60)
 
+        -- The sequence.
         local def = selSeq
         self.detail:SetShown(def ~= nil)
         self.empty:SetShown(def == nil)
-        self.empty:SetText(selWindow and "Select a sequence, or press New sequence." or
+        self.empty:SetText(selWindow and "Select a sequence, or press New under the library." or
             "Press New window to start.")
         if def then
             if not self.nameBox:HasFocus() then
                 self.nameBox:SetText(def.name or "")
             end
-            -- Fixed windows always show the Primary, so it has no "hide when on cooldown".
-            local canHide = selWindow.type ~= "fixed" and ns.AnyCooldown(def.entries)
-            self.primaryHide:SetShown(canHide)
+            local used = UsedIn(def)
+            self.usedIn:SetText(#used > 0 and ("Used in: " .. table.concat(used, ", "))
+                or "Not in any window yet: drag it from the library onto one.")
+            self.primaryHide:SetShown(ns.AnyCooldown(def.entries))
             self.primaryHide:SetChecked(def.hideOnCooldown and true or false)
             self.primaryCost:SetText(CostText(def.entries))
             RefreshSlotRow(self.primaryRow)
@@ -1119,7 +1395,7 @@ panel.name = "Forever Sequences"
 local panelTitle = NewLabel(panel, "Forever Sequences", "GameFontNormalLarge")
 panelTitle:SetPoint("TOPLEFT", 16, -16)
 local panelText = NewLabel(panel,
-    "Windows and sequences are set up in their own window. Open it here, with /fseq, or by right-clicking " ..
+    "Windows and the library of sequences are set up in their own window. Open it here, with /fseq, or by right-clicking " ..
     "an icon.", "GameFontHighlight")
 panelText:SetPoint("TOPLEFT", panelTitle, "BOTTOMLEFT", 0, -8)
 panelText:SetPoint("RIGHT", panel, "RIGHT", -16, 0)

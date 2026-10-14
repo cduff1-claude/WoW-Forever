@@ -44,6 +44,8 @@ local TICK_PHASE_STEPS = 20  -- tick timings tried when working out the worst ca
 local INSTANT_LIMIT = 10     -- "instant cast" effects work on casts shorter than this
 local FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
 local NEVER = 1e9            -- a mana value no one reaches
+local MAX_GATES = 13         -- health, mana now, and mana 1..MAX_HOLD seconds ago
+local MAX_HOLD = 10          -- longest "keep showing" time for the mana threshold
 
 local GREY_SHADE = 0.5
 local GLOW_COLOR = { 1.0, 0.85, 0.2 }
@@ -153,6 +155,55 @@ local function MigrateSequence(def)
     end
 end
 
+-- Settings a window gets when it doesn't have them yet. The thresholds and target filter
+-- only apply to dynamic windows.
+local WINDOW_DEFAULTS = {
+    type = "dynamic",
+    enabled = true,
+    onlyInCombat = false,
+    manaGate = false,   -- show only when mana is below the dearest sequence's need + manaMargin %
+    manaMargin = 20,
+    healthGate = false, -- show only when health is below healthPercent %
+    healthPercent = 50,
+    holdSeconds = 5,    -- and keep showing this long after mana goes back above
+    targets = { players = true, npcs = true, none = true }, -- last enemy target kinds to show for
+}
+
+local function NewId()
+    db.nextId = (db.nextId or 0) + 1
+    return db.nextId
+end
+ns.NewId = NewId
+
+-- Sequences live in a library; each window lists the ones it shows ({ id, enabled }), so the
+-- same sequence can appear in several windows. Windows saved before the library held their
+-- own sequences; those move into the library.
+local function MoveSequencesToLibrary()
+    db.library = db.library or {}
+    for _, window in ipairs(db.windows) do
+        window.items = window.items or {}
+        if window.sequences then
+            for _, def in ipairs(window.sequences) do
+                MigrateSequence(def)
+                def.id = def.id or NewId()
+                window.items[#window.items + 1] = { id = def.id, enabled = def.enabled ~= false }
+                def.enabled = nil
+                db.library[#db.library + 1] = def
+            end
+            window.sequences = nil
+        end
+        for key, value in pairs(WINDOW_DEFAULTS) do
+            if window[key] == nil then
+                window[key] = type(value) == "table" and CopyTable(value) or value
+            end
+        end
+    end
+    for _, def in ipairs(db.library) do
+        MigrateSequence(def)
+        def.id = def.id or NewId()
+    end
+end
+
 -- Older versions kept one list of sequences, each with its own "always show Primary". Those
 -- become a dynamic window and (for the always-shown ones) a fixed window.
 local function MigrateSettings()
@@ -174,12 +225,7 @@ local function MigrateSettings()
         end
     end
     db.sequences, db.point, db.relativePoint, db.x, db.y, db.locked = nil, nil, nil, nil, nil, nil
-    for _, window in ipairs(db.windows) do
-        window.sequences = window.sequences or {}
-        for _, def in ipairs(window.sequences) do
-            MigrateSequence(def)
-        end
-    end
+    MoveSequencesToLibrary()
     -- Forever's regen is smooth; earlier versions defaulted to ticks.
     if not db.smoothRegenDefault then
         db.regenMode = "smooth"
@@ -187,8 +233,27 @@ local function MigrateSettings()
     end
 end
 
-function ns.DefaultWindows()
-    return CopyTable(DEFAULT_WINDOWS)
+function ns.ResetToDefaults()
+    db.windows = CopyTable(DEFAULT_WINDOWS)
+    db.library = {}
+    MoveSequencesToLibrary()
+end
+
+function ns.NewWindow(name)
+    local window = { name = name, items = {} }
+    for key, value in pairs(WINDOW_DEFAULTS) do
+        window[key] = type(value) == "table" and CopyTable(value) or value
+    end
+    return window
+end
+
+function ns.FindSequence(id)
+    for _, def in ipairs(db.library) do
+        if def.id == id then
+            return def
+        end
+    end
+    return nil
 end
 
 local function Print(msg)
@@ -839,6 +904,29 @@ local function GetRoot(index)
     local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("BOTTOMLEFT", mover, "TOPLEFT", 0, 2)
 
+    -- Dynamic windows can be set to show only when mana or health is low. The rows sit in
+    -- `content`, which clips to "any condition true". Each switch is full while its condition
+    -- is false; switch k+1 is squeezed to switch k's fill, so if any switch is empty the ones
+    -- after it have no width, and the clip (from the last switch's fill edge to the right)
+    -- opens fully. Unused switches are kept full; with no conditions the first is kept empty.
+    root.gates = {}
+    local previous
+    for i = 1, MAX_GATES do
+        local gate = NewFrame("StatusBar", root)
+        gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        gate:SetStatusBarColor(0, 0, 0, 0)
+        gate:SetMinMaxValues(NEVER - 1, NEVER)
+        gate:SetValue(0)
+        gate:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
+        if previous then
+            gate:SetPoint("BOTTOMRIGHT", previous:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+        else
+            gate:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+        end
+        root.gates[i] = gate
+        previous = gate
+    end
+    root.content = NewClip(root, previous:GetStatusBarTexture(), "RIGHT", root, "RIGHT")
     root.mover, root.label = mover, label
     root.lines, root.groups = {}, {}
     roots[index] = root
@@ -1099,7 +1187,7 @@ local function CreateBandedRow(group, line, def, size, label)
 end
 
 local function NewLine(root, width, height)
-    local line = NewFrame("Frame", root)
+    local line = NewFrame("Frame", root.content)
     line:SetSize(width, height)
     root.lines[#root.lines + 1] = line
     return line
@@ -1114,14 +1202,15 @@ local function MostEntries(list)
 end
 
 local function BuildWindow(root, window)
-    for _, def in ipairs(window.sequences) do
+    for _, item in ipairs(window.items) do
+        local def = ns.FindSequence(item.id)
         local subs = {}
-        for _, sub in ipairs(def.subs) do
+        for _, sub in ipairs(def and def.subs or {}) do
             if #sub.entries > 0 then
                 subs[#subs + 1] = sub
             end
         end
-        if def.enabled and #def.entries > 0 then
+        if def and item.enabled and #def.entries > 0 then
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
@@ -1704,12 +1793,108 @@ end
 -- only ever stored and handed to StatusBars.
 local samples = {}
 
-local function PreviousMana(now, mana)
+local HISTORY = math.max(FLASH_HOLD, MAX_HOLD) + 0.5
+
+local function RecordMana(now, mana)
     samples[#samples + 1] = { time = now, mana = mana }
-    while #samples >= 2 and samples[2].time <= now - FLASH_HOLD do
+    while #samples >= 2 and samples[2].time <= now - HISTORY do
         table.remove(samples, 1)
     end
+end
+
+-- The mana reading from `seconds` ago (the oldest one kept if there's none that old).
+local function ManaAgo(now, seconds)
+    for i = #samples, 1, -1 do
+        if samples[i].time <= now - seconds then
+            return samples[i].mana
+        end
+    end
     return samples[1].mana
+end
+
+-- The last enemy you targeted: "player" (a player or their pet), "npc", or "none" (none yet,
+-- or it died while targeted).
+local lastEnemy = "none"
+
+local function ReadTarget()
+    if not UnitExists("target") then
+        return
+    end
+    local ok, canAttack = pcall(UnitCanAttack, "player", "target")
+    if not ok or IsSecret(canAttack) or not canAttack then
+        return
+    end
+    local okDead, dead = pcall(UnitIsDeadOrGhost, "target")
+    if okDead and not IsSecret(dead) and dead then
+        lastEnemy = "none"
+        return
+    end
+    local okPlayer, controlled = pcall(UnitPlayerControlled, "target")
+    if okPlayer and not IsSecret(controlled) then
+        lastEnemy = controlled and "player" or "npc"
+    end
+end
+
+local TARGET_KEYS = { player = "players", npc = "npcs", none = "none" }
+
+local function FullSwitch(switch)
+    switch:SetMinMaxValues(-2, -1)
+    switch:SetValue(0)
+end
+
+-- Thresholds and target filter for each dynamic window (see GetRoot). Shown regardless
+-- while the options are open.
+local function UpdateGates(now, mana)
+    for _, root in ipairs(roots) do
+        local window = root.window
+        if window then
+            local gates = root.gates
+            local used = 0
+            if not (editorOpen or root.fixed) then
+                if window.healthGate then
+                    local maxHealth = UnitHealthMax("player")
+                    if IsReadableNumber(maxHealth) and maxHealth > 0 then
+                        used = used + 1
+                        SetSwitchAt(gates[used], math.ceil(maxHealth * (window.healthPercent or 50) / 100))
+                        gates[used]:SetValue(UnitHealth("player") or 0)
+                    end
+                end
+                if window.manaGate then
+                    local dearest = 0
+                    for _, group in ipairs(root.groups) do
+                        dearest = math.max(dearest, group.primary.total)
+                        for _, row in ipairs(group.subs) do
+                            dearest = math.max(dearest, row.total)
+                        end
+                    end
+                    local threshold = math.ceil(dearest * (1 + (window.manaMargin or 0) / 100))
+                    root.manaThreshold = threshold
+                    local hold = math.max(0, math.min(MAX_HOLD, math.floor(window.holdSeconds or 0)))
+                    for t = 0, hold do
+                        used = used + 1
+                        SetSwitchAt(gates[used], threshold)
+                        gates[used]:SetValue(t == 0 and mana or ManaAgo(now, t))
+                    end
+                end
+            end
+            if used == 0 then
+                -- Always open: the first switch empty.
+                gates[1]:SetMinMaxValues(NEVER - 1, NEVER)
+                gates[1]:SetValue(0)
+                used = 1
+            end
+            for i = used + 1, #gates do
+                FullSwitch(gates[i])
+            end
+            root.gatesUsed = used
+
+            local targets = window.targets or {}
+            local show = editorOpen or root.fixed or targets[TARGET_KEYS[lastEnemy]] ~= false
+            if root.content:IsShown() ~= show then
+                root.content:SetShown(show)
+            end
+        end
+    end
 end
 
 local function UpdateMana()
@@ -1717,7 +1902,9 @@ local function UpdateMana()
     UpdateThresholds(now)
     UpdateBands()
     local mana = ReadMana()
-    local previous = PreviousMana(now, mana)
+    RecordMana(now, mana)
+    local previous = ManaAgo(now, FLASH_HOLD)
+    UpdateGates(now, mana)
     for _, row in ipairs(rows) do
         if row.low then
             row.low:SetValue(mana)
@@ -1801,6 +1988,15 @@ driver:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 driver:RegisterUnitEvent("UNIT_AURA", "player")
+driver:RegisterEvent("PLAYER_TARGET_CHANGED")
+
+-- The target dying counts as no enemy target.
+local targetWatcher = CreateFrame("Frame")
+targetWatcher:RegisterUnitEvent("UNIT_HEALTH", "target")
+targetWatcher:RegisterUnitEvent("UNIT_FLAGS", "target")
+targetWatcher:SetScript("OnEvent", function()
+    ReadTarget()
+end)
 
 -- Times of recent mana updates, for /fseq debug: steady 2s gaps would mean regen in ticks.
 local manaEventTimes = {}
@@ -1855,6 +2051,9 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
                 fsrEndTime = GetTime() + FIVE_SECOND_RULE
             end
         end
+        UpdateMana()
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        ReadTarget()
         UpdateMana()
     elseif event == "UNIT_AURA" then
         UpdateClearcasting()
@@ -1929,6 +2128,9 @@ local function PrintDebug()
     for _, potion in ipairs(manaPotions) do
         potions[#potions + 1] = potion.itemID .. " (" .. potion.gain .. ")"
     end
+    local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
+    Print(string.format("health=%s (secret=%s), max health=%s, last enemy target=%s",
+        Describe(health), tostring(IsSecret(health)), Describe(maxHealth), lastEnemy))
     Print("mana potions in bags, best first: " .. (#potions > 0 and table.concat(potions, ", ") or "none"))
     for _, root in ipairs(roots) do
         local window = root.window
@@ -1936,6 +2138,17 @@ local function PrintDebug()
             Print(string.format("window \"%s\": %s, enabled=%s, only in combat=%s, shown=%s",
                 window.name or "?", window.type, tostring(window.enabled), tostring(window.onlyInCombat),
                 tostring(root:IsShown())))
+            if not root.fixed then
+                local targets = {}
+                for key, on in pairs(window.targets or {}) do
+                    if on then targets[#targets + 1] = key end
+                end
+                table.sort(targets)
+                print(string.format("  mana threshold=%s (%s), health threshold=%s (%s%%), hold=%ss, switches used=%s, targets: %s, rows shown for target=%s",
+                    tostring(window.manaGate), tostring(root.manaThreshold), tostring(window.healthGate),
+                    tostring(window.healthPercent), tostring(window.holdSeconds), tostring(root.gatesUsed),
+                    table.concat(targets, ", "), tostring(root.content:IsShown())))
+            end
             for _, group in ipairs(root.groups) do
                 print(string.format("  \"%s\"%s", group.name, group.collapsed and " (closed up: nothing to show)" or ""))
                 local list = { group.primary }
@@ -2002,7 +2215,7 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateMana()
         end
     elseif cmd == "defaults" then
-        db.windows = ns.DefaultWindows()
+        ns.ResetToDefaults()
         Print("windows and sequences reset to the defaults.")
         if ns.RefreshEditor then ns.RefreshEditor() end
         Rebuild()
