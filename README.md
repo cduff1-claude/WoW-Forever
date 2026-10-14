@@ -124,7 +124,8 @@ its own *hide when unusable*.
   your "show numbers for cooldowns" setting. *Hide when unusable* (offered only where something can be unusable,
   and not for a fixed window's Primary) drops that sequence or sub-sequence out while that's true, and the next one
   shows.
-- **Ranks:** a spell follows your highest rank. A pinned lower rank shows "R3" on its icon.
+- **Ranks:** a spell follows your highest rank, including ranks learned later. A pinned lower rank (dragged in, or set
+  with shift-right-click / ctrl-click) shows "R3" on its icon.
 - **Spells not learned yet** (on an alt, say): a sequence whose Primary has one is left out of its windows, and a
   sub-sequence with one is left out while the rest of the sequence works. They come in as soon as you learn the spell.
   The editor shows them greyed out and says what's missing instead of a mana cost. (Spells added before this version
@@ -165,7 +166,8 @@ a window selects it; they lock again when the options close.
   key bindings.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
-  spell to step down through the ranks you know, and back round to your highest.
+  spell to pin it one rank lower (stopping at rank 1), ctrl-click to go one rank higher; back at your highest rank the
+  "R" label goes and it follows newly learned ranks again. A lower rank dragged in from the spellbook is pinned too.
 - Bottom: the regen mode.
 - Changes made in combat reach the windows when combat ends.
 - If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5

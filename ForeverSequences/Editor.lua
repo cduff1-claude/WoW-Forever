@@ -305,8 +305,9 @@ local function DropCursor(row, index)
     end
 end
 
--- Right-click a spell: next rank down, then back to the highest.
-local function CycleRank(row, index)
+-- Step a spell one rank down (shift-right-click) or up (ctrl-click). Down stops at rank 1;
+-- up to your highest rank unpins it, so it follows newly learned ranks again.
+local function StepRank(row, index, delta)
     local entry = row.list()[index]
     if not entry or entry.kind ~= "spell" then
         return
@@ -316,17 +317,29 @@ local function CycleRank(row, index)
         Print(entry.name .. ": only one rank known.")
         return
     end
+    -- Where it is now: its pinned rank (or the highest known below it), else the highest.
     local current = #ranks
-    for i, rank in ipairs(ranks) do
-        if rank == entry.rank then
-            current = i
+    if entry.rank then
+        current = 1
+        for i, rank in ipairs(ranks) do
+            if rank <= entry.rank then
+                current = i
+            end
         end
     end
-    local nextIndex = current - 1
-    if nextIndex < 1 or ranks[nextIndex] == ranks[#ranks] then
+    local target = current + delta
+    if target < 1 then
+        Print(entry.name .. ": already rank " .. ranks[1] .. ", the lowest.")
+        return
+    end
+    if target >= #ranks then
+        if not entry.rank then
+            Print(entry.name .. ": already your highest rank.")
+            return
+        end
         entry.rank = nil
     else
-        entry.rank = ranks[nextIndex]
+        entry.rank = ranks[target]
     end
     Changed()
 end
@@ -363,7 +376,8 @@ local function SlotTooltip(slot)
         else
             GameTooltip:AddLine("Drag to move or copy, or off the window to remove.", 0.6, 0.6, 0.6, true)
             if entry.kind == "spell" then
-                GameTooltip:AddLine("Right-click: remove. Shift-right-click: change rank.", 0.6, 0.6, 0.6, true)
+                GameTooltip:AddLine("Right-click: remove. Shift-right-click: one rank down. Ctrl-click: one rank up "
+                    .. "(at your highest rank it follows new ranks again).", 0.6, 0.6, 0.6, true)
             else
                 GameTooltip:AddLine("Right-click: remove.", 0.6, 0.6, 0.6, true)
             end
@@ -410,9 +424,11 @@ local function CreateSlot(row, index)
         end
         if GetCursorInfo() then
             DropCursor(self.row, self.index)
+        elseif IsControlKeyDown() and self.row.list()[self.index] then
+            StepRank(self.row, self.index, 1)
         elseif button == "RightButton" and self.row.list()[self.index] then
             if IsShiftKeyDown() then
-                CycleRank(self.row, self.index)
+                StepRank(self.row, self.index, -1)
             else
                 table.remove(self.row.list(), self.index)
                 Changed()
@@ -1400,7 +1416,7 @@ local function CreateEditor()
     local hint = NewLabel(detail,
         "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
         "Drag icons to move them, onto another row to copy them, or off the window to remove them. " ..
-        "Right-click an icon to remove it, shift-right-click a spell to change its rank. " ..
+        "Right-click an icon to remove it; shift-right-click a spell for one rank down, ctrl-click for one up. " ..
         "Changes show in every window using this sequence.",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 0, 4)
