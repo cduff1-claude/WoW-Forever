@@ -96,9 +96,13 @@ position, and is one of:
   - *Mana*: below the dearest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
     affording it, and stays up for a few seconds (up to 10) after mana goes back above.
   - *Health*: below a percentage. With both ticked, the window shows when either is low.
-  - *Targets*: your last living non-friendly target (hostile or neutral) is a player or their pet, an NPC, or none (none
-    yet, or it died while targeted). Friendly targets, yourself included, don't change it, so healing yourself
-    mid-fight keeps the window up. An enemy that dies while you're targeting someone else isn't noticed.
+  - *Targets*: what the fight is against, from your last living non-friendly target (hostile or neutral): *PvP*
+    (anything PvP-flagged, such as players, guards and other PvP NPCs, or anything a player controls: pets, totems,
+    summons), *NPCs*, or *none* (none yet, or it died). Friendly targets, yourself included, never change it, so
+    healing yourself mid-fight keeps the window up. In combat it only ever moves towards PvP: once a PvP target turns
+    up, the fight counts as PvP until combat ends, so re-targeting or a target dying doesn't flick windows on and
+    off. When combat ends it starts again from your current target. Useful for sequences with cooldowns or
+    consumables you'd only spend in PvP.
   - Mana and health are secret, so this is done with hidden status bars too: the window is still there, just drawn
     empty.
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.

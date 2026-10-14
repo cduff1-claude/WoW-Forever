@@ -166,7 +166,7 @@ local WINDOW_DEFAULTS = {
     healthGate = false, -- show only when health is below healthPercent %
     healthPercent = 50,
     holdSeconds = 5,    -- and keep showing this long after mana goes back above
-    targets = { players = true, npcs = true, none = true }, -- last enemy target kinds to show for
+    targets = { pvp = true, npcs = true, none = true }, -- what the fight is against (see lastEnemy)
 }
 
 local function NewId()
@@ -196,6 +196,11 @@ local function MoveSequencesToLibrary()
             if window[key] == nil then
                 window[key] = type(value) == "table" and CopyTable(value) or value
             end
+        end
+        -- "Players and their pets" became "PvP targets".
+        if window.targets.players ~= nil then
+            window.targets.pvp = window.targets.players
+            window.targets.players = nil
         end
     end
     for _, def in ipairs(db.library) do
@@ -1812,30 +1817,69 @@ local function ManaAgo(now, seconds)
     return samples[1].mana
 end
 
--- The last enemy you targeted: "player" (a player or their pet), "npc", or "none" (none yet,
--- or it died while targeted).
+-- What the fight is against, from your last living non-friendly target (hostile or neutral):
+-- "pvp" (a PvP-flagged unit, or anything a player controls: players, pets, totems, summons),
+-- "npc", or "none" (none yet, or it died). Friendly targets, yourself included, never change
+-- it. In combat it only moves towards "pvp": re-targeting, or a target dying, during the same
+-- fight doesn't switch it back, so windows don't flick on and off. It settles again when
+-- combat ends.
 local lastEnemy = "none"
+local inFight = false
 
-local function ReadTarget()
+local function Flag(fn, unit)
+    local ok, value = pcall(fn, unit)
+    if ok and value ~= nil and not IsSecret(value) then
+        return value and true or false
+    end
+    return nil
+end
+
+-- "pvp", "npc", "dead", or nil for no target / a friendly one / no answer.
+local function TargetKind()
     if not UnitExists("target") then
-        return
+        return nil
     end
     local ok, canAttack = pcall(UnitCanAttack, "player", "target")
     if not ok or IsSecret(canAttack) or not canAttack then
+        return nil
+    end
+    if Flag(UnitIsDeadOrGhost, "target") then
+        return "dead"
+    end
+    local controlled = Flag(UnitPlayerControlled, "target")
+    local flagged = UnitIsPVP and Flag(UnitIsPVP, "target")
+    local freeForAll = UnitIsPVPFreeForAll and Flag(UnitIsPVPFreeForAll, "target")
+    if controlled == nil and flagged == nil then
+        return nil
+    end
+    return (controlled or flagged or freeForAll) and "pvp" or "npc"
+end
+
+local function ReadTarget()
+    local kind = TargetKind()
+    if not kind then
         return
     end
-    local okDead, dead = pcall(UnitIsDeadOrGhost, "target")
-    if okDead and not IsSecret(dead) and dead then
-        lastEnemy = "none"
-        return
-    end
-    local okPlayer, controlled = pcall(UnitPlayerControlled, "target")
-    if okPlayer and not IsSecret(controlled) then
-        lastEnemy = controlled and "player" or "npc"
+    if inFight then
+        if kind == "pvp" or (kind == "npc" and lastEnemy == "none") then
+            lastEnemy = kind
+        end
+    else
+        lastEnemy = kind == "dead" and "none" or kind
     end
 end
 
-local TARGET_KEYS = { player = "players", npc = "npcs", none = "none" }
+local function SetInFight(fighting)
+    inFight = fighting
+    if not fighting then
+        -- The fight is over: start again from what you're targeting now.
+        local kind = TargetKind()
+        lastEnemy = (kind == "pvp" or kind == "npc") and kind or "none"
+    end
+    ReadTarget()
+end
+
+local TARGET_KEYS = { pvp = "pvp", npc = "npcs", none = "none" }
 
 local function FullSwitch(switch)
     switch:SetMinMaxValues(-2, -1)
@@ -1989,6 +2033,7 @@ driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 driver:RegisterUnitEvent("UNIT_AURA", "player")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
+driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 
 -- The target dying counts as no enemy target.
 local targetWatcher = CreateFrame("Frame")
@@ -2013,6 +2058,7 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
             end
         end
         MigrateSettings()
+        inFight = InCombatLockdown() and true or false
         active = IsDruid()
         ScanSpellbook()
         ScanBags()
@@ -2021,7 +2067,12 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
     elseif not active then
         return
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        SetInFight(true)
+        UpdateMana()
     elseif event == "PLAYER_REGEN_ENABLED" then
+        SetInFight(false)
+        UpdateMana()
         if pendingRebuild then
             Rebuild()
         else
@@ -2129,8 +2180,17 @@ local function PrintDebug()
         potions[#potions + 1] = potion.itemID .. " (" .. potion.gain .. ")"
     end
     local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
-    Print(string.format("health=%s (secret=%s), max health=%s, last enemy target=%s",
-        Describe(health), tostring(IsSecret(health)), Describe(maxHealth), lastEnemy))
+    Print(string.format("health=%s (secret=%s), max health=%s, fighting=%s (in combat=%s)",
+        Describe(health), tostring(IsSecret(health)), Describe(maxHealth), lastEnemy, tostring(inFight)))
+    if UnitExists("target") then
+        local okA, canAttack = pcall(UnitCanAttack, "player", "target")
+        Print(string.format("target: can attack=%s, dead=%s, player-controlled=%s, PvP flagged=%s, free-for-all=%s -> %s",
+            okA and Describe(canAttack) or "error", Describe(select(2, pcall(UnitIsDeadOrGhost, "target"))),
+            Describe(select(2, pcall(UnitPlayerControlled, "target"))),
+            UnitIsPVP and Describe(select(2, pcall(UnitIsPVP, "target"))) or "n/a",
+            UnitIsPVPFreeForAll and Describe(select(2, pcall(UnitIsPVPFreeForAll, "target"))) or "n/a",
+            tostring(TargetKind())))
+    end
     Print("mana potions in bags, best first: " .. (#potions > 0 and table.concat(potions, ", ") or "none"))
     for _, root in ipairs(roots) do
         local window = root.window

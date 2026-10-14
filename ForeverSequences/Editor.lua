@@ -1046,7 +1046,7 @@ local function CreateEditor()
     local healthPercentLabel = NewLabel(gates, "%   (with both ticked, it shows when either is low)", "GameFontHighlightSmall")
     healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
 
-    local targetsLabel = NewLabel(gates, "Show for your last living non-friendly target:", "GameFontHighlightSmall")
+    local targetsLabel = NewLabel(gates, "Show when the fight is against (your last living non-friendly target):", "GameFontHighlightSmall")
     targetsLabel:SetPoint("TOPLEFT", 4, -80)
     local function TargetCheck(key, label)
         return NewCheck(gates, label, function(checked)
@@ -1057,14 +1057,16 @@ local function CreateEditor()
             end
         end)
     end
-    f.targetPlayers = TargetCheck("players", "Players and their pets")
+    f.targetPlayers = TargetCheck("pvp", "PvP targets")
     f.targetPlayers:SetPoint("TOPLEFT", 0, -94)
     f.targetNPCs = TargetCheck("npcs", "NPCs")
     f.targetNPCs:SetPoint("LEFT", f.targetPlayers.label, "RIGHT", 16, -1)
     f.targetNone = TargetCheck("none", "None yet, or it died")
     f.targetNone:SetPoint("LEFT", f.targetNPCs.label, "RIGHT", 16, -1)
-    Tooltip(f.targetPlayers, "Last living non-friendly target",
-        "Friendly targets (yourself included) don't count, so healing yourself mid-fight keeps the window up.")
+    Tooltip(f.targetPlayers, "PvP targets",
+        "Anything PvP-flagged (players, guards and other PvP NPCs) or controlled by a player (pets, totems, " ..
+        "summons). Once one turns up in a fight, the fight counts as PvP until combat ends, so re-targeting " ..
+        "doesn't flick windows on and off. Friendly targets, yourself included, never count.")
 
     f.divider = f:CreateTexture(nil, "ARTWORK")
     f.divider:SetColorTexture(1, 0.82, 0, 0.25)
@@ -1269,7 +1271,7 @@ local function CreateEditor()
                     end
                 end
                 local targets = selWindow.targets or {}
-                self.targetPlayers:SetChecked(targets.players ~= false)
+                self.targetPlayers:SetChecked(targets.pvp ~= false)
                 self.targetNPCs:SetChecked(targets.npcs ~= false)
                 self.targetNone:SetChecked(targets.none ~= false)
             end
