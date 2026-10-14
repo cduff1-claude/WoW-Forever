@@ -72,6 +72,9 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   on change. The default action bar suffers the same bug. The user runs the FormBars addon for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
+- **"Script ran too long"** comes from creating too many frames in one go. Frames can't be deleted, so
+  hiding old ones and making new ones on every rebuild piles them up and slows every later `CreateFrame`.
+  Pool and reuse frames instead; after `SetParent`, set frame levels explicitly.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
   - Open from a slash command with `pcall(Settings.OpenToCategory, category:GetID())`. See the existing addons.

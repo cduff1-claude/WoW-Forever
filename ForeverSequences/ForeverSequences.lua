@@ -1124,7 +1124,7 @@ local function GetRoot(index)
     end
     root.content = NewClip(root, previous:GetStatusBarTexture(), "RIGHT", root, "RIGHT")
     root.mover, root.label = mover, label
-    root.lines, root.groups = {}, {}
+    root.lines, root.groups, root.linePool = {}, {}, {}
     roots[index] = root
     return root
 end
@@ -1241,23 +1241,21 @@ end
 
 -- secure: a click-to-cast button (a fixed window's Primary). Otherwise a plain frame that
 -- only takes right-clicks; left clicks go through it.
-local function CreateCell(row, index, size, secure)
+local function CreateCell(parent, secure)
     local cell
     if secure then
         buttonCount = buttonCount + 1
-        cell = CreateFrame("Button", "ForeverSequencesButton" .. buttonCount, row.frame, "SecureActionButtonTemplate")
-        cell:SetFrameLevel(row.frame:GetFrameLevel() + 1)
+        cell = CreateFrame("Button", "ForeverSequencesButton" .. buttonCount, parent, "SecureActionButtonTemplate")
+        cell:SetFrameLevel(parent:GetFrameLevel() + 1)
         cell:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
         cell:HookScript("OnEnter", ShowTooltip)
         cell:HookScript("OnLeave", function() GameTooltip:Hide() end)
     else
-        cell = NewFrame("Frame", row.frame)
+        cell = NewFrame("Frame", parent)
         cell:EnableMouse(true)
         SetPassThrough(cell, "LeftButton")
     end
     cell.secure = secure
-    cell:SetSize(size, size)
-    cell:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (index - 1) * (size + ICON_GAP), 0)
     cell:HookScript("OnMouseUp", function(_, button)
         if button == "RightButton" then
             OpenOptions()
@@ -1344,9 +1342,101 @@ local function CreateCell(row, index, size, secure)
     cell.nowSwitch = nowSwitch
     cell.prevSwitch = prevSwitch
     cell.rankText = rankText
+    cell.pulse = pulse
+    -- Inner frames' levels above the cell, re-applied when the cell is reused elsewhere.
+    cell.levels = {}
+    for _, frame in ipairs({ fill, colorClip, colorHolder, cooldown, glowArea, nowSwitch, prevSwitch,
+        enoughNow, fresh, glow, top }) do
+        cell.levels[#cell.levels + 1] = { frame, frame:GetFrameLevel() - level }
+    end
     cell.start = 0
     cell.total = 0
     return cell
+end
+
+----------------------------------------------------------------------------------------------
+-- Frame pools: rebuilding reuses icons, rows and lines rather than making new ones, which
+-- would pile up (hidden) with every change and slow the game down.
+----------------------------------------------------------------------------------------------
+
+local cellPool = { [true] = {}, [false] = {} } -- by secure
+local shellPool = {}    -- banded rows' switches and clips
+local rowFramePool = {} -- fixed Primaries' row frames
+
+local function SetLevelAbove(frame, parent, offset)
+    frame:SetFrameLevel(parent:GetFrameLevel() + (offset or 1))
+end
+
+local function AcquireCell(rowFrame, index, size, secure)
+    local cell = table.remove(cellPool[secure])
+    if cell then
+        cell:SetParent(rowFrame)
+    else
+        cell = CreateCell(rowFrame, secure)
+    end
+    SetLevelAbove(cell, rowFrame)
+    local level = cell:GetFrameLevel()
+    for _, entry in ipairs(cell.levels) do
+        entry[1]:SetFrameLevel(level + entry[2])
+    end
+    cell:SetSize(size, size)
+    cell:ClearAllPoints()
+    cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", (index - 1) * (size + ICON_GAP), 0)
+    cell.info, cell.onCooldown, cell.actionPending, cell.fakeCooldownEnd = nil, nil, nil, nil
+    cell.shownStart, cell.shownDuration = nil, nil
+    cell.cooldown:Clear()
+    cell.rankText:SetText("")
+    cell:Show()
+    if not cell.pulse:IsPlaying() then
+        cell.pulse:Play()
+    end
+    return cell
+end
+
+local function AcquireShell(line)
+    local shell = table.remove(shellPool)
+    if not shell then
+        shell = {}
+        shell.low = NewSwitch(line, line)
+        shell.high = NewSwitch(line, line)
+        shell.aboveLow = NewFrame("Frame", line)
+        shell.aboveLow:SetClipsChildren(true)
+        shell.belowHigh = NewFrame("Frame", shell.aboveLow)
+        shell.belowHigh:SetClipsChildren(true)
+        shell.rowFrame = NewFrame("Frame", shell.belowHigh)
+    end
+    for _, frame in ipairs({ shell.low, shell.high, shell.aboveLow }) do
+        frame:SetParent(line)
+        SetLevelAbove(frame, line)
+        frame:Show()
+    end
+    SetLevelAbove(shell.belowHigh, shell.aboveLow)
+    SetLevelAbove(shell.rowFrame, shell.belowHigh)
+    shell.low:ClearAllPoints()
+    shell.low:SetAllPoints(line)
+    shell.high:ClearAllPoints()
+    shell.high:SetAllPoints(line)
+    -- Visible while mana >= low (from the low switch's left to its fill edge) and mana < high
+    -- (from the high switch's fill edge to its right).
+    shell.aboveLow:ClearAllPoints()
+    shell.aboveLow:SetPoint("TOPLEFT", shell.low, "TOPLEFT", 0, 0)
+    shell.aboveLow:SetPoint("BOTTOMRIGHT", shell.low:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    shell.belowHigh:ClearAllPoints()
+    shell.belowHigh:SetPoint("TOPLEFT", shell.high:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    shell.belowHigh:SetPoint("BOTTOMRIGHT", shell.high, "BOTTOMRIGHT", 0, 0)
+    return shell
+end
+
+local function AcquireRowFrame(parent)
+    local frame = table.remove(rowFramePool)
+    if frame then
+        frame:SetParent(parent)
+    else
+        frame = NewFrame("Frame", parent)
+    end
+    SetLevelAbove(frame, parent)
+    frame:Show()
+    return frame
 end
 
 local groups = {}
@@ -1357,14 +1447,14 @@ local function LineWidth(cellCount, size)
 end
 
 -- One row of icons inside `parent`, placed at the top left of `line`.
-local function CreateRow(group, parent, line, def, size, label, secure)
-    local rowFrame = NewFrame("Frame", parent)
+local function CreateRow(group, rowFrame, line, def, size, label, secure)
+    rowFrame:ClearAllPoints()
     rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
     rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - GLOW_SIZE * 2), size)
     local row = { frame = rowFrame, group = group, def = def, label = label, cells = {}, total = 0 }
     local window = group.root and group.root.window
     for i, entry in ipairs(def.entries) do
-        local cell = CreateCell(row, i, size, secure)
+        local cell = AcquireCell(rowFrame, i, size, secure)
         cell.entry = entry
         cell.window = window
         row.cells[i] = cell
@@ -1375,20 +1465,57 @@ end
 
 -- A row that only shows while mana is inside its band.
 local function CreateBandedRow(group, line, def, size, label)
-    local low = NewSwitch(line, line)
-    local high = NewSwitch(line, line)
-    local aboveLow = NewClip(line, low, "LEFT", low:GetStatusBarTexture(), "RIGHT")
-    local belowHigh = NewClip(aboveLow, high:GetStatusBarTexture(), "RIGHT", high, "RIGHT")
-    local row = CreateRow(group, belowHigh, line, def, size, label, false)
-    row.low, row.high = low, high
+    local shell = AcquireShell(line)
+    local row = CreateRow(group, shell.rowFrame, line, def, size, label, false)
+    row.low, row.high, row.shell = shell.low, shell.high, shell
+    return row
+end
+
+local function CreatePlainRow(group, line, def, size, label, secure)
+    local row = CreateRow(group, AcquireRowFrame(line), line, def, size, label, secure)
+    row.plainFrame = row.frame
     return row
 end
 
 local function NewLine(root, width, height)
-    local line = NewFrame("Frame", root.content)
+    local line = table.remove(root.linePool)
+    if not line then
+        line = NewFrame("Frame", root.content)
+    end
+    SetLevelAbove(line, root.content)
     line:SetSize(width, height)
+    line:Show()
     root.lines[#root.lines + 1] = line
     return line
+end
+
+-- Put every row's frames back in the pools.
+local function ReleaseAll()
+    for _, row in ipairs(rows) do
+        for _, cell in ipairs(row.cells) do
+            cell:Hide()
+            cell:ClearAllPoints()
+            local pool = cellPool[cell.secure and true or false]
+            pool[#pool + 1] = cell
+        end
+        if row.shell then
+            row.shell.low:Hide()
+            row.shell.high:Hide()
+            row.shell.aboveLow:Hide()
+            shellPool[#shellPool + 1] = row.shell
+        elseif row.plainFrame then
+            row.plainFrame:Hide()
+            rowFramePool[#rowFramePool + 1] = row.plainFrame
+        end
+    end
+    for _, root in ipairs(roots) do
+        for _, line in ipairs(root.lines) do
+            line:Hide()
+            line:ClearAllPoints()
+            root.linePool[#root.linePool + 1] = line
+        end
+        wipe(root.lines)
+    end
 end
 
 local function MostEntries(list)
@@ -1414,7 +1541,7 @@ local function BuildWindow(root, window)
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
-                group.primary = CreateRow(group, group.mainLine, group.mainLine, def, ICON_SIZE, "primary", true)
+                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
@@ -1481,11 +1608,8 @@ local function LayoutWindows()
 end
 
 local function BuildDisplay()
+    ReleaseAll()
     for _, root in ipairs(roots) do
-        for _, line in ipairs(root.lines) do
-            line:Hide()
-        end
-        wipe(root.lines)
         wipe(root.groups)
         root.window = nil
         root.layoutKey = nil
@@ -2299,6 +2423,20 @@ local function Rebuild()
     Refresh()
 end
 ns.Rebuild = Rebuild
+
+-- Several changes in a row (the options) make one rebuild, on the next frame.
+local rebuildQueued = false
+
+function ns.RequestRebuild()
+    if rebuildQueued then
+        return
+    end
+    rebuildQueued = true
+    C_Timer.After(0, function()
+        rebuildQueued = false
+        Rebuild()
+    end)
+end
 
 ----------------------------------------------------------------------------------------------
 -- Events

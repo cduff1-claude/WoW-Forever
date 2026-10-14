@@ -58,7 +58,7 @@ local function Library()
 end
 
 local function Changed()
-    ns.Rebuild()
+    ns.RequestRebuild()
     if editor then
         editor:Refresh()
     end
