@@ -769,7 +769,7 @@ local function CreatePicker(f)
     hint:SetPoint("TOP", title, "BOTTOM", 0, -4)
 
     local search = CreateFrame("EditBox", nil, picker, "InputBoxTemplate")
-    search:SetSize(PICKER_WIDTH - 56, 20)
+    search:SetSize(PICKER_WIDTH - 140, 20)
     search:SetPoint("TOPLEFT", 26, -58)
     search:SetAutoFocus(false)
     local searchHint = NewLabel(search, "Search", "GameFontDisableSmall")
@@ -780,6 +780,16 @@ local function CreatePicker(f)
     end)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+
+    local showAll = NewCheck(picker, "Show all", function(checked)
+        ns.db.pickerShowAll = checked
+        picker:Refresh()
+    end)
+    showAll:SetPoint("LEFT", search, "RIGHT", 8, 0)
+    Tooltip(showAll, "Show all",
+        "Off: spells you'd spend mana on in combat, forms, and a few in-form abilities that buy time to regen " ..
+        "(War Stomp, Bash, Feral Charge, Frenzied Regeneration, Innervate). On: every spell and usable item. " ..
+        "Quest items, items with no Use, and internal spells are never listed.")
 
     local scroll = CreateFrame("ScrollFrame", nil, picker, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 18, -86)
@@ -845,7 +855,8 @@ local function CreatePicker(f)
     end
 
     function picker:Refresh()
-        local sections = ns.PickerEntries(search:GetText():lower())
+        showAll:SetChecked(ns.db.pickerShowAll and true or false)
+        local sections = ns.PickerEntries(search:GetText():lower(), ns.db.pickerShowAll)
         local y, h, r = 0, 0, 0
         for _, section in ipairs(sections) do
             h = h + 1
@@ -1249,15 +1260,17 @@ local function CreateEditor()
         end
     end)
     f.nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
-    f.primaryHide = NewCheck(detail, "Hide when on cooldown", function(checked)
+    f.primaryHide = NewCheck(detail, "Hide when unusable", function(checked)
         if selSeq then
             selSeq.hideOnCooldown = checked
             Changed()
         end
     end)
     f.primaryHide:SetPoint("LEFT", f.nameBox, "RIGHT", 16, 0)
-    Tooltip(f.primaryHide, "Hide when on cooldown",
-        "In dynamic windows. Fixed windows always show the Primary.")
+    Tooltip(f.primaryHide, "Hide when unusable",
+        "While a spell or item in it is on cooldown, an item has run out, or the target is the wrong kind " ..
+        "(Hibernate: beasts and dragonkin only), the next sequence shows instead. In dynamic windows; fixed " ..
+        "windows always show the Primary.")
     f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
     f.usedIn:SetPoint("TOPLEFT", 0, -26)
     f.usedIn:SetPoint("RIGHT", detail, "RIGHT", 0, 0)
@@ -1292,7 +1305,7 @@ local function CreateEditor()
             end
         end)
         block.remove:SetPoint("LEFT", block.row.frame, "LEFT", 6 * (SLOT_SIZE + SLOT_GAP) + 150, 0)
-        block.hide = NewCheck(block, "Hide on cooldown", function(checked)
+        block.hide = NewCheck(block, "Hide when unusable", function(checked)
             local sub = selSeq and selSeq.subs[i]
             if sub then
                 sub.hideOnCooldown = checked

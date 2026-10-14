@@ -510,6 +510,43 @@ local function ChannelTime(spellID, description)
     return Number(description:match("over ([%d%.]+) sec")) or 0
 end
 
+-- "Increases the target's Mana regeneration by 400% and allows 100% of the target's Mana
+-- regeneration to continue while casting. Lasts 20 sec." (Innervate, cast on yourself.)
+local function ParseRegenBoost(description)
+    if not description then
+        return nil
+    end
+    local text = description:gsub("\r?\n", " ")
+    local percent = Number(text:match("[Mm]ana regeneration by ([%d,]+)%%"))
+    local duration = Number(text:match("[Ll]asts ([%d%.]+) sec")) or Number(text:match("for ([%d%.]+) sec"))
+    if not (percent and duration and duration > 0) then
+        return nil
+    end
+    return {
+        multiplier = 1 + percent / 100,
+        duration = duration,
+        whileCasting = text:find("continue while casting", 1, true) ~= nil,
+    }
+end
+
+-- "Only works on Beasts and Dragonkin." -> { Beast = true, Dragonkin = true }, matched against
+-- UnitCreatureType (singular names).
+local function ParseCreatureTypes(description)
+    local list = description and description:match("[Oo]nly works on ([%a ,]+)")
+    if not list then
+        return nil
+    end
+    local types = {}
+    for piece in list:gsub(" and ", ","):gmatch("[^,]+") do
+        local word = piece:match("^%s*(.-)%s*$")
+        if word ~= "" and not word:find(" ") then
+            types[word] = true
+            types[(word:gsub("s$", ""))] = true
+        end
+    end
+    return next(types) and types or nil
+end
+
 local function MakesNextInstant(description)
     return description ~= nil and description:find("becomes an instant cast") ~= nil
 end
@@ -697,11 +734,17 @@ end
 
 -- Whether an entry has a cooldown of its own (longer than the global cooldown). Items and
 -- potions always count: they share cooldowns the spell data doesn't show.
+-- Whether an entry can be unusable for a while: a cooldown of its own (longer than the global
+-- cooldown), or only working on some creature types (Hibernate). Items and potions always
+-- count: they share cooldowns the spell data doesn't show.
 function ns.HasCooldown(entry)
     if entry.kind ~= "spell" then
         return true
     end
-    local spellID = ResolveSpell(entry.name, entry.rank)
+    local spellID = ResolveSpell(entry.name, entry.rank) or entry.spellID
+    if ParseCreatureTypes(GetDescription(spellID)) then
+        return true
+    end
     local fn = (C_Spell and C_Spell.GetSpellBaseCooldown) or GetSpellBaseCooldown
     if spellID and fn then
         local ok, cooldownMS = pcall(fn, spellID)
@@ -723,8 +766,37 @@ end
 
 -- Items with a use that never belongs in a sequence: hearthstones and anything you have to
 -- sit down for (food, drink, bandage-style channels).
+local QUEST_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Questitem) or 12
+
+-- Whether the item's tooltip has a "Use:" line (true when the tooltip can't be read).
+local function HasUseLine(itemID)
+    if not (C_TooltipInfo and C_TooltipInfo.GetItemByID) then
+        return true
+    end
+    local ok, data = pcall(C_TooltipInfo.GetItemByID, itemID)
+    if not ok or type(data) ~= "table" or type(data.lines) ~= "table" then
+        return true
+    end
+    for _, line in ipairs(data.lines) do
+        local text = Text(line.leftText)
+        if text and text:find("^Use:") then
+            return true
+        end
+    end
+    return false
+end
+
+-- Items that never belong in a sequence: quest items, items with no "Use:", hearthstones and
+-- anything you have to sit down for (food, drink).
 local function IsOutOfCombatItem(itemID, description)
     if itemID == 6948 then -- Hearthstone
+        return true
+    end
+    local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, itemID)
+    if ok and classID == QUEST_CLASS then
+        return true
+    end
+    if not HasUseLine(itemID) then
         return true
     end
     local text = (description or ""):lower()
@@ -753,11 +825,69 @@ local function ItemSummary(itemID, description)
     return (IsReadableNumber(count) and count > 1 and ("x" .. count .. " - ") or "") .. first
 end
 
+-- The editor's list shows what you'd use mana on in combat, plus a few in-form abilities that
+-- buy time to regen; "Show all" shows everything. Never listed: passives, internal spells
+-- ("(DND)", "Shapeshift"), and spells that can't be cast in combat.
+local NEVER_LISTED = {
+    ["Shapeshift"] = true,
+}
+-- Listed even though they cost no mana.
+local ALWAYS_LISTED = {
+    ["War Stomp"] = true,
+    ["Shadowmeld"] = true,
+    ["Bash"] = true,
+    ["Feral Charge"] = true,
+    ["Feral Charge - Bear"] = true,
+    ["Feral Charge - Cat"] = true,
+    ["Frenzied Regeneration"] = true,
+    ["Innervate"] = true,
+}
+-- Mana spells left out unless "Show all": buffs and utility you wouldn't use mid-fight.
+local NOT_LISTED = {
+    ["Mark of the Wild"] = true,
+    ["Gift of the Wild"] = true,
+    ["Thorns"] = true,
+    ["Omen of Clarity"] = true,
+    ["Teleport: Moonglade"] = true,
+    ["Soothe Animal"] = true,
+    ["Revive"] = true,
+    ["Track Humanoids"] = true,
+}
+-- Spellbook tabs that only list ALWAYS_LISTED spells (the rest there aren't mana spells).
+local LISTED_ONLY_TABS = {
+    ["General"] = true,
+    ["Feral Combat"] = true,
+}
+
+local function IsInternalSpell(name, description)
+    return NEVER_LISTED[name] or name:find("DND", 1, true) ~= nil
+        or (description ~= nil and description:find("DND", 1, true) ~= nil)
+end
+
+local function NotInCombat(description)
+    local text = (description or ""):lower()
+    return text:find("cannot be cast in combat", 1, true) ~= nil or text:find("out of combat", 1, true) ~= nil
+end
+
+local function IsListed(name, spellID, tab, description)
+    if NOT_LISTED[name] then
+        return false
+    end
+    if ALWAYS_LISTED[name] then
+        return true
+    end
+    if LISTED_ONLY_TABS[tab] or NotInCombat(description) then
+        return false
+    end
+    local cost = GetManaCost(spellID)
+    return (cost and cost > 0) or ns.HasCooldown(Spell(name, nil, spellID))
+end
+
 -- Everything that can go in a sequence, for the editor's list, in sections: the
 -- best-mana-potion entry, your spells in spellbook order (by spellbook tab), then usable
 -- items (equipped trinkets and bags). `filter` is a lower-case piece of the name, or nil.
 -- Returns { { title, items = { { entry, icon, name, summary } } } }.
-function ns.PickerEntries(filter)
+function ns.PickerEntries(filter, showAll)
     local sections = {}
     local function Section(title)
         local section = { title = title, items = {} }
@@ -774,12 +904,30 @@ function ns.PickerEntries(filter)
     Add(potions, { kind = "manapot" }, ResolveEntry({ kind = "manapot" }).icon, "Best mana potion",
         manaPotions[1] and ("Restores " .. manaPotions[1].gain .. "+ mana") or "None in your bags")
 
+    -- Forms get their own section, just above the Feral tab (or after the other spells).
+    local forms = { title = "Forms", items = {} }
+    local formsPlaced = false
     for _, line in ipairs(bookLines) do
+        if line.name == "Feral Combat" then
+            sections[#sections + 1] = forms
+            formsPlaced = true
+        end
         local section = Section(line.name ~= "" and line.name or "Spells")
         for _, name in ipairs(line.spells) do
             local spellID = spellbook[name].maxID
-            Add(section, Spell(name, nil, spellID), GetSpellIcon(spellID), name, SpellSummary(spellID))
+            local description = GetDescription(spellID)
+            if not IsInternalSpell(name, description) then
+                local entry = Spell(name, nil, spellID)
+                local target = IsForm(name, spellID) and forms
+                    or ((showAll or IsListed(name, spellID, line.name, description)) and section)
+                if target then
+                    Add(target, entry, GetSpellIcon(spellID), name, SpellSummary(spellID))
+                end
+            end
         end
+    end
+    if not formsPlaced then
+        sections[#sections + 1] = forms
     end
 
     local items = Section("Items")
@@ -1379,6 +1527,8 @@ local function EntryData(entry, info, target)
     target.gain = (gain and not over) and gain or 0
     target.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
     target.instantNext = MakesNextInstant(description)
+    target.regenBoost = ParseRegenBoost(description)
+    target.creatureTypes = ParseCreatureTypes(description)
     target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
         and not CLEARCASTING_IGNORES[entry.name]
 end
@@ -1481,6 +1631,26 @@ local function UpdateCellCooldown(cell, now)
     end
 end
 
+-- For spells that only work on some creature types (Hibernate): true when the current target
+-- isn't one of them (or there's no enemy target). Nil when the game won't say.
+local function TargetDoesNotFit(types)
+    if not types then
+        return false
+    end
+    if not UnitExists("target") then
+        return true
+    end
+    local okAttack, canAttack = pcall(UnitCanAttack, "player", "target")
+    if okAttack and not IsSecret(canAttack) and not canAttack then
+        return true
+    end
+    local ok, creature = pcall(UnitCreatureType, "target")
+    if not ok or creature == nil or IsSecret(creature) then
+        return nil
+    end
+    return not types[creature]
+end
+
 local function UpdateCooldowns()
     local now = GetTime()
     for _, row in ipairs(rows) do
@@ -1488,7 +1658,8 @@ local function UpdateCooldowns()
         for _, cell in ipairs(row.cells) do
             UpdateCellCooldown(cell, now)
             -- Greyed out while on cooldown or not in your bags: no colour, no highlight.
-            local unusable = cell.onCooldown == true or not cell.info.available
+            cell.wrongTarget = TargetDoesNotFit(cell.creatureTypes)
+            local unusable = cell.onCooldown == true or not cell.info.available or cell.wrongTarget
             local alpha = unusable and 0 or 1
             cell.colorClip:SetAlpha(alpha)
             cell.fresh:SetAlpha(alpha)
@@ -1549,18 +1720,39 @@ end
 -- Mana regained between now (0) and time T (seconds from now). Smooth: a constant flow.
 -- Ticks: REGEN_TICK-second ticks that land at `phase`, phase + REGEN_TICK, ..., before T.
 -- `extras` are restores spread over time ({ start, finish, perSecond }), counted smoothly.
-local function Gain(T, windows, extras, base, casting, phase)
+local function RegenAt(t, windows, boosts, base, casting)
+    local inside = IsInside(windows, t)
+    for _, boost in ipairs(boosts) do
+        if t >= boost[1] and t < boost[2] then
+            return boost[3] * ((inside and not boost[4]) and casting or base)
+        end
+    end
+    return inside and casting or base
+end
+
+-- `boosts` raise regen for a while ({ start, finish, multiplier, full regen while casting }),
+-- from Innervate and the like; with any, smooth regen is added up in small steps.
+local REGEN_STEP = 0.1
+
+local function Gain(T, windows, extras, base, casting, phase, boosts)
     if T <= 0 then
         return 0
     end
     local gained = 0
-    if phase == nil then
+    if phase == nil and (not boosts or #boosts == 0) then
         local inside = TimeInside(windows, T)
         gained = base * (T - inside) + casting * inside
+    elseif phase == nil then
+        local t = 0
+        while t < T do
+            local dt = math.min(REGEN_STEP, T - t)
+            gained = gained + dt * RegenAt(t + dt / 2, windows, boosts, base, casting)
+            t = t + REGEN_STEP
+        end
     else
         local t = phase
         while t < T do
-            gained = gained + REGEN_TICK * (IsInside(windows, t) and casting or base)
+            gained = gained + REGEN_TICK * RegenAt(t, windows, boosts or {}, base, casting)
             t = t + REGEN_TICK
         end
     end
@@ -1579,7 +1771,7 @@ end
 -- entry starts once the cast and any channel are done and the global cooldown has passed.
 -- Mana can't go above max, so a restore or regen while full is lost.
 local function RowThresholds(row, ctx, phase)
-    local windows, extras = {}, {}
+    local windows, extras, boosts = {}, {}, {}
     if ctx.fsrRemaining > 0 then
         windows[1] = { -math.huge, ctx.fsrRemaining }
     end
@@ -1602,7 +1794,7 @@ local function RowThresholds(row, ctx, phase)
         end
         local due = startTime + castTime
 
-        local regained = Gain(due, windows, extras, ctx.base, ctx.casting, phase)
+        local regained = Gain(due, windows, extras, ctx.base, ctx.casting, phase, boosts)
         lastRegained = regained
         peak = math.max(peak, regained - spent)
         spent = spent + cost - (cell.gain or 0)
@@ -1617,6 +1809,10 @@ local function RowThresholds(row, ctx, phase)
 
         if cost > 0 then
             windows[#windows + 1] = { due, due + FIVE_SECOND_RULE }
+        end
+        if cell.regenBoost then
+            local r = cell.regenBoost
+            boosts[#boosts + 1] = { due, due + r.duration, r.multiplier, r.whileCasting }
         end
         if cell.gainOver then
             local o = cell.gainOver
@@ -2154,6 +2350,7 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         UpdateMana()
     elseif event == "PLAYER_TARGET_CHANGED" then
         ReadTarget()
+        UpdateCooldowns()
         UpdateMana()
     elseif event == "UNIT_AURA" then
         UpdateClearcasting()

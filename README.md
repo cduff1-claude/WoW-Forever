@@ -78,6 +78,8 @@ each cost is taken. Everything is read from the game, not hard-coded:
   in the sequence instant.
 - While you have Clearcasting (Omen of Clarity), the first spell in each sequence that would use it is free. Forms,
   items and Wrath don't use it.
+- Anything whose description says it raises "Mana regeneration by N%" for a time (Innervate, on yourself) raises the
+  regen counted for everything after it in the sequence, including while casting if it says so.
 - Regen modes: *smooth* (default, as Forever regens), *2s ticks* (worst tick timing), *off*.
 
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
@@ -108,10 +110,12 @@ position, and is one of:
 - Icons that aren't click-to-cast let left clicks through. Right-click any icon to open the options.
 
 **Sequences.** Each has a Primary and up to 4 sub-sequences (any spells or items, up to 8 each).
-- **Cooldowns:** an icon on cooldown (not just the global cooldown), or an item you have none of, is greyed out with
-  Blizzard's cooldown swipe; the countdown numbers follow your "show numbers for cooldowns" setting. *Hide when on
-  cooldown* (offered only where a spell or item has a cooldown of its own, and not for a fixed window's Primary) drops
-  that sequence or sub-sequence out while that's true, and the next one shows.
+- **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
+  only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
+  them (or you have no enemy target), is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
+  your "show numbers for cooldowns" setting. *Hide when unusable* (offered only where something can be unusable,
+  and not for a fixed window's Primary) drops that sequence or sub-sequence out while that's true, and the next one
+  shows.
 - **Ranks:** a spell follows your highest rank. A pinned lower rank shows "R3" on its icon.
 - **Spells not learned yet** (on an alt, say): a sequence whose Primary has one is left out of its windows, and a
   sub-sequence with one is left out while the rest of the sequence works. They come in as soon as you learn the spell.
@@ -139,9 +143,14 @@ window is shown and can be dragged to move it; they lock again when the options 
   before its last icon plus any potions or other restores in it. Sub-sequences are listed by mana cost, dearest
   first, each time the options open.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
-  section per spellbook tab, with rank, cost and cast time), then usable items (trinkets, then bags; not hearthstones
-  or anything you must remain seated for). Drag them into a row, or click to add to the end of the Primary. The
-  spellbook and bags work too. Escape closes the options.
+  section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), then usable
+  items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
+  cooldown of their own, plus War Stomp, Shadowmeld, Bash, Feral Charge, Frenzied Regeneration and Innervate; not
+  buffs and utility (Mark/Gift of the Wild, Thorns, Omen of Clarity, Teleport: Moonglade, Soothe Animal, tracking),
+  anything that can't be cast in combat (Revive), or the rest of General and Feral. *Show all* lists every spell.
+  Never listed, even then: passives, internal spells ("(DND)", "Shapeshift"), quest items, items with no "Use:",
+  hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
+  The spellbook and bags work too. Escape closes the options.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Shift-right-click also removes. Right-click a
   spell to step down through the ranks you know, and back round to your highest.
