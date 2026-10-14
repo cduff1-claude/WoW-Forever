@@ -227,16 +227,20 @@ local BOOK_BANK = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.
 local spellbook = {}   -- name -> { ranks = { [rank] = spellID }, maxRank = n, maxID = id }
 local rankOfSpell = {} -- spellID -> rank (0 for spells without ranks)
 local formSpells = {}  -- spellID -> true, from the stance bar
+local bookLines = {}   -- spellbook order: { name = skill line, spells = { names } }
 
 local function ScanSpellbook()
     wipe(spellbook)
     wipe(rankOfSpell)
+    wipe(bookLines)
     local book = C_SpellBook
     if book and book.GetNumSpellBookSkillLines then
         local futureType = Enum and Enum.SpellBookItemType and Enum.SpellBookItemType.FutureSpell
         for line = 1, book.GetNumSpellBookSkillLines() or 0 do
             local info = book.GetSpellBookSkillLineInfo(line)
             if info and not info.shouldHide then
+                local bookLine = { name = Text(info.name) or "", spells = {} }
+                bookLines[#bookLines + 1] = bookLine
                 local first = (info.itemIndexOffset or 0) + 1
                 local last = (info.itemIndexOffset or 0) + (info.numSpellBookItems or 0)
                 for index = first, last do
@@ -251,6 +255,7 @@ local function ScanSpellbook()
                         if not entry then
                             entry = { ranks = {}, maxRank = -1 }
                             spellbook[name] = entry
+                            bookLine.spells[#bookLine.spells + 1] = name
                         end
                         entry.ranks[rank] = spellID
                         rankOfSpell[spellID] = rank
@@ -614,51 +619,105 @@ function ns.AnyCooldown(entries)
     return false
 end
 
--- Everything that can go in a sequence, for the editor's list: the best-mana-potion entry,
--- your spells (highest rank), then usable items in your bags and equipped trinkets.
--- `filter` is a lower-case piece of the name, or nil.
+-- Items with a use that never belongs in a sequence: hearthstones and anything you have to
+-- sit down for (food, drink, bandage-style channels).
+local function IsOutOfCombatItem(itemID, description)
+    if itemID == 6948 then -- Hearthstone
+        return true
+    end
+    local text = (description or ""):lower()
+    return text:find("must remain seated", 1, true) ~= nil or text:find("returns you to", 1, true) ~= nil
+end
+
+-- A short second line for the editor's list.
+local function SpellSummary(spellID)
+    local parts = {}
+    local rank = rankOfSpell[spellID]
+    if rank and rank > 0 then
+        parts[#parts + 1] = "Rank " .. rank
+    end
+    local cost = GetManaCost(spellID)
+    if cost and cost > 0 then
+        parts[#parts + 1] = cost .. " mana"
+    end
+    local castTime = GetCastTime(spellID)
+    parts[#parts + 1] = (castTime and castTime > 0) and string.format("%.1fs cast", castTime) or "Instant"
+    return table.concat(parts, " - ")
+end
+
+local function ItemSummary(itemID, description)
+    local count = (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(itemID)) or bagCounts[itemID] or 0
+    local first = description and description:match("^[^%.\n]+%.?") or ""
+    return (IsReadableNumber(count) and count > 1 and ("x" .. count .. " - ") or "") .. first
+end
+
+-- Everything that can go in a sequence, for the editor's list, in sections: the
+-- best-mana-potion entry, your spells in spellbook order (by spellbook tab), then usable
+-- items (equipped trinkets and bags). `filter` is a lower-case piece of the name, or nil.
+-- Returns { { title, items = { { entry, icon, name, summary } } } }.
 function ns.PickerEntries(filter)
-    local list = {}
-    local function Add(entry, icon, name)
+    local sections = {}
+    local function Section(title)
+        local section = { title = title, items = {} }
+        sections[#sections + 1] = section
+        return section
+    end
+    local function Add(section, entry, icon, name, summary)
         if not filter or filter == "" or name:lower():find(filter, 1, true) then
-            list[#list + 1] = { entry = entry, icon = icon, name = name }
+            section.items[#section.items + 1] = { entry = entry, icon = icon, name = name, summary = summary }
         end
     end
-    Add({ kind = "manapot" }, ResolveEntry({ kind = "manapot" }).icon, "Best mana potion")
 
-    local names = {}
-    for name in pairs(spellbook) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
-    for _, name in ipairs(names) do
-        Add(Spell(name), GetSpellIcon(spellbook[name].maxID), name)
+    local potions = Section("Potions")
+    Add(potions, { kind = "manapot" }, ResolveEntry({ kind = "manapot" }).icon, "Best mana potion",
+        manaPotions[1] and ("Restores " .. manaPotions[1].gain .. "+ mana") or "None in your bags")
+
+    for _, line in ipairs(bookLines) do
+        local section = Section(line.name ~= "" and line.name or "Spells")
+        for _, name in ipairs(line.spells) do
+            local spellID = spellbook[name].maxID
+            Add(section, Spell(name), GetSpellIcon(spellID), name, SpellSummary(spellID))
+        end
     end
 
-    local items = {}
-    for itemID in pairs(bagCounts) do
-        items[itemID] = true
-    end
+    local items = Section("Items")
+    local seen = {}
+    local itemIDs = {}
     if GetInventoryItemID then
         for _, slot in ipairs({ 13, 14 }) do
             local itemID = GetInventoryItemID("player", slot)
-            if IsReadableNumber(itemID) then
-                items[itemID] = true
+            if IsReadableNumber(itemID) and not seen[itemID] then
+                seen[itemID] = true
+                itemIDs[#itemIDs + 1] = itemID
             end
         end
     end
-    local itemList = {}
-    for itemID in pairs(items) do
-        if GetItemUseSpell(itemID) then
-            itemList[#itemList + 1] = itemID
+    local bagIDs = {}
+    for itemID in pairs(bagCounts) do
+        if not seen[itemID] then
+            bagIDs[#bagIDs + 1] = itemID
         end
     end
-    table.sort(itemList)
-    for _, itemID in ipairs(itemList) do
-        local entry = { kind = "item", itemID = itemID }
-        Add(entry, GetItemIcon(itemID), ns.EntryName(entry))
+    table.sort(bagIDs)
+    for _, itemID in ipairs(bagIDs) do
+        itemIDs[#itemIDs + 1] = itemID
     end
-    return list
+    for _, itemID in ipairs(itemIDs) do
+        local spellID = GetItemUseSpell(itemID)
+        local description = spellID and GetDescription(spellID)
+        if spellID and not IsOutOfCombatItem(itemID, description) then
+            local entry = { kind = "item", itemID = itemID }
+            Add(items, entry, GetItemIcon(itemID), ns.EntryName(entry), ItemSummary(itemID, description))
+        end
+    end
+
+    local result = {}
+    for _, section in ipairs(sections) do
+        if #section.items > 0 then
+            result[#result + 1] = section
+        end
+    end
+    return result
 end
 
 ----------------------------------------------------------------------------------------------
@@ -1401,6 +1460,7 @@ local function RowThresholds(row, ctx, phase)
     local startTime, spent, highest = 0, 0, -math.huge
     local peak = -math.huge -- highest mana (relative to now) reached so far, before a cost
     local instantNext = false
+    local lastRegained = 0
     for i, cell in ipairs(row.cells) do
         local castTime = cell.castTime or 0
         if instantNext and castTime > 0 and castTime < INSTANT_LIMIT then
@@ -1415,6 +1475,7 @@ local function RowThresholds(row, ctx, phase)
         local due = startTime + castTime
 
         local regained = Gain(due, windows, extras, ctx.base, ctx.casting, phase)
+        lastRegained = regained
         peak = math.max(peak, regained - spent)
         spent = spent + cost - (cell.gain or 0)
         local net = regained - spent -- mana now + net = mana after this entry
@@ -1438,7 +1499,7 @@ local function RowThresholds(row, ctx, phase)
         end
         startTime = startTime + math.max(castTime + (cell.channel or 0), cell.gcd or GLOBAL_COOLDOWN)
     end
-    return thresholds
+    return thresholds, lastRegained
 end
 
 local fsrEndTime = 0
@@ -1480,6 +1541,32 @@ local function RowNeeds(row, ctx)
 end
 
 -- For the editor: the mana needed now to start these entries, and what they cost in all.
+-- For the editor: what the entries cost in all, and the mana gained before the last one is
+-- cast (regen, plus potions and other restores in the sequence).
+function ns.CostSummary(entries)
+    local row = { cells = {} }
+    local cost, restored = 0, 0
+    for i, entry in ipairs(entries) do
+        local cell = {}
+        EntryData(entry, ResolveEntry(entry), cell)
+        row.cells[i] = cell
+        cost = cost + (cell.cost or 0)
+        restored = restored + (cell.gain or 0)
+    end
+    local ctx = Context(GetTime())
+    local regained
+    if ctx.ticks then
+        for step = 0, TICK_PHASE_STEPS - 1 do
+            local _, r = RowThresholds(row, ctx, REGEN_TICK * step / TICK_PHASE_STEPS)
+            regained = math.min(regained or math.huge, r)
+        end
+    else
+        local _, r = RowThresholds(row, ctx, nil)
+        regained = r
+    end
+    return cost, math.floor((regained or 0) + restored)
+end
+
 function ns.Need(entries)
     local row = { cells = {} }
     local cost = 0

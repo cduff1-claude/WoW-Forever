@@ -104,11 +104,13 @@ window is shown and can be dragged to move it; they lock again when the options 
 - Left: windows and their sequences, in display order. Tick to show or hide (hidden ones take no space), arrows to
   reorder, drag a sequence onto another window or sequence to move it there. New window / New sequence / Delete.
 - Right: the window's name, type and *only show in combat*; the sequence's name and *hide when on cooldown*; the
-  Primary and the sub-sequences, each with the mana it needs now (and its total cost). Sub-sequences are listed
-  dearest first each time the options open.
-- Beside it: every spell you know and every usable item you carry (bags and trinkets), plus *best mana potion*, with a
-  search box. Drag them into a row, or click to add to the end of the Primary. The spellbook and bags work too, and
-  opening the spellbook leaves the options open.
+  Primary and the sub-sequences, each labelled "Mana cost: X (Y gained)": X is its total cost, Y the mana regained
+  before its last icon plus any potions or other restores in it. Sub-sequences are listed by mana cost, dearest
+  first, each time the options open.
+- Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
+  section per spellbook tab, with rank, cost and cast time), then usable items (trinkets, then bags; not hearthstones
+  or anything you must remain seated for). Drag them into a row, or click to add to the end of the Primary. The
+  spellbook and bags work too. Escape closes the options.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Shift-right-click also removes. Right-click a
   spell to step down through the ranks you know, and back round to your highest.

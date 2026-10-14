@@ -3,8 +3,8 @@
 --   - Left: windows and their sequences, in display order. Tick to show or hide, arrows to
 --     reorder, drag a sequence onto another window (or another sequence) to move it there.
 --   - Right: the selected window's settings, then the selected sequence's rows.
---   - Beside it: every spell you know and every usable item you carry, to drag into a row
---     (or click to add to the end of the Primary).
+--   - Beside it: every spell you know (in spellbook order) and every usable item you carry,
+--     to drag into a row (or click to add to the end of the Primary).
 --   - Drag a spell from the spellbook or an item from your bags onto a slot; the "+" slot
 --     adds at the end. Drag an icon within its row to move it, onto another row to copy it
 --     (from the Primary onto a sub-sequence's "+" slot it goes in Primary order), or off the
@@ -22,9 +22,8 @@ local VISIBLE_ROWS = 18
 local LIST_ROW_HEIGHT = 22
 local LEFT = 20
 local RIGHT_X = 250
-local PICKER_COLUMNS = 7
-local PICKER_ROWS = 13
-local PICKER_TILE = 34
+local PICKER_WIDTH = 300
+local PICKER_ROW_HEIGHT = 30
 local REGEN_MODES = { "smooth", "ticks", "off" }
 local REGEN_LABELS = { smooth = "Regen: smooth", ticks = "Regen: 2s ticks", off = "Regen: off" }
 
@@ -431,12 +430,14 @@ local function RefreshSlotRow(row)
     end
 end
 
+-- "Mana cost: X (Y gained)": what the row costs in all, and the mana regained before its last
+-- icon plus any potions or other restores in it.
 local function CostText(entries)
     if not entries or #entries == 0 then
         return ""
     end
-    local need, cost = ns.Need(entries)
-    return string.format("needs %d mana now (costs %d)", need, cost)
+    local cost, gained = ns.CostSummary(entries)
+    return string.format("Mana cost: %d (%d gained)", cost, gained)
 end
 
 ----------------------------------------------------------------------------------------------
@@ -515,14 +516,14 @@ local function ListItems()
     return items
 end
 
--- Sub-sequences listed dearest first, as they're worked out when the options open.
+-- Sub-sequences listed by mana cost, dearest first, when the options open.
 local function SortSubs()
     local changed = false
     for _, window in ipairs(Windows()) do
         for _, def in ipairs(window.sequences) do
             local needs = {}
             for _, sub in ipairs(def.subs) do
-                needs[sub] = ns.Need(sub.entries)
+                needs[sub] = ns.CostSummary(sub.entries)
             end
             local before = {}
             for i, sub in ipairs(def.subs) do
@@ -628,10 +629,11 @@ local function CreateListRow(f, listArea, i)
     return item
 end
 
+-- Beside the editor: sections of rows (icon, name, a short line) in a scroll frame.
 local function CreatePicker(f)
     local picker = CreateFrame("Frame", nil, f, "BackdropTemplate")
     picker:SetPoint("TOPLEFT", f, "TOPRIGHT", -6, 0)
-    picker:SetSize(PICKER_COLUMNS * (PICKER_TILE + 4) + 40, f:GetHeight())
+    picker:SetSize(PICKER_WIDTH, f:GetHeight())
     Backdrop(picker)
     picker:EnableMouse(true)
 
@@ -641,79 +643,113 @@ local function CreatePicker(f)
     hint:SetPoint("TOP", title, "BOTTOM", 0, -4)
 
     local search = CreateFrame("EditBox", nil, picker, "InputBoxTemplate")
-    search:SetSize(PICKER_COLUMNS * (PICKER_TILE + 4) - 10, 20)
+    search:SetSize(PICKER_WIDTH - 56, 20)
     search:SetPoint("TOPLEFT", 26, -58)
     search:SetAutoFocus(false)
     local searchHint = NewLabel(search, "Search", "GameFontDisableSmall")
     searchHint:SetPoint("LEFT", 4, 0)
     search:SetScript("OnTextChanged", function(self)
         searchHint:SetShown(self:GetText() == "")
-        picker.offset = 0
         picker:Refresh()
     end)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
-    local grid = CreateFrame("Frame", nil, picker)
-    grid:SetPoint("TOPLEFT", 20, -86)
-    grid:SetSize(PICKER_COLUMNS * (PICKER_TILE + 4), PICKER_ROWS * (PICKER_TILE + 4))
-    grid:EnableMouseWheel(true)
-    picker.offset = 0
-    grid:SetScript("OnMouseWheel", function(_, delta)
-        local rowsTotal = math.ceil(#(picker.entries or {}) / PICKER_COLUMNS)
-        picker.offset = math.max(0, math.min(math.max(0, rowsTotal - PICKER_ROWS), picker.offset - delta))
-        picker:Refresh()
-    end)
+    local scroll = CreateFrame("ScrollFrame", nil, picker, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 18, -86)
+    scroll:SetPoint("BOTTOMRIGHT", -36, 18)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(PICKER_WIDTH - 60, 10)
+    scroll:SetScrollChild(content)
 
-    picker.tiles = {}
-    for i = 1, PICKER_COLUMNS * PICKER_ROWS do
-        local tile = CreateFrame("Button", nil, grid)
-        tile:SetSize(PICKER_TILE, PICKER_TILE)
-        local col = (i - 1) % PICKER_COLUMNS
-        local rowIndex = math.floor((i - 1) / PICKER_COLUMNS)
-        tile:SetPoint("TOPLEFT", col * (PICKER_TILE + 4), -rowIndex * (PICKER_TILE + 4))
-        tile.icon = tile:CreateTexture(nil, "ARTWORK")
-        tile.icon:SetAllPoints()
-        tile.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        tile:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        tile:RegisterForDrag("LeftButton")
-        tile:SetScript("OnDragStart", function(self)
+    local headers, rows = {}, {}
+
+    local function Header(i)
+        local header = headers[i]
+        if not header then
+            header = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            header:SetJustifyH("LEFT")
+            headers[i] = header
+        end
+        return header
+    end
+
+    local function Row(i)
+        local row = rows[i]
+        if row then
+            return row
+        end
+        row = CreateFrame("Button", nil, content)
+        row:SetSize(PICKER_WIDTH - 60, PICKER_ROW_HEIGHT)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(PICKER_ROW_HEIGHT - 4, PICKER_ROW_HEIGHT - 4)
+        row.icon:SetPoint("LEFT", 2, 0)
+        row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -1)
+        row.name:SetPoint("RIGHT", -2, 0)
+        row.name:SetJustifyH("LEFT")
+        row.name:SetWordWrap(false)
+        row.summary = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.summary:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 1)
+        row.summary:SetPoint("RIGHT", -2, 0)
+        row.summary:SetJustifyH("LEFT")
+        row.summary:SetWordWrap(false)
+        row:RegisterForDrag("LeftButton")
+        row:SetScript("OnDragStart", function(self)
             StartDrag(self.item.entry)
         end)
-        tile:SetScript("OnDragStop", FinishDrag)
-        tile:SetScript("OnClick", function(self)
+        row:SetScript("OnDragStop", FinishDrag)
+        row:SetScript("OnClick", function(self)
             if selSeq and Insert(selSeq.entries, #selSeq.entries + 1, ns.CopyTable(self.item.entry)) then
                 Changed()
             elseif not selSeq then
                 Print("select a sequence first.")
             end
         end)
-        tile:SetScript("OnEnter", function(self)
+        row:SetScript("OnEnter", function(self)
             EntryTooltip(self, self.item.entry)
             GameTooltip:AddLine("Drag into a row, or click to add to the end of the Primary.", 0.6, 0.6, 0.6, true)
             GameTooltip:Show()
         end)
-        tile:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        picker.tiles[i] = tile
+        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        rows[i] = row
+        return row
     end
 
-    local more = NewLabel(picker, "", "GameFontDisableSmall")
-    more:SetPoint("BOTTOM", 0, 20)
-
     function picker:Refresh()
-        self.entries = ns.PickerEntries(search:GetText():lower())
-        for i, tile in ipairs(self.tiles) do
-            local item = self.entries[i + self.offset * PICKER_COLUMNS]
-            tile.item = item
-            if item then
-                tile.icon:SetTexture(item.icon)
-                tile:Show()
-            else
-                tile:Hide()
+        local sections = ns.PickerEntries(search:GetText():lower())
+        local y, h, r = 0, 0, 0
+        for _, section in ipairs(sections) do
+            h = h + 1
+            local header = Header(h)
+            header:ClearAllPoints()
+            header:SetPoint("TOPLEFT", 2, -y - 4)
+            header:SetText(section.title)
+            header:Show()
+            y = y + 22
+            for _, item in ipairs(section.items) do
+                r = r + 1
+                local row = Row(r)
+                row.item = item
+                row.icon:SetTexture(item.icon)
+                row.name:SetText(item.name)
+                row.summary:SetText(item.summary or "")
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", 0, -y)
+                row:Show()
+                y = y + PICKER_ROW_HEIGHT
             end
+            y = y + 6
         end
-        local rowsTotal = math.ceil(#self.entries / PICKER_COLUMNS)
-        more:SetText(rowsTotal > PICKER_ROWS and "Scroll for more" or "")
+        for i = h + 1, #headers do
+            headers[i]:Hide()
+        end
+        for i = r + 1, #rows do
+            rows[i]:Hide()
+        end
+        content:SetHeight(math.max(y, 10))
     end
     return picker
 end
@@ -732,22 +768,7 @@ local function CreateEditor()
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     Backdrop(f)
 
-    -- Escape closes it. (It isn't a "special frame", so opening the spellbook leaves it open.)
-    if not InCombatLockdown() then
-        f:EnableKeyboard(true)
-        pcall(f.SetPropagateKeyboardInput, f, true)
-    end
-    f:SetScript("OnKeyDown", function(self, key)
-        if InCombatLockdown() then
-            return
-        end
-        if key == "ESCAPE" then
-            pcall(self.SetPropagateKeyboardInput, self, false)
-            self:Hide()
-        else
-            pcall(self.SetPropagateKeyboardInput, self, true)
-        end
-    end)
+    tinsert(UISpecialFrames, "ForeverSequencesEditor") -- Escape closes it
 
     local title = NewLabel(f, "Forever Sequences", "GameFontNormalLarge")
     title:SetPoint("TOP", 0, -18)
@@ -909,7 +930,7 @@ local function CreateEditor()
     local hint = NewLabel(detail,
         "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
         "Drag icons to move them, onto another row to copy them, or off the window to remove them. " ..
-        "Right-click a spell to change its rank. Sub-sequences are listed dearest first when this opens.",
+        "Right-click a spell to change its rank. Sub-sequences are listed by mana cost when this opens.",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 0, 4)
     hint:SetPoint("BOTTOMRIGHT", 0, 4)
