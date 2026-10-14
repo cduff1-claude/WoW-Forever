@@ -86,9 +86,7 @@ countdown numbers follow your "show numbers for cooldowns" setting. A sequence o
 drops out while one of its spells is on cooldown, and the next one shows instead. If the game won't say whether a spell
 is on cooldown, it's never treated as on cooldown (Blizzard's swipe may still show).
 
-**Clicking.** Each icon is a secure button: one click casts that spell (forms as `/cast !Form`, so they never shift you
-out). Targeting works as on your action bars. Out of combat only: changing sequences, moving the display, and turning
-clicking on or off.
+The display is for reading only: locked, it ignores the mouse and clicks go through it.
 
 Prototype sequences (the editor comes next):
 1. *Bear out*: Regrowth > Rejuvenation > Bear Form, with subs Regrowth > Bear Form and Rejuvenation > Bear Form.
@@ -96,10 +94,9 @@ Prototype sequences (the editor comes next):
    Travel Form.
 
 Druids only. Commands:
-- `/fseq unlock` (drag to move; clicks are blocked while unlocked) / `/fseq lock`, `/fseq reset` (default position).
+- `/fseq unlock` (drag to move) / `/fseq lock`, `/fseq reset` (default position).
 - `/fseq test`: fake mana sweeping from empty to full, to check the visuals and the row switching.
 - `/fseq regen ticks|smooth|off`.
-- `/fseq click [on|off]`: clicking to cast. `/fseq clicklog`: prints which button each click reached.
 - Prototype toggles for every sequence at once: `/fseq primary` (always show Primary), `/fseq hidecd` (hide on
   cooldown). `/fseq cdtest [spell]` puts a fake 10s cooldown on that spell's icons (Rejuvenation by default).
   `/fseq defaults` restores the prototype sequences.

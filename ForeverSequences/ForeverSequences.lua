@@ -53,15 +53,6 @@ local SPELL_RANKS = {
     ["Travel Form"] = { 783 },
 }
 
--- Forms are cast as "/cast !Form" so clicking them never shifts you back out.
-local FORMS = {
-    ["Bear Form"] = true,
-    ["Cat Form"] = true,
-    ["Travel Form"] = true,
-    ["Aquatic Form"] = true,
-    ["Moonkin Form"] = true,
-}
-
 -- Prototype sequences, in the shape the editor will save. The second one shows its Primary
 -- all the time, so both display modes can be tried at once.
 local DEFAULT_SEQUENCES = {
@@ -98,8 +89,6 @@ local DEFAULTS = {
     y = -150,
     locked = false,
     regenMode = "ticks", -- "ticks" (safe: worst-case tick timing), "smooth" or "off"
-    clickable = true,
-    clickLog = false,
 }
 
 local function CopyTable(t)
@@ -221,16 +210,6 @@ local function GetIcon(spellID)
     return 134400 -- question mark
 end
 
-local function GetSpellName(spellID)
-    if spellID and C_Spell and C_Spell.GetSpellName then
-        local ok, name = pcall(C_Spell.GetSpellName, spellID)
-        if ok and type(name) == "string" and not IsSecret(name) then
-            return name
-        end
-    end
-    return nil
-end
-
 ----------------------------------------------------------------------------------------------
 -- Frames
 ----------------------------------------------------------------------------------------------
@@ -241,8 +220,8 @@ root:SetPoint(DEFAULTS.point, UIParent, DEFAULTS.relativePoint, DEFAULTS.x, DEFA
 root:SetMovable(true)
 root:SetClampedToScreen(true)
 
--- While unlocked, a cover over the whole display takes the drags (and the clicks, so you
--- can't cast while moving it).
+-- While unlocked, a cover over the whole display takes the drags. Locked, the display
+-- ignores the mouse, so clicks go through to the world.
 local mover = CreateFrame("Frame", nil, root, "BackdropTemplate")
 mover:SetAllPoints(root)
 mover:SetFrameStrata("DIALOG")
@@ -266,10 +245,7 @@ local function SavePosition()
 end
 
 mover:SetScript("OnDragStart", function()
-    -- The display holds secure buttons, so it can't move in combat.
-    if not InCombatLockdown() then
-        root:StartMoving()
-    end
+    root:StartMoving()
 end)
 mover:SetScript("OnDragStop", function()
     root:StopMovingOrSizing()
@@ -329,35 +305,10 @@ local function NewIconTexture(frame, layer, area)
     return texture
 end
 
-local buttonCount = 0
-local pendingActions = false -- secure attributes waiting for the end of combat
-
--- What a click does. Secure attributes can only change out of combat.
-local function ApplyAction(cell)
-    if InCombatLockdown() then
-        pendingActions = true
-        return
-    end
-    local name = GetSpellName(cell.spellID)
-    if FORMS[cell.spellName] and name then
-        cell:SetAttribute("type", "macro")
-        cell:SetAttribute("macrotext", "/cast !" .. name)
-        cell:SetAttribute("spell", nil)
-    else
-        cell:SetAttribute("type", "spell")
-        cell:SetAttribute("spell", cell.spellID)
-        cell:SetAttribute("macrotext", nil)
-    end
-    cell:EnableMouse(db.clickable)
-end
-
 local function CreateCell(row, index, size)
-    buttonCount = buttonCount + 1
-    local cell = CreateFrame("Button", "ForeverSequencesButton" .. buttonCount, row.frame, "SecureActionButtonTemplate")
-    cell:SetFrameLevel(row.frame:GetFrameLevel() + 1)
+    local cell = NewFrame("Frame", row.frame)
     cell:SetSize(size, size)
     cell:SetPoint("TOPLEFT", row.frame, "TOPLEFT", (index - 1) * (size + ICON_GAP), 0)
-    cell:RegisterForClicks("AnyUp", "AnyDown")
     local level = cell:GetFrameLevel()
 
     local edge = cell:CreateTexture(nil, "BACKGROUND")
@@ -422,35 +373,6 @@ local function CreateCell(row, index, size)
     fade:SetToAlpha(0.3)
     fade:SetDuration(0.35)
     pulse:Play()
-
-    -- Mouse-over highlight, on top of everything.
-    local top = NewFrame("Frame", cell)
-    top:SetAllPoints(cell)
-    top:SetFrameLevel(level + 6)
-    local hover = top:CreateTexture(nil, "OVERLAY")
-    hover:SetAllPoints(cell)
-    hover:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-    hover:SetBlendMode("ADD")
-    hover:Hide()
-
-    cell:HookScript("OnEnter", function(self)
-        hover:Show()
-        if self.spellID then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetSpellByID(self.spellID)
-            GameTooltip:Show()
-        end
-    end)
-    cell:HookScript("OnLeave", function()
-        hover:Hide()
-        GameTooltip:Hide()
-    end)
-    cell:HookScript("OnClick", function(self, mouseButton, down)
-        if db.clickLog then
-            Print(string.format("click (%s %s): %s, row \"%s\" of \"%s\"",
-                tostring(mouseButton), down and "down" or "up", self.spellName, row.label, row.group.name))
-        end
-    end)
 
     cell.grey = grey
     cell.color = color
@@ -574,13 +496,11 @@ local function RefreshCosts()
     for _, row in ipairs(rows) do
         for _, cell in ipairs(row.cells) do
             local spellID, known = ResolveSpell(cell.spellName)
-            if spellID ~= cell.spellID or cell.actionPending then
+            if spellID ~= cell.spellID then
                 cell.spellID = spellID
                 local icon = GetIcon(spellID)
                 cell.grey:SetTexture(icon)
                 cell.color:SetTexture(icon)
-                cell.actionPending = InCombatLockdown()
-                ApplyAction(cell)
             end
             cell.known = known
             cell.cost = GetManaCost(spellID)
@@ -971,16 +891,7 @@ local function Refresh()
     UpdateMana()
 end
 
--- Rebuilding moves and hides secure buttons, so it waits for the end of combat.
-local pendingRebuild = false
-
 local function Rebuild()
-    if InCombatLockdown() then
-        pendingRebuild = true
-        Print("will update after combat.")
-        return
-    end
-    pendingRebuild = false
     BuildDisplay()
     wipe(samples)
     Refresh()
@@ -996,7 +907,6 @@ local function IsDruid()
 end
 
 driver:RegisterEvent("PLAYER_LOGIN")
-driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 driver:RegisterEvent("SPELLS_CHANGED")
 driver:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 driver:RegisterEvent("SPELL_UPDATE_COOLDOWN")
@@ -1029,13 +939,6 @@ driver:SetScript("OnEvent", function(_, event, unit, arg2, arg3)
         end
     elseif not active then
         return
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if pendingRebuild then
-            Rebuild()
-        elseif pendingActions then
-            pendingActions = false
-            Refresh()
-        end
     elseif event == "UNIT_POWER_FREQUENT" then
         if arg2 == "MANA" then
             manaEventTimes[#manaEventTimes + 1] = GetTime()
@@ -1077,9 +980,9 @@ end
 local function PrintDebug()
     local mana = UnitPower("player", MANA_POWER_TYPE)
     local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
-    Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s, clickable=%s, in combat=%s",
+    Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s",
         tostring(IsDruid()), Describe(mana), tostring(IsSecret(mana)), Describe(maxMana),
-        tostring(testStartTime ~= nil), tostring(db.clickable), tostring(InCombatLockdown())))
+        tostring(testStartTime ~= nil)))
     local okRegen, base, casting = pcall(GetManaRegen)
     if not okRegen then base, casting = "error", "error" end
     local gaps = {}
@@ -1152,12 +1055,8 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
         for _, key in ipairs({ "point", "relativePoint", "x", "y" }) do
             db[key] = DEFAULTS[key]
         end
-        if InCombatLockdown() then
-            Print("can't move it in combat.")
-        else
-            ApplyPosition()
-            Print("position reset.")
-        end
+        ApplyPosition()
+        Print("position reset.")
     elseif cmd == "test" then
         if testStartTime then
             testStartTime = nil
@@ -1180,26 +1079,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
         else
             Print("regen mode is " .. db.regenMode .. ". /fseq regen ticks | smooth | off")
         end
-    elseif cmd == "click" then
-        if InCombatLockdown() then
-            Print("can't change that in combat.")
-            return
-        end
-        if arg == "on" or arg == "off" then
-            db.clickable = arg == "on"
-        else
-            db.clickable = not db.clickable
-        end
-        Refresh()
-        for _, row in ipairs(rows) do
-            for _, cell in ipairs(row.cells) do
-                cell:EnableMouse(db.clickable)
-            end
-        end
-        Print("clicking to cast " .. OnOff(db.clickable) .. ".")
-    elseif cmd == "clicklog" then
-        db.clickLog = not db.clickLog
-        Print("click log " .. OnOff(db.clickLog) .. ".")
     elseif cmd == "primary" then
         Print("always show Primary " .. OnOff(ToggleAll("alwaysPrimary", false)) .. " for every sequence.")
         Rebuild()
@@ -1232,6 +1111,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq lock | unlock | reset | test | regen | click [on|off] | clicklog | primary | hidecd | cdtest [spell] | defaults | debug")
+        Print("/fseq lock | unlock | reset | test | regen | primary | hidecd | cdtest [spell] | defaults | debug")
     end
 end
