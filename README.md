@@ -138,7 +138,8 @@ window is shown and can be dragged to move it; they lock again when the options 
 - Left, top: windows and the sequences they show, in display order. Tick to show or hide (hidden ones take no space),
   arrows to reorder, drag a sequence onto another window or sequence to move it there. *Remove* takes a sequence out of
   a window (it stays in the library); *Delete* deletes a window.
-- Left, bottom: the library (with how many windows use each). Drag a sequence onto a window to show it there.
+- Left, bottom: the Sequence Library (with how many windows use each; arrows to reorder). Drag a sequence onto a
+  window to show it there.
   New (also added to the selected window), Copy, Delete (from the library and every window).
 - Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
   options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence

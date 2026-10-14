@@ -756,8 +756,12 @@ end
 
 local function CreateLibraryRow(f, area, i)
     local row = NewListRow(area, i)
+    row.down = NewArrow(row, false, function() if row.def then Move(Library(), row.def, 1) end end)
+    row.down:SetPoint("RIGHT", 0, 0)
+    row.up = NewArrow(row, true, function() if row.def then Move(Library(), row.def, -1) end end)
+    row.up:SetPoint("RIGHT", row.down, "LEFT", 0, 0)
     row.text:SetPoint("LEFT", 4, 0)
-    row.text:SetPoint("RIGHT", -4, 0)
+    row.text:SetPoint("RIGHT", row.up, "LEFT", -2, 0)
     row:SetScript("OnClick", function(self)
         selWindow, selItem, selSeq = nil, nil, self.def
         f.subScroll:SetVerticalScroll(0)
@@ -1152,7 +1156,7 @@ local function CreateEditor()
     f.windowDelete:SetPoint("LEFT", newWindow, "RIGHT", 4, 0)
 
     -- Left, bottom: the library.
-    local libraryLabel = NewLabel(f, "Library")
+    local libraryLabel = NewLabel(f, "Sequence Library")
     libraryLabel:SetPoint("TOPLEFT", newWindow, "BOTTOMLEFT", 0, -14)
     local libraryHint = NewLabel(f, "drag onto a window", "GameFontDisableSmall")
     libraryHint:SetPoint("LEFT", libraryLabel, "RIGHT", 8, 0)
@@ -1512,6 +1516,9 @@ local function CreateEditor()
                 row.text:SetText((learned and "" or "|cff808080") .. (def.name or "?") .. (learned and "" or "|r") ..
                     (used > 0 and ("  |cff808080(" .. used .. ")|r") or "  |cff808080(unused)|r"))
                 row.selectedTexture:SetShown(def == selSeq and selItem == nil)
+                local index = i + libraryOffset
+                row.up:SetEnabled(index > 1)
+                row.down:SetEnabled(index < #library)
                 row:Show()
             else
                 row:Hide()
