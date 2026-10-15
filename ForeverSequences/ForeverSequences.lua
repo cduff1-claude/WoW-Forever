@@ -180,6 +180,18 @@ C.WINDOW_DEFAULTS = {
 -- What each window type is called on screen. "dynamic" is the original kind, which switches
 -- each row between its sequence's variations.
 ns.TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Static" }
+-- How a window's icons fill (window.fill): "left" (each icon while you can afford the
+-- sequence up to it), "right" (each icon while you can afford it and everything after it),
+-- or, for static windows, "dynamic" (left until you start the Primary with the mana for all
+-- of it, then right as you click through it). Static windows default to dynamic.
+function ns.FillMode(window)
+    local fill = window and window.fill
+    if window and window.type == "fixed" then
+        return (fill == "left" or fill == "right") and fill or "dynamic"
+    end
+    return fill == "right" and "right" or "left"
+end
+
 function ns.TypeLabel(windowType)
     return ns.TYPE_LABELS[windowType] or ns.TYPE_LABELS.dynamic
 end
@@ -1584,12 +1596,29 @@ local function SetLevelAbove(frame, parent, offset)
     frame:SetFrameLevel(parent:GetFrameLevel() + (offset or 1))
 end
 
-local function AcquireCell(rowFrame, index, size, secure)
+local function AcquireCell(rowFrame, index, size, secure, reverse)
     local cell = table.remove(cellPool[secure])
     if cell then
         cell:SetParent(rowFrame)
     else
         cell = CreateCell(rowFrame, secure)
+    end
+    -- Filling from the right (windows set to "right"; click-to-cast icons have a layer of
+    -- their own for that): the fill bar runs the other way, and the colour shows from its
+    -- fill edge to the right.
+    reverse = (reverse and not secure) and true or false
+    if cell.reversed ~= reverse then
+        cell.reversed = reverse
+        cell.fill:SetReverseFill(reverse)
+        local texture = cell.fill:GetStatusBarTexture()
+        cell.colorClip:ClearAllPoints()
+        if reverse then
+            cell.colorClip:SetPoint("TOPLEFT", texture, "TOPLEFT", 0, 0)
+            cell.colorClip:SetPoint("BOTTOMRIGHT", cell.fill, "BOTTOMRIGHT", 0, 0)
+        else
+            cell.colorClip:SetPoint("TOPLEFT", cell.fill, "TOPLEFT", 0, 0)
+            cell.colorClip:SetPoint("BOTTOMRIGHT", texture, "BOTTOMRIGHT", 0, 0)
+        end
     end
     SetLevelAbove(cell, rowFrame)
     local level = cell:GetFrameLevel()
@@ -1732,8 +1761,9 @@ local function CreateRow(group, rowFrame, line, def, size, label, secure)
     local row = { frame = rowFrame, group = group, root = group.root, def = def, label = label, cells = {}, total = 0,
         hide = group.def and group.def.hideOnCooldown or false }
     local window = group.root and group.root.window
+    row.fillMode = ns.FillMode(window)
     for i, entry in ipairs(def.entries) do
-        local cell = AcquireCell(rowFrame, i, size, secure)
+        local cell = AcquireCell(rowFrame, i, size, secure, row.fillMode == "right")
         cell.entry = entry
         cell.window = window
         row.cells[i] = cell
@@ -1863,7 +1893,15 @@ local function BuildWindow(root, window)
                 group.primary = CreatePlainRow(group, group.mainLine, def, C.ICON_SIZE, "primary", true)
                 -- Clicked through in order: tracks how far through it you are (see work.ProgressCast).
                 group.primary.progressive = true
-                work.progressRows[#work.progressRows + 1] = group.primary
+                if group.primary.fillMode == "dynamic" then
+                    work.progressRows[#work.progressRows + 1] = group.primary
+                elseif group.primary.fillMode == "right" then
+                    -- Always the right-filling layer.
+                    for _, cell in ipairs(group.primary.cells) do
+                        cell.gate:SetMinMaxValues(-2, -1)
+                        cell.gate:SetValue(0)
+                    end
+                end
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
@@ -2682,60 +2720,91 @@ function work.ProgressCheck(now)
 end
 end
 
+-- What each icon needs from now to afford it and everything after it (for filling from the
+-- right): suffix[i], never less than suffix[i + 1].
+local function SuffixNeeds(row, ctx)
+    local n = #row.cells
+    local suffix = {}
+    for i = n, 1, -1 do
+        local rest = { cells = {} }
+        for k = i, n do
+            rest.cells[#rest.cells + 1] = row.cells[k]
+        end
+        local needs = RowNeeds(rest, ctx)
+        suffix[i] = math.max(needs[#needs] or 0, suffix[i + 1] or 0)
+    end
+    return suffix
+end
+
+-- Point a fill bar at [low, high] (a free icon: all or nothing at high).
+local function SetFill(bar, low, high)
+    if high > low then
+        bar:SetMinMaxValues(low, high)
+    else
+        bar:SetMinMaxValues(high - 1, high)
+    end
+end
+
 local function UpdateThresholds(ctx)
     for _, row in ipairs(rows) do
       if Visible(row) then
-        -- The normal view: each icon fills while you can afford the sequence up to it.
-        local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
-        row.thresholds = thresholds
-        local previous = 0
-        row.total = 0
-        for i, cell in ipairs(row.cells) do
-            local need = thresholds[i]
-            cell.start = math.min(previous, need)
-            cell.total = need
-            if cell.total > cell.start then
-                cell.fill:SetMinMaxValues(cell.start, cell.total)
-            else
-                -- Free entry: all or nothing on the mana before it.
-                cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
+        -- Left: each icon fills while you can afford the sequence up to it (prefix). Right:
+        -- while you can afford it and everything after it (suffix), filling from the right.
+        -- A static Primary set to dynamic is left until you start it with the mana for all of
+        -- it (see the gates), then right, from now, as you click through: with enough for the
+        -- whole sequence nothing changes; below that it greys from the left, and regen fills
+        -- it back. No highlights meanwhile.
+        local mode = row.fillMode or "left"
+        local started = mode == "dynamic" and (row.step or 0) > 0
+        local useRight = mode == "right" or started
+        local prefix, suffix
+        if row.twin then
+            prefix, suffix = row.twin.prefix, row.twin.suffix
+        else
+            if row.progressive or mode ~= "right" then
+                prefix = RowNeeds(row, ctx)
             end
-            cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-            cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-            if cell.fillRev then
-                cell.fillRev:SetMinMaxValues(C.NEVER - 1, C.NEVER)
+            if useRight then
+                suffix = SuffixNeeds(row, ctx)
             end
-            previous = need
-            row.total = need
         end
-        if (row.step or 0) > 0 then
-            -- Partway through a fixed window's Primary (shown instead if you had the mana for
-            -- all of it when it started; see the gates): each icon is coloured while you can
-            -- afford it and everything after it, from now. With enough for the whole sequence
-            -- nothing changes; below that it greys from the left, and regen fills it back. No
-            -- highlights meanwhile.
-            local n = #row.cells
-            local suffix = {}
-            for i = n, 1, -1 do
-                local rest = { cells = {} }
-                for k = i, n do
-                    rest.cells[#rest.cells + 1] = row.cells[k]
-                end
-                local needs = RowNeeds(rest, ctx)
-                suffix[i] = math.max(needs[#needs] or 0, suffix[i + 1] or 0)
+        row.prefix, row.suffix = prefix, suffix
+        local previous = 0
+        for i, cell in ipairs(row.cells) do
+            if prefix then
+                local need = prefix[i]
+                cell.start, cell.total = math.min(previous, need), need
+                previous = need
             end
-            for i, cell in ipairs(row.cells) do
+            if suffix then
                 local high = suffix[i]
                 local low = math.min(suffix[i + 1] or 0, high)
-                if high > low then
-                    cell.fillRev:SetMinMaxValues(low, high)
-                else
-                    cell.fillRev:SetMinMaxValues(high - 1, high)
+                if not prefix then
+                    cell.start, cell.total = low, high
                 end
-                cell.nowSwitch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
-                cell.prevSwitch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
+                if cell.fillRev then
+                    SetFill(cell.fillRev, low, high)
+                else
+                    SetFill(cell.fill, low, high)
+                end
+                local glow = started and C.NEVER or high
+                cell.nowSwitch:SetMinMaxValues(glow - 1, glow)
+                cell.prevSwitch:SetMinMaxValues(glow - 1, glow)
+            elseif cell.fillRev then
+                cell.fillRev:SetMinMaxValues(C.NEVER - 1, C.NEVER)
             end
-            row.suffix = suffix
+            if prefix and (row.progressive or mode ~= "right") then
+                SetFill(cell.fill, cell.start, cell.total)
+                if not suffix then
+                    cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+                    cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+                end
+            end
+        end
+        if prefix then
+            row.total = prefix[#prefix] or 0
+        else
+            row.total = suffix and suffix[1] or 0
         end
       end
     end

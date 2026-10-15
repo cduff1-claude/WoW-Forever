@@ -1524,6 +1524,37 @@ local function CreateSettingsTab(f, panel)
         "Unticked: in the order they're listed in the window's Sequences tab (each sequence's Primary, then " ..
         "its sub-sequences), with the gaps closed up.")
 
+    -- How the icons fill: from the left, the right, or (static) dynamically.
+    local fillRow = CreateFrame("Frame", nil, panel)
+    fillRow:SetSize(480, 22)
+    f.fillRow = fillRow
+    local fillLabel = NewLabel(fillRow, "Mana fills from:", "GameFontHighlightSmall")
+    fillLabel:SetPoint("LEFT", 4, 0)
+    f.fillChecks = {}
+    local previousFill
+    for _, choice in ipairs({
+        { "left", "Left", "Each icon fills while you can afford the sequence up to it, so colour arrives from the " ..
+            "left: how far into the sequence your mana gets you." },
+        { "right", "Right", "Each icon fills while you can afford it and everything after it, so colour arrives " ..
+            "from the right (the last icon first): how much of the end of the sequence you could still finish." },
+        { "dynamic", "Dynamic", "From the left until you cast the Primary's first icon with the mana for all of " ..
+            "it, then from the right as you click through it, so the icons ahead stay coloured while you can " ..
+            "still afford them. Static windows only." },
+    }) do
+        local key = choice[1]
+        local check = NewCheck(fillRow, choice[2], function()
+            if selWindow then
+                selWindow.fill = key
+                Changed()
+            end
+        end)
+        check.key = key
+        check:SetPoint("LEFT", previousFill and previousFill.label or fillLabel, "RIGHT", 12, previousFill and -1 or 0)
+        Tooltip(check, "Fill from: " .. choice[2], choice[3])
+        f.fillChecks[#f.fillChecks + 1] = check
+        previousFill = check
+    end
+
     f.windowDelete = NewButton(panel, "Delete window", 120, function()
         if selWindow then
             Confirm(string.format("Delete the window \"%s\"? Its sequences stay in the library.",
@@ -1547,9 +1578,17 @@ local function CreateSettingsTab(f, panel)
         self.costOrder:SetShown(stacked)
         self.showNext:SetChecked(window.showNext and true or false)
         self.costOrder:SetChecked(window.costOrder ~= false)
-        -- Delete sits just under the last of this type's settings.
+        -- The fill choice, then Delete, just under the last of this type's settings.
+        local static = window.type == "fixed"
+        self.fillRow:ClearAllPoints()
+        self.fillRow:SetPoint("TOPLEFT", 0, static and -56 or -180)
+        local fill = ns.FillMode(window)
+        for _, check in ipairs(self.fillChecks) do
+            check:SetShown(check.key ~= "dynamic" or static)
+            check:SetChecked(fill == check.key)
+        end
         self.windowDelete:ClearAllPoints()
-        self.windowDelete:SetPoint("TOPLEFT", 0, window.type == "fixed" and -66 or -192)
+        self.windowDelete:SetPoint("TOPLEFT", 0, static and -90 or -214)
         self.windowClick:SetShown(window.type == "fixed")
         self.windowClick:SetChecked(window.clickable ~= false)
         self.onlyInCombat:SetChecked(window.onlyInCombat and true or false)

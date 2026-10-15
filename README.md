@@ -123,6 +123,10 @@ own settings are kept for changing back, but only the current type's are used). 
     the last icon, cast another spell from your spellbook, or don't cast the next icon in time (its cast time and
     the global cooldown after the last one, plus 5 seconds; 2 out of combat, so a heal or two after a kill still
     counts). Casting the first icon again starts again from it.
+- *Mana fills from* (any window): *Left* (each icon fills while you can afford the sequence up to it: how far into
+  it your mana gets you), *Right* (each icon fills while you can afford it and everything after it, from the right:
+  how much of the end you could still finish), or, for static windows, *Dynamic* (the default there: left until you
+  start the Primary with the mana for all of it, then right as you click through it; see above).
 - *Only show in combat* (any window) hides it out of combat.
 - Switching and stacked windows can also show only when you're low, and only for some targets:
   - *Mana*: below the costliest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
