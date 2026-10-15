@@ -80,13 +80,14 @@ each cost is taken. Everything is read from the game, not hard-coded:
   items and Wrath don't use it.
 - Anything whose description says it raises "Mana regeneration by N%" for a time (Innervate, on yourself) raises the
   regen counted for everything after it in the sequence, including while casting if it says so.
-- Regen modes: *smooth* (default, as Forever regens) or *off*.
+- Regen is always counted, as a steady flow (as Forever regens).
 
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
 sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
-makes an independent copy to change for another window. Each window is named, can be turned off, remembers its
-position, and is one of three types (picked from a menu when you make the window, and changeable later; each type's own settings are kept
-for switching back, but only the current type's are used):
+makes an independent copy to change for another window. Each window is named, can be disabled, remembers its
+position and size (drag its corner while the options are open; double-click the corner for normal size; not in
+combat), and is one of three types (picked from a menu when you make the window, and changeable later; each type's
+own settings are kept for changing back, but only the current type's are used). New windows open beside the options.
 - **Switching** (called *Dynamic* before): one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
@@ -100,16 +101,16 @@ for switching back, but only the current type's are used):
   the ones you can afford, anchored at the top and filling downwards. With *costliest at the top* (the default) a
   newly affordable one takes the top row and the rest move down a row; without it they keep the window's order (each
   sequence's Primary, then its sub-sequences) with the gaps closed up. *Show the next one up* adds the cheapest one
-  you can't afford yet, filling from grey (the top row, in cost order). Pick a sequence under the window to untick
-  *include in this window* on any of its rows, or *pin Primary to the top* to keep that sequence's Primary always at
-  the top, filling (one per window; its sub-sequences can still join the list). The same icons in the same order (a sub-sequence
+  you can't afford yet, filling from grey (the top row, in cost order). In the window's Sequences tab, open a
+  sequence to untick *include* on any of its rows, or *pin Primary to the top* to keep that sequence's Primary always
+  at the top, filling (one per window; its sub-sequences can still join the list). The same icons in the same order (a sub-sequence
   two sequences share, say) only go in once, the first one listed, even if both are ticked; the same icons in a
   different order are a separate row. Nothing actually moves: each row of
   the window holds every variation, each shown only over the band of mana where it belongs in that row (mana is
   secret, but the needs aren't, so each band's contents are known in advance). Rows below the number of variations
   that can show close up; blank rows above that stay, and let clicks through. Not clickable. Uses the same
   show-when options as Switching windows.
-- **Fixed:** the Primary is always shown and, if the window's *click the Primary to cast* is ticked, can be clicked to cast (one icon per click; forms as `/cast !Form`, so
+- **Static** (called *Fixed* before): the Primary is always shown and, if the window's *click the Primary to cast* is ticked, can be clicked to cast (one icon per click; forms as `/cast !Form`, so
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
@@ -144,14 +145,14 @@ for switching back, but only the current type's are used):
 always the variation you can cast that costs the most mana: variations with every spell learned come first, then the
 costliest. They're re-sorted when you lock the sequence after editing it, when you learn a spell or rank, and when you switch profile, so adding a
 spell to a sub-sequence (or learning a costlier rank) can make it the Primary, and on a character that hasn't learned
-one of the Primary's spells the costliest variation it can cast takes its place until it does. Each variation keeps
-its own *hide when unusable*.
+one of the Primary's spells the costliest variation it can cast takes its place until it does. *Hide when unusable*
+is set per sequence, and applies to each of its rows.
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
   them (or you have no enemy target), or a bandage while you're Recently Bandaged, is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
   your "show numbers for cooldowns" setting. *Hide when unusable* (offered only where something can be unusable,
-  and not for a fixed window's Primary) drops that sequence or sub-sequence out while that's true, and the next one
-  shows.
+  and not for a static window's Primary) drops a row (Primary or sub-sequence) out while that's true, and the next
+  one shows. Midnight makes cooldowns secret in combat, so in combat they aren't seen (the swipe still shows).
 - **Ranks:** a spell follows your highest rank, including ranks learned later. A pinned lower rank (dragged in, or set
   with shift-right-click / ctrl-click) shows "R3" on its icon.
 - **Spells not learned yet** (on an alt, say): a sequence whose Primary has one is left out of its windows, and a
@@ -167,22 +168,28 @@ setup, and editing it never changes the class default. To tidy up the class defa
 say), switch to it, edit, and switch back.
 
 **Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). Right-clicking an icon opens
-them with its window selected. While they're open, every window is shown and can be dragged to move it, and clicking
-a window selects it; they lock again when the options close.
-- Left, top: windows and the sequences they show, in display order. Tick to show or hide (hidden ones take no space),
-  arrows to reorder, drag a sequence onto another window or sequence to move it there. *Remove* takes a sequence out of
-  a window (it stays in the library); *Delete* deletes a window.
-- Left, bottom: the Sequence Library (with how many windows use each; arrows to reorder). Drag a sequence onto a
-  window to show it there.
-  New (also added to the selected window, and opened unlocked for editing), Copy, Delete (from the library and every
-  window).
-- Right: for a window, its name, type, *only show in combat*, and for switching and stacked windows the mana, health
-  and target options (stacked: also *show the next one up* and *costliest at the top*). For a sequence picked under a
-  window, a read-only view of it with *Edit in library* (under a stacked window, also the include and pin ticks). For a sequence
-  picked in the library: its name, *hide when unusable* and which windows use it; the
-  Primary and the sub-sequences (costliest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
-  mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
-  cost), in a scrolling list.
+them with its window selected. While they're open, every window is shown and can be dragged to move it or resized
+from its corner, and clicking a window selects it; they lock again when the options close.
+- Left, top: *Windows*, with *New window* beside the heading, in a section per type (Static, Switching, Stacked;
+  click a heading to open or close it, remembered per character). Disabled windows are greyed out. Click one for its
+  settings; drag to reorder within its section (a gold line shows where it'll go). Drop a library sequence on a
+  window's name to add it there.
+- Left, bottom: the *Sequence Library* (with how many windows use each), with *New sequence* beside the heading
+  (opened unlocked for editing; also added to the window showing, if any). Drag to reorder, onto a window's name or
+  into its Sequences tab to show it there.
+- Right, for a window: two tabs.
+  - *Settings*: its name, type, *enabled*, *only show in combat*, *click the Primary to cast* (static), for switching
+    and stacked windows the mana, health and fight options, *skip sequences that would overheal* (switching), *show
+    the next one up* and *costliest at the top* (stacked), and *Delete window*.
+  - *Sequences*: its sequences in display order (greyed out when off in this window or not learned). Drag from the
+    library to add, within the list to reorder; right-click one, or drag it off the options, to take it out of the
+    window. Click one to open or close it (remembered per character): small strips of its Primary and sub-sequences,
+    *show in this window*, *Edit in library*, and for stacked windows *pin Primary to the top* and an *include* tick
+    per row.
+- Right, for a library sequence: its name with *Copy* and *Delete*, which windows use it, *Unlock*/*Lock* and *hide
+  when unusable*, then the Primary and the sub-sequences (costliest first), each labelled "Mana cost: X (-Y
+  gained)": X is its total cost, Y the mana regained before its last icon plus any potions or other restores in it
+  (shown negative, as it comes off the cost), in a scrolling list (scroll bars only show when there's more).
 - Beside it, while a sequence is unlocked: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
   section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), and, with
   *Show all* only, usable items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
@@ -194,16 +201,15 @@ a window selects it; they lock again when the options close.
   hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
   The spellbook and bags work too. Escape closes the options, and the mouse wheel over them never reaches your
   key bindings.
-- A sequence's rows start locked: press *Unlock* (below the sub-sequences) to change them. While unlocked, an empty
-  sub-sequence waits at the bottom (another appears once you add to it; *Remove* shows only on rows with icons), and
-  rows keep their places, so nothing jumps while you add to it. *Lock*, or picking another sequence or window, or
-  closing the options, drops the empty rows and puts the variations back in order. A new library sequence starts
-  unlocked, and so does one opened with *Edit in library*.
+- A sequence's rows start locked: press *Unlock* (above the Primary) to change them. While unlocked, an empty
+  sub-sequence waits at the bottom (another appears once you add to it; the *x* to the left of a row, which removes
+  it, shows only on rows with icons), and rows keep their places, so nothing jumps while you add to it. *Lock*, or
+  picking another sequence or window, or closing the options, drops the empty rows and puts the variations back in
+  order. A new library sequence starts unlocked, and so does one opened with *Edit in library*.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
   spell to pin it one rank lower (stopping at rank 1), ctrl-click to go one rank higher; back at your highest rank the
   "R" label goes and it follows newly learned ranks again. A lower rank dragged in from the spellbook is pinned too.
-- Bottom: the regen mode.
 - Changes made in combat reach the windows when combat ends.
 - It only works when something changes. Mana updates come from the game's mana events (at most 20 a second), and
   carry on for a couple of seconds after the last one (longer if a window's mana threshold keeps showing), and
@@ -215,7 +221,7 @@ a window selects it; they lock again when the options close.
 - If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5
   seconds, rather than repeating many times a second.
 
-Druids only. A character with no class default yet starts with a switching "Main" window and a fixed "Clickable"
+Druids only. A character with no class default yet starts with a switching "Main" window and a static "Clickable"
 one. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
 empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults` (restore the starting
 windows and sequences), `/fseq perf` (milliseconds per second spent on mana updates, the once-a-second check and

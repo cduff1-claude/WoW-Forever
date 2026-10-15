@@ -104,8 +104,8 @@ local DEFAULT_LIBRARY = {
         hideOnCooldown = false,
         entries = { Spell("Regrowth"), Spell("Rejuvenation"), Spell("Bear Form") },
         subs = {
-            { entries = { Spell("Regrowth"), Spell("Bear Form") }, hideOnCooldown = false },
-            { entries = { Spell("Rejuvenation"), Spell("Bear Form") }, hideOnCooldown = false },
+            { entries = { Spell("Regrowth"), Spell("Bear Form") } },
+            { entries = { Spell("Rejuvenation"), Spell("Bear Form") } },
         },
     },
     {
@@ -114,7 +114,7 @@ local DEFAULT_LIBRARY = {
         hideOnCooldown = false,
         entries = { Spell("Entangling Roots"), Spell("Rejuvenation"), Spell("Travel Form") },
         subs = {
-            { entries = { Spell("Entangling Roots"), Spell("Travel Form") }, hideOnCooldown = false },
+            { entries = { Spell("Entangling Roots"), Spell("Travel Form") } },
         },
     },
 }
@@ -171,12 +171,12 @@ local WINDOW_DEFAULTS = {
     fight = "all",      -- with onlyInCombat: "pvp", "pve" or "all" (see fightKind)
     showNext = false,   -- stacked windows: also show the next sequence up, filling
     costOrder = true,   -- stacked windows: costliest at the top (else in the window's order)
-    skipOverheal = false, -- switching windows: skip rows that would overheal (see UpdateTermBands)
+    skipOverheal = false, -- switching windows: skip rows that would overheal (see Terms.UpdateBands)
 }
 
 -- What each window type is called on screen. "dynamic" is the original kind, which switches
 -- each row between its sequence's variations.
-ns.TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Fixed" }
+ns.TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Static" }
 function ns.TypeLabel(windowType)
     return ns.TYPE_LABELS[windowType] or ns.TYPE_LABELS.dynamic
 end
@@ -198,6 +198,7 @@ local function PrepareProfile()
     db.library = db.library or {}
     for _, window in ipairs(db.windows) do
         window.items = window.items or {}
+        window.id = window.id or NewId()
         for key, value in pairs(WINDOW_DEFAULTS) do
             if window[key] == nil then
                 window[key] = value
@@ -216,14 +217,21 @@ local function PrepareProfile()
         end
         def.id = def.id or NewId()
         def.skipOverheal = nil -- was a sequence option for a while; now a window one
+        -- "Hide when unusable" was per variation; it's per sequence now (on if any had it).
+        for _, sub in ipairs(def.subs) do
+            def.hideOnCooldown = def.hideOnCooldown or sub.hideOnCooldown
+            sub.hideOnCooldown = nil
+        end
+        def.hideOnCooldown = def.hideOnCooldown and true or false
         highest = math.max(highest, def.id)
         EnsureVariationIds(def)
     end
+    for _, window in ipairs(db.windows) do
+        highest = math.max(highest, window.id or 0)
+    end
     db.nextId = math.max(db.nextId or 0, highest)
     -- Settings of features since removed.
-    if db.regenMode ~= "off" then
-        db.regenMode = "smooth"
-    end
+    db.regenMode = "smooth" -- regen is always counted now
     db.smoothRegenDefault, db.clickLog, db.clickable, db.noClickButtons = nil, nil, nil, nil
 end
 
@@ -503,7 +511,7 @@ end
 -- How much a description says it heals at once (the low end of "X to Y"), or nil. Heals over
 -- time ("for 32 over 12 sec", bandages) don't count; Regrowth's direct part does. For the
 -- "skip if it would overheal" option.
-local function ParseHeal(description)
+function ns.ParseHeal(description)
     if not description then
         return nil
     end
@@ -520,7 +528,6 @@ local function ParseHeal(description)
     end
     return nil
 end
-ns.ParseHeal = ParseHeal
 
 local function ChannelTime(spellID, description)
     if not (description and IsChanneled(spellID)) then
@@ -1062,20 +1069,25 @@ end
 
 local roots = {} -- by window index; reused across rebuilds
 
+-- Positions are kept in UIParent's units, whatever the window's scale (a frame's offsets are
+-- in its own, scaled units).
 local function SavePosition(root)
     local window = root.window
     if not window then
         return
     end
-    window.left, window.top = root:GetLeft(), root:GetTop()
+    local scale = root:GetScale()
+    window.left, window.top = root:GetLeft() * scale, root:GetTop() * scale
     root:ClearAllPoints()
-    root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left, window.top)
+    root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left / scale, window.top / scale)
 end
 
 local function ApplyPosition(root, window, index)
     root:ClearAllPoints()
+    local scale = window.scale or 1
+    root:SetScale(scale)
     if window.left and window.top then
-        root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left, window.top)
+        root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", window.left / scale, window.top / scale)
     else
         root:SetPoint("TOP", UIParent, "CENTER", (index - 1) * 30, -120 - (index - 1) * 110)
     end
@@ -1125,6 +1137,59 @@ local function GetRoot(index)
         end
         mover.dragged = false
     end)
+    -- Bottom right: drag to resize (the whole window scales, top left staying put), double-click
+    -- for normal size. Not in combat: windows may hold click-to-cast buttons.
+    local grip = CreateFrame("Button", nil, mover)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", mover, "BOTTOMRIGHT", 0, 0)
+    grip:SetFrameLevel(mover:GetFrameLevel() + 2)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:GetNormalTexture():SetVertexColor(1, 0.82, 0)
+    local function SetWindowScale(scale)
+        local window = root.window
+        if not window or InCombatLockdown() then
+            return
+        end
+        local old = root:GetScale()
+        local left, top = root:GetLeft() * old, root:GetTop() * old
+        scale = math.max(0.5, math.min(2, scale))
+        window.scale = scale
+        root:SetScale(scale)
+        root:ClearAllPoints()
+        root:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / scale, top / scale)
+        window.left, window.top = left, top
+    end
+    grip:SetScript("OnMouseDown", function(self)
+        if not InCombatLockdown() then
+            self.sizing = true
+        end
+    end)
+    grip:SetScript("OnMouseUp", function(self)
+        self.sizing = false
+    end)
+    grip:SetScript("OnDoubleClick", function()
+        SetWindowScale(1)
+    end)
+    grip:SetScript("OnUpdate", function(self)
+        if not self.sizing then
+            return
+        end
+        local x = GetCursorPosition() / UIParent:GetEffectiveScale()
+        local left = root:GetLeft() * root:GetScale()
+        local width = root:GetWidth()
+        if width > 0 then
+            SetWindowScale((x - left + 4) / width)
+        end
+    end)
+    grip:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Resize")
+        GameTooltip:AddLine("Drag to make this window bigger or smaller; double-click for normal size.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
     mover:Hide()
     local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("BOTTOMLEFT", mover, "TOPLEFT", 0, 2)
@@ -1455,7 +1520,8 @@ end
 local cellPool = { [true] = {}, [false] = {} } -- by secure
 local shellPool = {}    -- banded rows' switches and clips
 local rowFramePool = {} -- fixed Primaries' (and term rows') row frames
-local termPool = {}     -- term rows' conditions (see AcquireTerm)
+-- Term rows (switching windows that skip overheals): their conditions, and the helpers.
+local Terms = { pool = {} }
 
 local function SetLevelAbove(frame, parent, offset)
     frame:SetFrameLevel(parent:GetFrameLevel() + (offset or 1))
@@ -1546,8 +1612,8 @@ end
 -- B's switch is as wide as the line, its right side on A's edge: while A holds it's off to the
 -- left, so the clip (from B's edge to the line's right) is open; otherwise B decides. (The
 -- windows' mana/health "show when" options work the same way.)
-local function AcquireTerm(line, parent, ge1, ge2)
-    local term = table.remove(termPool)
+function Terms.Acquire(line, parent, ge1, ge2)
+    local term = table.remove(Terms.pool)
     if not term then
         term = { s1 = NewSwitch(line, line), s2 = NewSwitch(line, line), clip = NewFrame("Frame", parent) }
         term.clip:SetClipsChildren(true)
@@ -1583,15 +1649,15 @@ end
 
 -- Point a term's conditions at X1 (and X2): "value >= X" or "value < X" as built. Without X2,
 -- B never holds.
-local function SetTerm(term, x1, x2)
+function Terms.Set(term, x1, x2)
     SetSwitchAt(term.s1, x1)
     if term.or2 then
         SetSwitchAt(term.s2, x2 or (term.ge2 and NEVER or -math.huge))
     end
 end
 
-local function TermAlways(term)
-    SetTerm(term, term.ge1 and -math.huge or NEVER)
+function Terms.Always(term)
+    Terms.Set(term, term.ge1 and -math.huge or NEVER)
 end
 
 local groups = {}
@@ -1606,7 +1672,8 @@ local function CreateRow(group, rowFrame, line, def, size, label, secure)
     rowFrame:ClearAllPoints()
     rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
     rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - GLOW_SIZE * 2), size)
-    local row = { frame = rowFrame, group = group, root = group.root, def = def, label = label, cells = {}, total = 0 }
+    local row = { frame = rowFrame, group = group, root = group.root, def = def, label = label, cells = {}, total = 0,
+        hide = group.def and group.def.hideOnCooldown or false }
     local window = group.root and group.root.window
     for i, entry in ipairs(def.entries) do
         local cell = AcquireCell(rowFrame, i, size, secure)
@@ -1627,14 +1694,14 @@ local function CreateBandedRow(group, line, def, size, label)
 end
 
 -- A switching window's row when it skips overheals: shown while all of these hold (see
--- UpdateTermBands): health < its overheal line; mana >= the costliest cheaper row that can't
+-- Terms.UpdateBands): health < its overheal line; mana >= the costliest cheaper row that can't
 -- be skipped; for each cheaper row that can: mana >= its need or health >= its line; and
 -- mana < its own need or health >= every later row's line. `extra` is how many "cheaper row
 -- that can be skipped" terms it may need.
 local function CreateTermRow(group, line, def, size, label, extra)
     local parent, terms = line, {}
     local function Add(v1, ge1, v2, ge2)
-        local term = AcquireTerm(line, parent, ge1, ge2)
+        local term = Terms.Acquire(line, parent, ge1, ge2)
         term.v1, term.v2 = v1, v2
         terms[#terms + 1] = term
         parent = term.clip
@@ -1696,7 +1763,7 @@ local function ReleaseAll()
                 term.s1:Hide()
                 term.s2:Hide()
                 term.clip:Hide()
-                termPool[#termPool + 1] = term
+                Terms.pool[#Terms.pool + 1] = term
             end
             row.termFrame:Hide()
             rowFramePool[#rowFramePool + 1] = row.termFrame
@@ -1815,7 +1882,8 @@ local function BuildStacked(root, window)
                 local key = ns.EntriesKey(variation.entries)
                 if not excluded and not listed[key] and #variation.entries > 0 and ns.AllLearned(variation.entries) then
                     listed[key] = true
-                    variations[#variations + 1] = { variation = variation, name = def.name or "?" }
+                    variations[#variations + 1] = { variation = variation, name = def.name or "?",
+                        hide = def.hideOnCooldown }
                 end
             end
         end
@@ -1841,6 +1909,7 @@ local function BuildStacked(root, window)
             cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
             -- Every copy needs what the first one needs: work it out once.
             cand.rows[k].twin = k > 1 and cand.rows[1] or nil
+            cand.rows[k].hide = v.hide
         end
         stack.cands[i] = cand
     end
@@ -1995,7 +2064,7 @@ local function EntryData(entry, info, target)
     target.gain = (gain and not over) and gain or 0
     target.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
     target.instantNext = MakesNextInstant(description)
-    target.heal = ParseHeal(description) or 0
+    target.heal = ns.ParseHeal(description) or 0
     target.regenBoost = ParseRegenBoost(description)
     target.creatureTypes = ParseCreatureTypes(description)
     target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
@@ -2375,10 +2444,9 @@ end
 -- character hasn't learned, swaps places. Returns whether anything moved.
 local function SortVariations(def)
     EnsureVariationIds(def)
-    local variations = { { entries = def.entries, hideOnCooldown = def.hideOnCooldown, vid = def.vid, index = 0 } }
+    local variations = { { entries = def.entries, vid = def.vid, index = 0 } }
     for i, sub in ipairs(def.subs) do
-        variations[#variations + 1] = { entries = sub.entries, hideOnCooldown = sub.hideOnCooldown, vid = sub.vid,
-            index = i }
+        variations[#variations + 1] = { entries = sub.entries, vid = sub.vid, index = i }
     end
     for _, v in ipairs(variations) do
         v.learned = #v.entries > 0 and ns.AllLearned(v.entries)
@@ -2400,11 +2468,10 @@ local function SortVariations(def)
     if not moved then
         return false
     end
-    def.entries, def.hideOnCooldown, def.vid = variations[1].entries, variations[1].hideOnCooldown, variations[1].vid
+    def.entries, def.vid = variations[1].entries, variations[1].vid
     local subs = {}
     for i = 2, #variations do
-        subs[#subs + 1] = { entries = variations[i].entries, hideOnCooldown = variations[i].hideOnCooldown,
-            vid = variations[i].vid }
+        subs[#subs + 1] = { entries = variations[i].entries, vid = variations[i].vid }
     end
     def.subs = subs
     return true
@@ -2627,19 +2694,17 @@ local function SetBand(row, low, high)
     SetSwitchAt(row.high, high)
 end
 
-local UpdateTermBands -- below
-
 -- Rows that may show, cheapest first. Rows set to hide on cooldown drop out while one of
 -- their entries is on cooldown (or an item isn't in your bags).
 local function Candidates(list)
     local result = {}
     for _, row in ipairs(list) do
-        if row.def.hideOnCooldown and row.onCooldown then
+        if row.hide and row.onCooldown then
             if row.terms then
                 for _, term in ipairs(row.terms) do
-                    TermAlways(term)
+                    Terms.Always(term)
                 end
-                SetTerm(row.terms[1], -math.huge) -- health < nothing: never
+                Terms.Set(row.terms[1], -math.huge) -- health < nothing: never
                 row.bandLow, row.bandHigh = NEVER, NEVER
             else
                 SetBand(row, NEVER, NEVER)
@@ -2671,7 +2736,7 @@ local function UpdateStack(root)
         local first = cand.rows[1]
         cand.total = first.total
         cand.low, cand.high = {}, {}
-        if first.def.hideOnCooldown and first.onCooldown then
+        if first.hide and first.onCooldown then
             for _, row in ipairs(cand.rows) do
                 SetBand(row, NEVER, NEVER)
             end
@@ -2735,7 +2800,7 @@ end
 -- them, once you can afford them all). A row would overheal while health >= max health minus
 -- its direct heals (low end) plus 1; rows without heals never do. With every row overhealing,
 -- nothing shows.
-UpdateTermBands = function(list)
+function Terms.UpdateBands(list)
     local maxHealth = UnitHealthMax("player")
     for _, row in ipairs(list) do
         local heal = 0
@@ -2748,34 +2813,34 @@ UpdateTermBands = function(list)
     for k, row in ipairs(list) do
         local terms = row.terms
         local line = row.overhealLine
-        SetTerm(terms[1], line == math.huge and NEVER or line)
+        Terms.Set(terms[1], line == math.huge and NEVER or line)
         local low = -math.huge
         for j = 1, k - 1 do
             if list[j].overhealLine == math.huge then
                 low = math.max(low, list[j].total)
             end
         end
-        SetTerm(terms[2], low)
+        Terms.Set(terms[2], low)
         local slot = 3
         for j = 1, k - 1 do
             local other = list[j]
             if other.overhealLine ~= math.huge and other.total > low then
-                SetTerm(terms[slot], other.total, other.overhealLine)
+                Terms.Set(terms[slot], other.total, other.overhealLine)
                 slot = slot + 1
             end
         end
         for i = slot, #terms - 1 do
-            TermAlways(terms[i])
+            Terms.Always(terms[i])
         end
         local last = terms[#terms]
         if k == #list then
-            TermAlways(last)
+            Terms.Always(last)
         else
             local later = -math.huge
             for j = k + 1, #list do
                 later = math.max(later, list[j].overhealLine)
             end
-            SetTerm(last, row.total, later == math.huge and NEVER or later)
+            Terms.Set(last, row.total, later == math.huge and NEVER or later)
         end
         row.bandLow, row.bandHigh = low, (k < #list) and row.total or math.huge
     end
@@ -2817,7 +2882,7 @@ local function UpdateBands()
                 end
             end
             if group.skipOverheal then
-                UpdateTermBands(list)
+                Terms.UpdateBands(list)
             else
                 for k, row in ipairs(list) do
                     local previous = list[k - 1]
@@ -3378,6 +3443,16 @@ LoadProfile = function()
     UseProfileTable(charDB.profile)
 end
 
+-- What the options remember per character: closed window-type sections, and which sequences
+-- are expanded in each window's Sequences tab ("windowId:sequenceId").
+function ns.UIState()
+    charDB.ui = charDB.ui or {}
+    local ui = charDB.ui
+    ui.closed = ui.closed or {}
+    ui.expanded = ui.expanded or {}
+    return ui
+end
+
 function ns.CurrentProfile()
     return charDB.profile
 end
@@ -3489,12 +3564,6 @@ function ns.SetClickable(window, value)
     Refresh()
 end
 
-function ns.SetRegenMode(mode)
-    db.regenMode = mode
-    if active then
-        UpdateMana()
-    end
-end
 
 ----------------------------------------------------------------------------------------------
 -- Slash commands
@@ -3573,7 +3642,7 @@ local function PrintDebug()
                     end
                     print(string.format("    %s [%s]: needs %s, blocked=%s, hide on cooldown=%s: %s", cand.name,
                         table.concat(names, ", "), tostring(first.total), tostring(first.onCooldown),
-                        tostring(first.def.hideOnCooldown and true or false),
+                        tostring(first.hide and true or false),
                         #bands > 0 and table.concat(bands, "; ") or "never shown"))
                 end
             end
@@ -3591,7 +3660,7 @@ local function PrintDebug()
                                 tostring(row.startNeed)) or "") or "",
                         tostring(row.total),
                         row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
-                        tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false),
+                        tostring(row.onCooldown), tostring(row.hide and true or false),
                         row.terms and string.format(", heals %s, overheals from %s health", tostring(row.healTotal),
                             Band(row.overhealLine or math.huge)) or ""))
                     for _, cell in ipairs(row.cells) do

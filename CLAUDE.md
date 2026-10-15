@@ -102,3 +102,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   - `apt-get install -y lua5.1` then `luac -p X.lua`. This is a real Lua 5.1 parser, the same version
     WoW uses.
   - `pip install luaparser` then `python3 -c "from luaparser import ast; ast.parse(open('X.lua').read())"`.
+
+## Before publishing
+
+- ForeverSequences: add a help button in the top right of the options window. (The user asked to be reminded.)

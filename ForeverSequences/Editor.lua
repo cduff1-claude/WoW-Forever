@@ -1,21 +1,21 @@
--- Forever Sequences editor: a library of sequences, the windows that show them, and the
--- sequences' rows of icons.
+-- Forever Sequences editor: the windows, a library of sequences, and the sequences' rows of
+-- icons.
 --
---   - Left, top: windows, each with the sequences it shows, in display order. Tick to show or
---     hide, arrows to reorder, drag a sequence onto another window (or before another
---     sequence) to move it there.
---   - Left, bottom: the library, every sequence you've made. Drag one onto a window to show
---     it there too; the same sequence can be in several windows. Copy makes an independent
---     copy to change for another window.
---   - Right: the selected window's settings, then the selected sequence's rows.
---   - Beside it: every spell you know (in spellbook order) and every usable item you carry,
---     to drag into a row (or click to add to the end of the Primary).
---   - Drag a spell from the spellbook or an item from your bags onto a slot; the "+" slot
---     adds at the end. Drag an icon within its row to move it, onto another row to copy it
---     (from the Primary onto a sub-sequence's "+" slot it goes in Primary order), or off the
---     window to remove it. Shift-right-click also removes. Right-click a spell to step down
---     through the ranks you know ("R3" on the icon), and back round to your highest.
---   - While this is open every window is shown and can be dragged to move it.
+--   - Left, top: the windows, in sections by type (Static, Switching, Stacked; click a
+--     heading to open or close it). Click one for its settings; drag to reorder within its
+--     section. Drop a sequence from the library on a window to add it there.
+--   - Left, bottom: the library, every sequence you've made. Drag to reorder, or onto a window
+--     (or a window's Sequences tab) to show it there; the same sequence can be in several.
+--   - Right, for a window: a Settings tab and a Sequences tab (its sequences, in display
+--     order; click one to show its details, drag to reorder, right-click or drag off to take
+--     it out of the window).
+--   - Right, for a library sequence: its name and rows. Unlock to change them: drag spells and
+--     items in from the list beside the editor, your spellbook or your bags; the "+" slot adds
+--     at the end. Drag an icon within its row to move it, onto another row to copy it (from the
+--     Primary onto a sub-sequence's "+" slot it goes in Primary order), or off the window to
+--     remove it. Right-click removes; shift-right-click / ctrl-click step a spell's rank.
+--   - While this is open every window is shown and can be dragged to move it, or resized from
+--     its corner.
 
 local _, ns = ...
 
@@ -23,33 +23,31 @@ local MAX_ENTRIES = 8
 local SLOT_SIZE = 34
 local SLOT_GAP = 4
 local SUB_BLOCK_HEIGHT = SLOT_SIZE + 20
-local WINDOW_ROWS = 11
-local LIBRARY_ROWS = 9
+local WINDOW_ROWS = 12
+local LIBRARY_ROWS = 12
 local LIST_ROW_HEIGHT = 22
 local LEFT = 20
 local RIGHT_X = 250
 local PICKER_WIDTH = 300
 local PICKER_ROW_HEIGHT = 30
-local REGEN_MODES = { "smooth", "off" }
-local REGEN_LABELS = { smooth = "Regen: smooth", off = "Regen: off" }
+local MINI_SIZE = 20      -- icons in a window's Sequences tab
+local STRIP_HEIGHT = 24
 
 local editor
-local selWindow -- the selected window (nil when a library sequence is picked on its own)
-local selItem   -- the selected placement of a sequence in selWindow, or nil
-local selSeq    -- the selected sequence (from the library), or nil
+local selWindow -- the selected window, shown with its tabs (when no library sequence is picked)
+local selSeq    -- the selected library sequence, shown in the sequence editor, or nil
+local tab = "settings" -- the window's tab: "settings" or "sequences"
 local windowOffset, libraryOffset = 0, 0
 local drag      -- an icon being dragged: { entry, row (nil from the list of spells), index }
-local listDrag  -- a sequence being dragged: { def, window and item (nil from the library) }
--- A sequence picked under a window is only shown; it's edited from the library.
-local function ReadOnly()
-    return selItem ~= nil
-end
+-- A list item being dragged: { kind = "window" (window), "seq" (def, from the library) or
+-- "placement" (def, window, item: from a window's Sequences tab) }.
+local listDrag
 
 -- The selected sequence's rows only change while it's unlocked; until it's locked again, its
 -- variations keep their order (so a row doesn't jump while you're adding to it), and an
 -- empty sub-sequence waits at the bottom.
 local function Unlocked()
-    return selSeq ~= nil and ns.unsortedSequence == selSeq and not ReadOnly()
+    return selSeq ~= nil and ns.unsortedSequence == selSeq
 end
 
 local function IsEmpty(sub)
@@ -62,7 +60,7 @@ local function KeepEmptyRow()
     if def then
         local last = def.subs[#def.subs]
         if not last or not IsEmpty(last) then
-            def.subs[#def.subs + 1] = { entries = {}, hideOnCooldown = false }
+            def.subs[#def.subs + 1] = { entries = {} }
         end
     end
 end
@@ -409,9 +407,7 @@ local function SlotTooltip(slot)
         if entry.kind == "spell" and entry.rank then
             GameTooltip:AddLine("Pinned to rank " .. entry.rank, 0.4, 0.8, 1)
         end
-        if ReadOnly() then
-            GameTooltip:AddLine("Press Edit in library to change this sequence.", 0.6, 0.6, 0.6, true)
-        elseif not Unlocked() then
+        if not Unlocked() then
             GameTooltip:AddLine("Press Unlock to change the rows.", 0.6, 0.6, 0.6, true)
         else
             GameTooltip:AddLine("Drag to move or copy, or off the window to remove.", 0.6, 0.6, 0.6, true)
@@ -564,10 +560,10 @@ StaticPopupDialogs["FOREVERSEQUENCES_DELETE"] = {
                     index = ItemIndex(window, data.def.id)
                 end
             end
-            selSeq, selItem = nil, nil
+            selSeq = nil
         elseif data and data.window then
             table.remove(Windows(), IndexOf(Windows(), data.window))
-            selWindow, selItem = Windows()[1], nil
+            selWindow = nil
         end
         Changed()
     end,
@@ -584,27 +580,17 @@ local function Confirm(text, data)
     end
 end
 
--- A window's type is chosen when it's made and can't be changed afterwards.
-local function AddWindow(windowType)
-    local list = Windows()
-    local window = ns.NewWindow("Window " .. (#list + 1))
-    window.type = windowType
-    list[#list + 1] = window
-    selWindow, selItem, selSeq = window, nil, nil
-    Changed()
-end
-
--- The window types, in menu order, with what each does.
+-- The window types, in the order of their sections, with what each does.
 local WINDOW_TYPES = {
+    { key = "fixed", text = "the Primary is always shown and can be clicked to cast, with the best " ..
+        "sub-sequence under it. Nothing moves." },
     { key = "dynamic", text = "one row per sequence, switching between its variations to show the one you're " ..
         "working towards; rows close up when a sequence has nothing to show. Can show only when mana or health " ..
-        "is low, or for some fights." },
+        "is low, or for some fights, and skip sequences that would overheal." },
     { key = "stacked", text = "every variation you include from its sequences, as a list: the ones you can " ..
         "afford, costliest at the top (or in your order), filling down from the top as mana rises. Optionally " ..
         "the next one up too, and one sequence's Primary always at the top. Same show-when options as " ..
         "Switching." },
-    { key = "fixed", text = "the Primary is always shown and can be clicked to cast, with the best " ..
-        "sub-sequence under it. Nothing moves." },
 }
 
 local function TypeHelp()
@@ -645,6 +631,33 @@ local function TypeMenu(owner, title, current, onPick)
     end)
 end
 
+-- New windows open beside the options: to their left, or to the right (past the list of
+-- spells and items) when there's no room, each a little below the last.
+local function NewWindowPosition()
+    if not (editor and editor:GetLeft()) then
+        return nil, nil
+    end
+    local step = (#Windows() % 5) * 24
+    local top = editor:GetTop() - 40 - step
+    if editor:GetLeft() > 260 then
+        return editor:GetLeft() - 240 + step, top
+    end
+    return editor:GetRight() + PICKER_WIDTH + 10 + step, top
+end
+
+local function AddWindow(windowType)
+    local list = Windows()
+    local window = ns.NewWindow("Window " .. (#list + 1))
+    window.type = windowType
+    window.id = ns.NewId()
+    window.left, window.top = NewWindowPosition()
+    list[#list + 1] = window
+    ns.UIState().closed[windowType] = nil
+    Lock()
+    selWindow, selSeq, tab = window, nil, "settings"
+    Changed()
+end
+
 local function NewWindow(owner)
     TypeMenu(owner, "New window", nil, AddWindow)
 end
@@ -656,11 +669,31 @@ local function Place(def, window, beforeIndex)
         return nil
     end
     local item = { id = def.id, enabled = true }
-    table.insert(window.items, math.min(beforeIndex or #window.items + 1, #window.items + 1), item)
+    table.insert(window.items, math.max(1, math.min(beforeIndex or #window.items + 1, #window.items + 1)), item)
     return item
 end
 
--- A new sequence goes in the library, and in the selected window if there is one.
+-- Edit a library sequence (unlocked when asked, ready to change).
+local function EditSequence(def, unlocked)
+    if def == selSeq and not unlocked then
+        -- Already open (and maybe unlocked): leave it as it is.
+        if editor then
+            editor:Refresh()
+        end
+        return
+    end
+    Lock()
+    selWindow, selSeq = nil, def
+    if unlocked then
+        ns.unsortedSequence = def
+    end
+    if editor then
+        editor.subScroll:SetVerticalScroll(0)
+    end
+    Changed()
+end
+
+-- A new sequence goes in the library, and in the selected window if one is showing.
 local function NewSequence()
     local library = Library()
     local def = {
@@ -671,14 +704,10 @@ local function NewSequence()
         subs = {},
     }
     library[#library + 1] = def
-    -- Also shown in the selected window, but picked in the library, unlocked, ready to fill.
-    if selWindow then
+    if selWindow and not selSeq then
         Place(def, selWindow)
     end
-    Lock()
-    selWindow, selItem, selSeq = nil, nil, def
-    ns.unsortedSequence = def
-    Changed()
+    EditSequence(def, true)
 end
 
 -- An independent copy, next to the original in the library, to change for another window.
@@ -691,86 +720,219 @@ local function CopySequence()
     copy.name = (selSeq.name or "?") .. " (copy)"
     local library = Library()
     table.insert(library, (IndexOf(library, selSeq) or #library) + 1, copy)
-    selWindow, selItem, selSeq = nil, nil, copy
     Print("copied. Drag \"" .. copy.name .. "\" from the library onto a window to show it there.")
-    Changed()
+    EditSequence(copy, false)
 end
 
-local function Move(list, item, delta)
-    local index = IndexOf(list, item)
-    local other = index and index + delta
-    if not other or other < 1 or other > #list then
-        return
-    end
-    list[index], list[other] = list[other], list[index]
-    Changed()
-end
-
--- The windows list: each window, then the sequences it shows.
+-- The windows list: a heading per type, then (unless it's closed) its windows.
 local function WindowListItems()
+    local closed = ns.UIState().closed
     local items = {}
-    for _, window in ipairs(Windows()) do
-        items[#items + 1] = { window = window }
-        for _, item in ipairs(window.items) do
-            local def = ns.FindSequence(item.id)
-            if def then
-                items[#items + 1] = { window = window, item = item, def = def }
+    for _, t in ipairs(WINDOW_TYPES) do
+        local windows = {}
+        for _, window in ipairs(Windows()) do
+            if (window.type or "dynamic") == t.key then
+                windows[#windows + 1] = window
+            end
+        end
+        items[#items + 1] = { section = t.key, count = #windows }
+        if not closed[t.key] then
+            for _, window in ipairs(windows) do
+                items[#items + 1] = { window = window }
             end
         end
     end
     return items
 end
 
+local function ExpandedKey(window, def)
+    return tostring(window.id) .. ":" .. tostring(def.id)
+end
 
 ----------------------------------------------------------------------------------------------
--- The two lists on the left
+-- Dragging list items: windows (to reorder), library sequences (to reorder, or into a window)
+-- and a window's sequences (to reorder, move to another window, or drag off to take out). A
+-- gold line shows where it'll go.
 ----------------------------------------------------------------------------------------------
 
 local windowRows, libraryRows = {}, {}
 
-local function StartListDrag(data)
+local function SequenceIcon(def)
+    local first = def and def.entries[1]
+    return first and ns.ResolveEntry(first).icon or 134400
+end
+
+local function StartListDrag(data, icon)
     listDrag = data
-    local first = data.def.entries[1]
-    ghostIcon:SetTexture(first and ns.ResolveEntry(first).icon or 134400)
+    ghostIcon:SetTexture(icon or 134400)
     ghost:Show()
 end
 
--- Dropped on the windows list: onto a window (to the end of it) or a sequence (before it).
+-- The row under the cursor among `rows` that `accept` takes, and whether a drop there goes
+-- before it (cursor in its upper half) or after it.
+local function RowAtCursor(rows, accept, clip)
+    if clip and not clip:IsMouseOver() then
+        return nil
+    end
+    local _, y = GetCursorPosition()
+    y = y / UIParent:GetEffectiveScale()
+    for _, row in ipairs(rows) do
+        if row:IsVisible() and row:IsMouseOver() and accept(row) then
+            local _, centre = row:GetCenter()
+            return row, y > centre
+        end
+    end
+    return nil
+end
+
+-- Where the dragged item would go: { kind, row, before, ... }, or nil.
+local function ResolveDrop(source)
+    if not editor then
+        return nil
+    end
+    if source.kind == "window" then
+        -- Within its own section (the order only matters in the list).
+        local row, before = RowAtCursor(windowRows, function(r)
+            return r.data and r.data.window and (r.data.window.type or "dynamic") == (source.window.type or "dynamic")
+        end)
+        if row then
+            return { kind = "reorderWindow", row = row, before = before }
+        end
+        local heading = RowAtCursor(windowRows, function(r)
+            return r.data and r.data.section == (source.window.type or "dynamic")
+        end)
+        if heading then
+            return { kind = "reorderWindow", row = heading, before = false, toStart = true }
+        end
+        return nil
+    end
+    local windowRow = RowAtCursor(windowRows, function(r) return r.data and r.data.window ~= nil end)
+    if windowRow then
+        return { kind = "toWindow", row = windowRow, window = windowRow.data.window }
+    end
+    if source.kind == "seq" then
+        local row, before = RowAtCursor(libraryRows, function(r) return r.def ~= nil end)
+        if row then
+            return { kind = "reorderLibrary", row = row, before = before }
+        end
+    end
+    if selWindow and not selSeq and editor.sequencesTab:IsVisible() then
+        local entry, before = RowAtCursor(editor.entries, function(r) return r.item ~= nil end, editor.seqScroll)
+        if entry then
+            return { kind = "intoWindow", row = entry, before = before }
+        end
+        if editor.sequencesTab:IsMouseOver() then
+            return { kind = "intoWindow", atEnd = true, row = editor.lastEntry }
+        end
+    end
+    if source.kind == "placement" and not editor:IsMouseOver() then
+        return { kind = "remove" }
+    end
+    return nil
+end
+
+-- While dragging: the gold line (or, over a window name, its highlight).
+local highlighted
+local function UpdateDropLine()
+    local line = editor and editor.dropLine
+    if not line then
+        return
+    end
+    if highlighted then
+        highlighted:UnlockHighlight()
+        highlighted = nil
+    end
+    local target = listDrag and ResolveDrop(listDrag)
+    if not target or not target.row or target.kind == "toWindow" or target.kind == "remove" then
+        line:Hide()
+        if target and target.kind == "toWindow" then
+            highlighted = target.row
+            highlighted:LockHighlight()
+        end
+        return
+    end
+    local before = target.before and not target.atEnd
+    line:ClearAllPoints()
+    line:SetPoint("LEFT", target.row, before and "TOPLEFT" or "BOTTOMLEFT", 0, 0)
+    line:SetPoint("RIGHT", target.row, before and "TOPRIGHT" or "BOTTOMRIGHT", 0, 0)
+    line:Show()
+end
+
 local function FinishListDrag()
     if not listDrag then
         return
     end
-    ghost:Hide()
     local source = listDrag
+    local target = ResolveDrop(source)
     listDrag = nil
-    for _, row in ipairs(windowRows) do
-        local data = row.data
-        if row:IsVisible() and row:IsMouseOver() and data and not (source.item and data.item == source.item) then
-            local target = data.window
-            if source.window then
-                -- Move from one window (or place in it) to another.
-                local from = IndexOf(source.window.items, source.item)
-                if source.window ~= target and ItemIndex(target, source.def.id) then
-                    Print("\"" .. (source.def.name or "?") .. "\" is already in " .. (target.name or "?") .. ".")
-                    return
-                end
-                table.remove(source.window.items, from)
-                local index = data.item and IndexOf(target.items, data.item) or #target.items + 1
-                table.insert(target.items, index, source.item)
-                selWindow, selItem, selSeq = target, source.item, source.def
-            else
-                -- From the library: show it in this window too.
-                local index = data.item and IndexOf(target.items, data.item) or nil
-                local item = Place(source.def, target, index)
-                if not item then
-                    return
-                end
-                selWindow, selItem, selSeq = target, item, source.def
-            end
-            Changed()
+    ghost:Hide()
+    UpdateDropLine()
+    if not target then
+        return
+    end
+    if target.kind == "reorderWindow" then
+        local list = Windows()
+        local onto = target.row.data.window
+        if onto == source.window then
             return
         end
+        table.remove(list, IndexOf(list, source.window))
+        local index = #list + 1
+        if target.toStart then
+            for i, window in ipairs(list) do
+                if (window.type or "dynamic") == (source.window.type or "dynamic") then
+                    index = i
+                    break
+                end
+            end
+        else
+            index = IndexOf(list, onto) + (target.before and 0 or 1)
+        end
+        table.insert(list, index, source.window)
+    elseif target.kind == "reorderLibrary" then
+        local list = Library()
+        if target.row.def == source.def then
+            return
+        end
+        table.remove(list, IndexOf(list, source.def))
+        table.insert(list, IndexOf(list, target.row.def) + (target.before and 0 or 1), source.def)
+    elseif target.kind == "toWindow" then
+        local window = target.window
+        if source.kind == "placement" then
+            if window == source.window then
+                return
+            end
+            if ItemIndex(window, source.def.id) then
+                Print("\"" .. (source.def.name or "?") .. "\" is already in " .. (window.name or "?") .. ".")
+                return
+            end
+            table.remove(source.window.items, IndexOf(source.window.items, source.item))
+            table.insert(window.items, source.item)
+        elseif Place(source.def, window) then
+            Print("\"" .. (source.def.name or "?") .. "\" added to " .. (window.name or "?") .. ".")
+        else
+            return
+        end
+    elseif target.kind == "intoWindow" then
+        local window = selWindow
+        local index = #window.items + 1
+        if not target.atEnd then
+            index = IndexOf(window.items, target.row.item) + (target.before and 0 or 1)
+        end
+        if source.kind == "placement" and source.window == window then
+            local from = IndexOf(window.items, source.item)
+            if from < index then
+                index = index - 1
+            end
+            table.remove(window.items, from)
+            table.insert(window.items, index, source.item)
+        elseif not Place(source.def, window, index) then
+            return
+        end
+    elseif target.kind == "remove" then
+        table.remove(source.window.items, IndexOf(source.window.items, source.item))
     end
+    Changed()
 end
 
 local function NewListRow(parent, i)
@@ -787,42 +949,32 @@ local function NewListRow(parent, i)
     row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.text:SetJustifyH("LEFT")
     row.text:SetWordWrap(false)
+    row.text:SetPoint("RIGHT", -4, 0)
     return row
 end
 
 local function CreateWindowRow(f, area, i)
     local row = NewListRow(area, i)
-    row.enabled = NewCheck(row, "", function(checked)
-        local target = row.data and (row.data.item or row.data.window)
-        if target then
-            target.enabled = checked
-            Changed()
-        end
-    end)
-    Tooltip(row.enabled, "Show on screen", "Unticked ones are kept but hidden, and take no space.")
-
-    local function Shift(delta)
-        local data = row.data
-        if data.item then
-            Move(data.window.items, data.item, delta)
-        else
-            Move(Windows(), data.window, delta)
-        end
-    end
-    row.down = NewArrow(row, false, function() Shift(1) end)
-    row.down:SetPoint("RIGHT", 0, 0)
-    row.up = NewArrow(row, true, function() Shift(-1) end)
-    row.up:SetPoint("RIGHT", row.down, "LEFT", 0, 0)
-    row.text:SetPoint("RIGHT", row.up, "LEFT", -2, 0)
-
     row:SetScript("OnClick", function(self)
-        selWindow, selItem, selSeq = self.data.window, self.data.item, self.data.def
-        f.subScroll:SetVerticalScroll(0)
+        local data = self.data
+        if not data then
+            return
+        end
+        if data.section then
+            local closed = ns.UIState().closed
+            closed[data.section] = (not closed[data.section]) or nil
+        else
+            Lock()
+            if selWindow ~= data.window or selSeq then
+                tab = "settings"
+            end
+            selWindow, selSeq = data.window, nil
+        end
         f:Refresh()
     end)
     row:SetScript("OnDragStart", function(self)
-        if self.data and self.data.item then
-            StartListDrag({ def = self.data.def, window = self.data.window, item = self.data.item })
+        if self.data and self.data.window then
+            StartListDrag({ kind = "window", window = self.data.window }, 134400)
         end
     end)
     row:SetScript("OnDragStop", FinishListDrag)
@@ -831,20 +983,15 @@ end
 
 local function CreateLibraryRow(f, area, i)
     local row = NewListRow(area, i)
-    row.down = NewArrow(row, false, function() if row.def then Move(Library(), row.def, 1) end end)
-    row.down:SetPoint("RIGHT", 0, 0)
-    row.up = NewArrow(row, true, function() if row.def then Move(Library(), row.def, -1) end end)
-    row.up:SetPoint("RIGHT", row.down, "LEFT", 0, 0)
     row.text:SetPoint("LEFT", 4, 0)
-    row.text:SetPoint("RIGHT", row.up, "LEFT", -2, 0)
     row:SetScript("OnClick", function(self)
-        selWindow, selItem, selSeq = nil, nil, self.def
-        f.subScroll:SetVerticalScroll(0)
-        f:Refresh()
+        if self.def then
+            EditSequence(self.def, false)
+        end
     end)
     row:SetScript("OnDragStart", function(self)
         if self.def then
-            StartListDrag({ def = self.def })
+            StartListDrag({ kind = "seq", def = self.def }, SequenceIcon(self.def))
         end
     end)
     row:SetScript("OnDragStop", FinishListDrag)
@@ -856,7 +1003,8 @@ local function CreateLibraryRow(f, area, i)
         GameTooltip:SetText(self.def.name or "?")
         local used = UsedIn(self.def)
         GameTooltip:AddLine(#used > 0 and ("Used in: " .. table.concat(used, ", ")) or "Not in any window yet.", 1, 1, 1, true)
-        GameTooltip:AddLine("Drag onto a window to show it there.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Drag onto a window, or a window's Sequences tab, to show it there; drag within the " ..
+            "library to reorder.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -872,6 +1020,19 @@ local function ScrollArea(f, rowsShown, onWheel)
         f:Refresh()
     end)
     return area
+end
+
+-- A scroll frame whose scroll bar only shows when there's something to scroll to.
+local function NewScroll(parent)
+    local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+    local bar = scroll.ScrollBar
+    if type(bar) == "table" then
+        bar:Hide()
+        scroll:HookScript("OnScrollRangeChanged", function(self, _, yRange)
+            bar:SetShown((yRange or self:GetVerticalScrollRange()) > 0.5)
+        end)
+    end
+    return scroll
 end
 
 -- Beside the editor: sections of rows (icon, name, a short line) in a scroll frame.
@@ -912,7 +1073,7 @@ local function CreatePicker(f)
         "(War Stomp, Bash, Feral Charge, Frenzied Regeneration, Innervate). On: every spell, plus your usable items. " ..
         "Quest items, recipes, items with no Use, and internal spells are never listed.")
 
-    local scroll = CreateFrame("ScrollFrame", nil, picker, "UIPanelScrollFrameTemplate")
+    local scroll = NewScroll(picker)
     scroll:SetPoint("TOPLEFT", 18, -86)
     scroll:SetPoint("BOTTOMRIGHT", -36, 18)
     local content = CreateFrame("Frame", nil, scroll)
@@ -959,9 +1120,7 @@ local function CreatePicker(f)
         end)
         row:SetScript("OnDragStop", FinishDrag)
         row:SetScript("OnClick", function(self)
-            if ReadOnly() then
-                Print("press Edit in library to change this sequence.")
-            elseif selSeq and not Unlocked() then
+            if selSeq and not Unlocked() then
                 Print("press Unlock to change this sequence's rows.")
             elseif selSeq and Insert(selSeq.entries, #selSeq.entries + 1, ns.CopyTable(self.item.entry)) then
                 Changed()
@@ -1172,133 +1331,49 @@ local function NewNumberBox(parent, onSave)
     return box
 end
 
-local function CreateEditor()
-    local f = CreateFrame("Frame", "ForeverSequencesEditor", UIParent, "BackdropTemplate")
-    f:SetSize(800, 680)
-    f:SetPoint("CENTER", -150, 0)
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    Backdrop(f)
-    tinsert(UISpecialFrames, "ForeverSequencesEditor") -- Escape closes it
-    -- Take the mouse wheel anywhere over the window, so it never reaches a key binding.
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function() end)
-
-    local title = NewLabel(f, "Forever Sequences", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -18)
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -6, -6)
-
-    local profileLabel = NewLabel(f, "Profile", "GameFontNormalSmall")
-    profileLabel:SetPoint("TOPLEFT", LEFT + 4, -20)
-    f.profileButton = NewButton(f, "", 200, function(self)
-        OpenProfileMenu(self)
-    end)
-    f.profileButton:SetPoint("LEFT", profileLabel, "RIGHT", 6, 0)
-    Tooltip(f.profileButton, "Profiles",
-        "Windows and sequences are saved per profile. Every character of a class can use any of that class's " ..
-        "profiles. A character without one starts with its own copy of the class default, window positions and " ..
-        "all; editing it never changes the class default. To tidy up the class default itself, switch to it here.")
-
-    -- Left, top: windows and the sequences they show.
-    local windowsLabel = NewLabel(f, "Windows")
-    windowsLabel:SetPoint("TOPLEFT", LEFT, -48)
-    local windowArea = ScrollArea(f, WINDOW_ROWS, function(delta)
-        local most = math.max(0, #WindowListItems() - WINDOW_ROWS)
-        windowOffset = math.max(0, math.min(most, windowOffset - delta))
-    end)
-    windowArea:SetPoint("TOPLEFT", LEFT, -66)
-    for i = 1, WINDOW_ROWS do
-        windowRows[i] = CreateWindowRow(f, windowArea, i)
-    end
-    local newWindow = NewButton(f, "New window", 104, NewWindow)
-    Tooltip(newWindow, "New window", "Pick its type. You can change it later.\n\n" .. TypeHelp())
-    newWindow:SetPoint("TOPLEFT", windowArea, "BOTTOMLEFT", 0, -6)
-    f.windowDelete = NewButton(f, "Delete", 104, function()
-        if selItem and selWindow then
-            -- Take the sequence out of this window; it stays in the library.
-            table.remove(selWindow.items, IndexOf(selWindow.items, selItem))
-            selItem = nil
-            Changed()
-        elseif selWindow then
-            Confirm(string.format("Delete the window \"%s\"? Its sequences stay in the library.",
-                selWindow.name or "?"), { window = selWindow })
-        end
-    end)
-    f.windowDelete:SetPoint("LEFT", newWindow, "RIGHT", 4, 0)
-
-    -- Left, bottom: the library.
-    local libraryLabel = NewLabel(f, "Sequence Library")
-    libraryLabel:SetPoint("TOPLEFT", newWindow, "BOTTOMLEFT", 0, -14)
-    local libraryHint = NewLabel(f, "drag onto a window", "GameFontDisableSmall")
-    libraryHint:SetPoint("LEFT", libraryLabel, "RIGHT", 8, 0)
-    local libraryArea = ScrollArea(f, LIBRARY_ROWS, function(delta)
-        local most = math.max(0, #Library() - LIBRARY_ROWS)
-        libraryOffset = math.max(0, math.min(most, libraryOffset - delta))
-    end)
-    libraryArea:SetPoint("TOPLEFT", libraryLabel, "BOTTOMLEFT", 0, -4)
-    for i = 1, LIBRARY_ROWS do
-        libraryRows[i] = CreateLibraryRow(f, libraryArea, i)
-    end
-    local newSequence = NewButton(f, "New", 68, NewSequence)
-    newSequence:SetPoint("TOPLEFT", libraryArea, "BOTTOMLEFT", 0, -6)
-    f.copySequence = NewButton(f, "Copy", 68, CopySequence)
-    f.copySequence:SetPoint("LEFT", newSequence, "RIGHT", 4, 0)
-    Tooltip(f.copySequence, "Copy", "Makes an independent copy of the selected sequence, to change for another window.")
-    f.librarySequenceDelete = NewButton(f, "Delete", 68, function()
-        if selSeq then
-            local used = UsedIn(selSeq)
-            Confirm(string.format("Delete the sequence \"%s\"%s?", selSeq.name or "?",
-                #used > 0 and (" from the library and from " .. table.concat(used, ", ")) or ""), { def = selSeq })
-        end
-    end)
-    f.librarySequenceDelete:SetPoint("LEFT", f.copySequence, "RIGHT", 4, 0)
-
-    -- Right, top: the selected window.
-    local windowPanel = CreateFrame("Frame", nil, f)
-    windowPanel:SetPoint("TOPLEFT", RIGHT_X, -44)
-    windowPanel:SetSize(520, 200)
-    f.windowPanel = windowPanel
-
-    local windowLabel = NewLabel(windowPanel, "Window")
+-- A window's Settings tab: everything about the window itself.
+local function CreateSettingsTab(f, panel)
+    local windowLabel = NewLabel(panel, "Window")
     windowLabel:SetPoint("TOPLEFT", 0, -6)
-    f.windowName = NewEditBox(windowPanel, 180, function(text)
+    f.windowName = NewEditBox(panel, 180, function(text)
         if selWindow and text ~= "" and text ~= selWindow.name then
             selWindow.name = text
             Changed()
         end
     end)
     f.windowName:SetPoint("LEFT", windowLabel, "RIGHT", 12, 0)
-    -- Switching type keeps the other type's settings (thresholds and targets for dynamic,
-    -- click to cast for fixed) on the window for switching back; only the current type's
-    -- settings are used.
-    f.windowType = NewButton(windowPanel, "", 190, function(self)
+    -- Changing type keeps the other types' settings on the window for changing back; only the
+    -- current type's are used.
+    f.windowType = NewButton(panel, "", 190, function(self)
         if selWindow then
             local window = selWindow
             TypeMenu(self, "Window type", window.type, function(key)
                 window.type = key
+                ns.UIState().closed[key] = nil
                 Changed()
             end)
         end
     end)
     f.windowType:SetPoint("LEFT", f.windowName, "RIGHT", 10, 0)
-    f.windowTypeText = f.windowType
     Tooltip(f.windowType, "Window type (click to change)",
         TypeHelp() .. "\n\nChanging keeps each type's own settings for when you change back.")
-    f.onlyInCombat = NewCheck(windowPanel, "Only show in combat", function(checked)
+
+    f.windowEnabled = NewCheck(panel, "Enabled", function(checked)
+        if selWindow then
+            selWindow.enabled = checked
+            Changed()
+        end
+    end)
+    f.windowEnabled:SetPoint("TOPLEFT", 0, -30)
+    Tooltip(f.windowEnabled, "Enabled", "Disabled windows are kept, greyed out in the list, but not shown.")
+    f.onlyInCombat = NewCheck(panel, "Only show in combat", function(checked)
         if selWindow then
             selWindow.onlyInCombat = checked
             Changed()
         end
     end)
-    f.onlyInCombat:SetPoint("TOPLEFT", 0, -30)
-    f.windowClick = NewCheck(windowPanel, "Click the Primary to cast", function(checked)
+    f.onlyInCombat:SetPoint("LEFT", f.windowEnabled.label, "RIGHT", 24, -1)
+    f.windowClick = NewCheck(panel, "Click the Primary to cast", function(checked)
         if selWindow then
             ns.SetClickable(selWindow, checked)
         end
@@ -1306,7 +1381,7 @@ local function CreateEditor()
     f.windowClick:SetPoint("LEFT", f.onlyInCombat.label, "RIGHT", 24, -1)
 
     -- Switching and stacked windows only: what the fight is against, then the thresholds.
-    local fightRow = CreateFrame("Frame", nil, windowPanel)
+    local fightRow = CreateFrame("Frame", nil, panel)
     fightRow:SetPoint("TOPLEFT", 24, -54)
     fightRow:SetSize(480, 22)
     f.fightRow = fightRow
@@ -1333,7 +1408,7 @@ local function CreateEditor()
         "including when it starts with no enemy targeted. Friendly targets, yourself included, never count.")
     Tooltip(f.fightChecks[2], "PvE fights", "Fights that haven't turned PvP (see PvP).")
 
-    local gates = CreateFrame("Frame", nil, windowPanel)
+    local gates = CreateFrame("Frame", nil, panel)
     gates:SetPoint("TOPLEFT", 0, -80)
     gates:SetSize(520, 70)
     f.gates = gates
@@ -1386,7 +1461,7 @@ local function CreateEditor()
     healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
 
     -- Switching windows only.
-    f.skipOverheal = NewCheck(windowPanel, "Skip sequences that would overheal", function(checked)
+    f.skipOverheal = NewCheck(panel, "Skip sequences that would overheal", function(checked)
         if selWindow then
             selWindow.skipOverheal = checked
             Changed()
@@ -1401,7 +1476,7 @@ local function CreateEditor()
         "nothing shows for it.")
 
     -- Stacked windows only.
-    f.showNext = NewCheck(windowPanel, "Show the next one up", function(checked)
+    f.showNext = NewCheck(panel, "Show the next one up", function(checked)
         if selWindow then
             selWindow.showNext = checked
             Changed()
@@ -1411,7 +1486,7 @@ local function CreateEditor()
     Tooltip(f.showNext, "Show the next one up",
         "As well as the ones you can afford, show the cheapest one you can't yet, filling from grey as your " ..
         "mana rises. With costliest at the top, it's the top row.")
-    f.costOrder = NewCheck(windowPanel, "Costliest at the top", function(checked)
+    f.costOrder = NewCheck(panel, "Costliest at the top", function(checked)
         if selWindow then
             selWindow.costOrder = checked
             Changed()
@@ -1420,87 +1495,455 @@ local function CreateEditor()
     f.costOrder:SetPoint("LEFT", f.showNext.label, "RIGHT", 24, -1)
     Tooltip(f.costOrder, "Costliest at the top",
         "Ticked: the costliest at the top, so a newly affordable one takes the top row and the rest move down. " ..
-        "Unticked: in the order they're listed in the window (each sequence's Primary, then its " ..
-        "sub-sequences), with the gaps closed up.")
+        "Unticked: in the order they're listed in the window's Sequences tab (each sequence's Primary, then " ..
+        "its sub-sequences), with the gaps closed up.")
 
-    f.divider = f:CreateTexture(nil, "ARTWORK")
-    f.divider:SetColorTexture(1, 0.82, 0, 0.25)
-    f.divider:SetHeight(1)
-    f.divider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.windowDelete = NewButton(panel, "Delete window", 120, function()
+        if selWindow then
+            Confirm(string.format("Delete the window \"%s\"? Its sequences stay in the library.",
+                selWindow.name or "?"), { window = selWindow })
+        end
+    end)
+    f.windowDelete:SetPoint("TOPLEFT", 0, -196)
 
-    -- Right: the selected sequence.
+    function f:RefreshSettings()
+        local window = selWindow
+        if not self.windowName:HasFocus() then
+            self.windowName:SetText(window.name or "")
+        end
+        self.windowType:SetText("Type: " .. ns.TypeLabel(window.type) .. " (change)")
+        self.windowEnabled:SetChecked(window.enabled and true or false)
+        local stacked = window.type == "stacked"
+        local dynamic = window.type ~= "fixed"
+        self.skipOverheal:SetShown(window.type == "dynamic")
+        self.skipOverheal:SetChecked(window.skipOverheal and true or false)
+        self.showNext:SetShown(stacked)
+        self.costOrder:SetShown(stacked)
+        self.showNext:SetChecked(window.showNext and true or false)
+        self.costOrder:SetChecked(window.costOrder ~= false)
+        self.windowClick:SetShown(window.type == "fixed")
+        self.windowClick:SetChecked(window.clickable ~= false)
+        self.onlyInCombat:SetChecked(window.onlyInCombat and true or false)
+        self.gates:SetShown(dynamic)
+        if dynamic then
+            self.manaGate:SetChecked(window.manaGate and true or false)
+            self.healthGate:SetChecked(window.healthGate and true or false)
+            for box, key in pairs({ [self.manaMargin] = "manaMargin", [self.holdSeconds] = "holdSeconds",
+                [self.healthPercent] = "healthPercent" }) do
+                if not box:HasFocus() then
+                    box:SetText(tostring(window[key] or 0))
+                end
+            end
+        end
+        -- Only applies with "only show in combat": greyed out without it.
+        self.fightRow:SetShown(dynamic)
+        local inCombatOnly = window.onlyInCombat and true or false
+        for _, check in ipairs(self.fightChecks) do
+            check:SetChecked((window.fight or "all") == check.key)
+            check:SetEnabled(inCombatOnly)
+            check.label:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
+        end
+        self.fightLabel:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
+    end
+end
+
+-- A window's Sequences tab: its sequences in display order, each opening (on a click) to
+-- small strips of its rows and its options in this window.
+local function CreateSequencesTab(f, panel)
+    local hint = NewLabel(panel, "Drag sequences here from the library, and within the list to reorder. Click one " ..
+        "for its details; right-click it, or drag it off the options, to take it out of this window.",
+        "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 0, -2)
+    hint:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    hint:SetJustifyH("LEFT")
+
+    local scroll = NewScroll(panel)
+    scroll:SetPoint("TOPLEFT", 0, -34)
+    scroll:SetPoint("BOTTOMRIGHT", -24, 0)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(490, 10)
+    scroll:SetScrollChild(content)
+    f.seqScroll, f.seqContent, f.entries = scroll, content, {}
+    f.seqEmpty = NewLabel(panel, "No sequences in this window yet: drag one here from the library.", "GameFontDisable")
+    f.seqEmpty:SetPoint("TOP", 0, -70)
+
+    local function SetIncluded(entry, variation, included)
+        if entry.item and variation then
+            ns.EnsureVariationIds(entry.def)
+            entry.item.excluded = entry.item.excluded or {}
+            entry.item.excluded[variation.vid] = (not included) or nil
+            Changed()
+        end
+    end
+
+    local function Strip(entry, k)
+        local strip = entry.strips[k]
+        if strip then
+            return strip
+        end
+        strip = CreateFrame("Frame", nil, entry.details)
+        strip:SetSize(470, STRIP_HEIGHT)
+        strip.icons = {}
+        for i = 1, MAX_ENTRIES do
+            local icon = CreateFrame("Button", nil, strip)
+            icon:SetSize(MINI_SIZE, MINI_SIZE)
+            icon:SetPoint("LEFT", (i - 1) * (MINI_SIZE + 2), 0)
+            icon.texture = icon:CreateTexture(nil, "ARTWORK")
+            icon.texture:SetAllPoints()
+            icon.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            icon:SetScript("OnEnter", function(self)
+                if self.entry then
+                    EntryTooltip(self, self.entry)
+                    GameTooltip:Show()
+                end
+            end)
+            icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            strip.icons[i] = icon
+        end
+        strip.label = NewLabel(strip, "", "GameFontDisableSmall")
+        strip.label:SetPoint("LEFT", MAX_ENTRIES * (MINI_SIZE + 2) + 6, 0)
+        strip.include = NewCheck(strip, "Include", function(checked)
+            SetIncluded(entry, strip.variation, checked)
+        end)
+        strip.include:SetPoint("LEFT", MAX_ENTRIES * (MINI_SIZE + 2) + 110, 0)
+        Tooltip(strip.include, "Include in this window",
+            "Stacked windows list every row you include from their sequences. This only changes this window.")
+        entry.strips[k] = strip
+        return strip
+    end
+
+    function f:Entry(i)
+        local entry = self.entries[i]
+        if entry then
+            return entry
+        end
+        entry = CreateFrame("Frame", nil, content)
+        entry:SetWidth(490)
+        entry.strips = {}
+        local header = CreateFrame("Button", nil, entry)
+        header:SetHeight(LIST_ROW_HEIGHT)
+        header:SetPoint("TOPLEFT")
+        header:SetPoint("TOPRIGHT")
+        header:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        header:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        header:RegisterForDrag("LeftButton")
+        header.text = header:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        header.text:SetPoint("LEFT", 4, 0)
+        header.text:SetPoint("RIGHT", -4, 0)
+        header.text:SetJustifyH("LEFT")
+        header.text:SetWordWrap(false)
+        header:SetScript("OnClick", function(_, button)
+            local window, item, def = selWindow, entry.item, entry.def
+            if not (window and item) then
+                return
+            end
+            if button == "RightButton" then
+                table.remove(window.items, IndexOf(window.items, item))
+                Changed()
+            else
+                local expanded = ns.UIState().expanded
+                local key = ExpandedKey(window, def)
+                expanded[key] = (not expanded[key]) or nil
+                f:Refresh()
+            end
+        end)
+        header:SetScript("OnDragStart", function()
+            if entry.item then
+                StartListDrag({ kind = "placement", window = selWindow, item = entry.item, def = entry.def },
+                    SequenceIcon(entry.def))
+            end
+        end)
+        header:SetScript("OnDragStop", FinishListDrag)
+        entry.header = header
+
+        local details = CreateFrame("Frame", nil, entry)
+        details:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 16, 0)
+        details:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
+        details:SetHeight(10)
+        entry.details = details
+        details.show = NewCheck(details, "Show in this window", function(checked)
+            if entry.item then
+                entry.item.enabled = checked
+                Changed()
+            end
+        end)
+        details.show:SetPoint("TOPLEFT", 0, 0)
+        details.edit = NewButton(details, "Edit in library", 110, function()
+            if entry.def then
+                EditSequence(entry.def, true)
+            end
+        end)
+        details.edit:SetPoint("LEFT", details.show.label, "RIGHT", 16, 0)
+        details.pin = NewCheck(details, "Pin Primary to the top", function(checked)
+            if selWindow and entry.def then
+                selWindow.topId = checked and entry.def.id or nil
+                Changed()
+            end
+        end)
+        details.pin:SetPoint("LEFT", details.edit, "RIGHT", 12, 0)
+        Tooltip(details.pin, "Pin Primary to the top",
+            "This sequence's Primary is always shown at the top of the window, filling from grey as your mana " ..
+            "rises; the rest stack under it. One sequence per window.")
+        self.entries[i] = entry
+        return entry
+    end
+
+    function f:RefreshSequences()
+        local window = selWindow
+        local expanded = ns.UIState().expanded
+        local stacked = window.type == "stacked"
+        local y, n = 0, 0
+        self.lastEntry = nil
+        for _, item in ipairs(window.items) do
+            local def = ns.FindSequence(item.id)
+            if def then
+                n = n + 1
+                local entry = self:Entry(n)
+                entry.item, entry.def = item, def
+                local open = expanded[ExpandedKey(window, def)]
+                local learned = ns.AllLearned(def.entries)
+                local name = (def.name or "?") .. (learned and "" or " (not learned)")
+                entry.header.text:SetText((open and "-  " or "+  ") ..
+                    ((item.enabled and learned) and name or ("|cff808080" .. name .. "|r")))
+                local height = LIST_ROW_HEIGHT
+                if open then
+                    local details = entry.details
+                    details.show:SetChecked(item.enabled and true or false)
+                    details.pin:SetShown(stacked)
+                    details.pin:SetChecked(window.topId == def.id)
+                    ns.EnsureVariationIds(def)
+                    local excluded = item.excluded or {}
+                    local variations = { def }
+                    for _, sub in ipairs(def.subs) do
+                        if #sub.entries > 0 then
+                            variations[#variations + 1] = sub
+                        end
+                    end
+                    local dy = 26
+                    for k, variation in ipairs(variations) do
+                        local strip = Strip(entry, k)
+                        strip.variation = variation
+                        strip:ClearAllPoints()
+                        strip:SetPoint("TOPLEFT", 0, -dy)
+                        for i, icon in ipairs(strip.icons) do
+                            local e = variation.entries[i]
+                            icon.entry = e
+                            if e then
+                                local info = ns.ResolveEntry(e)
+                                icon.texture:SetTexture(info.icon)
+                                icon.texture:SetDesaturated(info.known == false)
+                                icon:Show()
+                            else
+                                icon:Hide()
+                            end
+                        end
+                        strip.label:SetText(k == 1 and "Primary" or ("Sub-sequence " .. (k - 1)))
+                        strip.include:SetShown(stacked and not (k == 1 and window.topId == def.id))
+                        strip.include:SetChecked(not excluded[variation.vid])
+                        strip:Show()
+                        dy = dy + STRIP_HEIGHT
+                    end
+                    for k = #variations + 1, #entry.strips do
+                        entry.strips[k]:Hide()
+                    end
+                    details:SetHeight(dy + 4)
+                    details:Show()
+                    height = height + dy + 4
+                else
+                    entry.details:Hide()
+                end
+                entry:SetHeight(height)
+                entry:ClearAllPoints()
+                entry:SetPoint("TOPLEFT", 0, -y)
+                entry:Show()
+                self.lastEntry = entry
+                y = y + height + 2
+            end
+        end
+        for i = n + 1, #self.entries do
+            self.entries[i]:Hide()
+            self.entries[i].item = nil
+        end
+        content:SetHeight(math.max(y, 10))
+        self.seqEmpty:SetShown(n == 0)
+    end
+end
+
+local function CreateEditor()
+    local f = CreateFrame("Frame", "ForeverSequencesEditor", UIParent, "BackdropTemplate")
+    f:SetSize(800, 680)
+    f:SetPoint("CENTER", -150, 0)
+    f:SetFrameStrata("DIALOG")
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    Backdrop(f)
+    tinsert(UISpecialFrames, "ForeverSequencesEditor") -- Escape closes it
+    -- Take the mouse wheel anywhere over the window, so it never reaches a key binding.
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function() end)
+
+    local title = NewLabel(f, "Forever Sequences", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -18)
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -6, -6)
+
+    local profileLabel = NewLabel(f, "Profile", "GameFontNormalSmall")
+    profileLabel:SetPoint("TOPLEFT", LEFT + 4, -20)
+    f.profileButton = NewButton(f, "", 200, function(self)
+        OpenProfileMenu(self)
+    end)
+    f.profileButton:SetPoint("LEFT", profileLabel, "RIGHT", 6, 0)
+    Tooltip(f.profileButton, "Profiles",
+        "Windows and sequences are saved per profile. Every character of a class can use any of that class's " ..
+        "profiles. A character without one starts with its own copy of the class default, window positions and " ..
+        "all; editing it never changes the class default. To tidy up the class default itself, switch to it here.")
+
+    -- The line showing where a dragged list item will go.
+    f.dropLine = f:CreateTexture(nil, "OVERLAY")
+    f.dropLine:SetColorTexture(1, 0.82, 0, 1)
+    f.dropLine:SetHeight(2)
+    f.dropLine:Hide()
+
+    -- Left, top: the windows, by type.
+    local windowsLabel = NewLabel(f, "Windows")
+    windowsLabel:SetPoint("TOPLEFT", LEFT, -52)
+    local newWindow = NewButton(f, "New window", 100, NewWindow)
+    newWindow:SetPoint("TOPRIGHT", f, "TOPLEFT", RIGHT_X - 20, -46)
+    Tooltip(newWindow, "New window", "Pick its type. You can change it later.\n\n" .. TypeHelp())
+    local windowArea = ScrollArea(f, WINDOW_ROWS, function(delta)
+        local most = math.max(0, #WindowListItems() - WINDOW_ROWS)
+        windowOffset = math.max(0, math.min(most, windowOffset - delta))
+    end)
+    windowArea:SetPoint("TOPLEFT", LEFT, -72)
+    for i = 1, WINDOW_ROWS do
+        windowRows[i] = CreateWindowRow(f, windowArea, i)
+    end
+
+    -- Left, bottom: the library.
+    local libraryLabel = NewLabel(f, "Sequence Library")
+    libraryLabel:SetPoint("TOPLEFT", windowArea, "BOTTOMLEFT", 0, -18)
+    local newSequence = NewButton(f, "New sequence", 100, NewSequence)
+    newSequence:SetPoint("RIGHT", newWindow, "RIGHT", 0, 0)
+    newSequence:SetPoint("TOP", libraryLabel, "TOP", 0, 6)
+    Tooltip(newSequence, "New sequence", "A new, empty sequence in the library, opened for editing. With a " ..
+        "window showing, it's added to that window too.")
+    local libraryArea = ScrollArea(f, LIBRARY_ROWS, function(delta)
+        local most = math.max(0, #Library() - LIBRARY_ROWS)
+        libraryOffset = math.max(0, math.min(most, libraryOffset - delta))
+    end)
+    libraryArea:SetPoint("TOPLEFT", libraryLabel, "BOTTOMLEFT", 0, -8)
+    for i = 1, LIBRARY_ROWS do
+        libraryRows[i] = CreateLibraryRow(f, libraryArea, i)
+    end
+
+    -- Right, for a window: its tabs.
+    local windowView = CreateFrame("Frame", nil, f)
+    windowView:SetPoint("TOPLEFT", RIGHT_X, -44)
+    windowView:SetPoint("BOTTOMRIGHT", -20, 40)
+    f.windowView = windowView
+    f.tabButtons = {}
+    for i, key in ipairs({ "settings", "sequences" }) do
+        local button = NewButton(windowView, key == "settings" and "Settings" or "Sequences", 100, function()
+            tab = key
+            f:Refresh()
+        end)
+        button:SetPoint("TOPLEFT", (i - 1) * 104, 0)
+        button.key = key
+        f.tabButtons[i] = button
+    end
+    local tabLine = windowView:CreateTexture(nil, "ARTWORK")
+    tabLine:SetColorTexture(1, 0.82, 0, 0.35)
+    tabLine:SetHeight(1)
+    tabLine:SetPoint("TOPLEFT", 0, -26)
+    tabLine:SetPoint("RIGHT", windowView, "RIGHT", 0, 0)
+    local settingsTab = CreateFrame("Frame", nil, windowView)
+    settingsTab:SetPoint("TOPLEFT", 0, -32)
+    settingsTab:SetPoint("BOTTOMRIGHT")
+    f.settingsTab = settingsTab
+    CreateSettingsTab(f, settingsTab)
+    local sequencesTab = CreateFrame("Frame", nil, windowView)
+    sequencesTab:SetPoint("TOPLEFT", 0, -32)
+    sequencesTab:SetPoint("BOTTOMRIGHT")
+    f.sequencesTab = sequencesTab
+    CreateSequencesTab(f, sequencesTab)
+
+    -- Right, for a library sequence: the editor.
     local detail = CreateFrame("Frame", nil, f)
     detail:SetPoint("TOPLEFT", RIGHT_X, -44)
-    detail:SetPoint("BOTTOMRIGHT", -20, 60)
+    detail:SetPoint("BOTTOMRIGHT", -20, 40)
     f.detail = detail
 
     local nameLabel = NewLabel(detail, "Sequence")
     nameLabel:SetPoint("TOPLEFT", 0, -6)
-    f.nameBox = NewEditBox(detail, 220, function(text)
+    f.nameBox = NewEditBox(detail, 200, function(text)
         if selSeq and text ~= "" and text ~= selSeq.name then
             selSeq.name = text
             Changed()
         end
     end)
     f.nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
-    f.primaryHide = NewCheck(detail, "Hide when unusable", function(checked)
+    local copySequence = NewButton(detail, "Copy", 70, CopySequence)
+    copySequence:SetPoint("LEFT", f.nameBox, "RIGHT", 12, 0)
+    Tooltip(copySequence, "Copy", "Makes an independent copy of this sequence, to change for another window.")
+    local deleteSequence = NewButton(detail, "Delete", 70, function()
+        if selSeq then
+            local used = UsedIn(selSeq)
+            Confirm(string.format("Delete the sequence \"%s\"%s?", selSeq.name or "?",
+                #used > 0 and (" from the library and from " .. table.concat(used, ", ")) or ""), { def = selSeq })
+        end
+    end)
+    deleteSequence:SetPoint("LEFT", copySequence, "RIGHT", 4, 0)
+    f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
+    f.usedIn:SetPoint("TOPLEFT", 0, -28)
+    f.usedIn:SetPoint("RIGHT", detail, "RIGHT", 0, 0)
+    f.usedIn:SetJustifyH("LEFT")
+
+    f.lockButton = NewButton(detail, "Unlock", 90, function()
+        if Unlocked() then
+            Lock()
+        elseif selSeq then
+            Lock() -- any other sequence still unlocked
+            ns.unsortedSequence = selSeq
+            Changed()
+        end
+    end)
+    f.lockButton:SetPoint("TOPLEFT", 0, -44)
+    Tooltip(f.lockButton, "Unlock / Lock",
+        "Unlock to change the Primary and sub-sequences: an empty row waits at the bottom, and rows keep " ..
+        "their places while you work. Lock (or pick something else) to drop empty rows and put them back in " ..
+        "order, costliest first.")
+    f.hideCheck = NewCheck(detail, "Hide when unusable", function(checked)
         if selSeq then
             selSeq.hideOnCooldown = checked
             Changed()
         end
     end)
-    f.primaryHide:SetPoint("LEFT", f.nameBox, "RIGHT", 16, 0)
-    Tooltip(f.primaryHide, "Hide when unusable",
-        "While a spell or item in it is on cooldown, an item has run out, or the target is the wrong kind " ..
-        "(Hibernate: beasts and dragonkin only), the next sequence shows instead. In switching and stacked windows; fixed " ..
-        "windows always show the Primary.")
-    f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
-    f.usedIn:SetPoint("TOPLEFT", 0, -26)
-    f.usedIn:SetPoint("RIGHT", detail, "RIGHT", -130, 0)
-    f.usedIn:SetJustifyH("LEFT")
+    f.hideCheck:SetPoint("LEFT", f.lockButton, "RIGHT", 16, 0)
+    Tooltip(f.hideCheck, "Hide when unusable",
+        "While a row (the Primary or a sub-sequence) has a spell or item on cooldown, an item that's run out, a " ..
+        "bandage while you're Recently Bandaged, or the wrong kind of target (Hibernate: beasts and dragonkin " ..
+        "only), it's skipped and the next one shows instead. In switching and stacked windows; static windows " ..
+        "always show the Primary. Cooldowns are only seen when the game lets addons read them.")
 
     local primaryLabel = NewLabel(detail, "Primary")
-    primaryLabel:SetPoint("TOPLEFT", 0, -44)
+    primaryLabel:SetPoint("TOPLEFT", 0, -78)
     f.primaryCost = NewLabel(detail, "", "GameFontHighlightSmall")
     f.primaryCost:SetPoint("LEFT", primaryLabel, "RIGHT", 10, 0)
     f.primaryRow = CreateSlotRow(detail, function() return selSeq and selSeq.entries end, true)
-    f.primaryRow.frame:SetPoint("TOPLEFT", 0, -62)
-
-    -- A sequence picked under a stacked window: which of its rows that window includes, and
-    -- whether its Primary is pinned to the top.
-    local function SetIncluded(variation, included)
-        if selItem and variation then
-            ns.EnsureVariationIds(selSeq)
-            selItem.excluded = selItem.excluded or {}
-            selItem.excluded[variation.vid] = (not included) or nil
-            Changed()
-        end
-    end
-    f.SetIncluded = SetIncluded
-    f.primaryInclude = NewCheck(detail, "Include in this window", function(checked)
-        SetIncluded(selSeq, checked)
-    end)
-    f.primaryInclude:SetPoint("LEFT", f.primaryRow.frame, "LEFT", 6 * (SLOT_SIZE + SLOT_GAP) + 150, 0)
-    Tooltip(f.primaryInclude, "Include in this window",
-        "Stacked windows list every row you include from their sequences. This only changes this window.")
-    f.pinTop = NewCheck(detail, "Pin Primary to the top", function(checked)
-        if selWindow and selSeq then
-            selWindow.topId = checked and selSeq.id or nil
-            Changed()
-        end
-    end)
-    f.pinTop:SetPoint("TOPLEFT", f.primaryInclude, "BOTTOMLEFT", 0, -2)
-    Tooltip(f.pinTop, "Pin Primary to the top",
-        "This sequence's Primary is always shown at the top of the window, filling from grey as your mana " ..
-        "rises; the rest stack under it. One sequence per window.")
+    f.primaryRow.frame:SetPoint("TOPLEFT", 22, -96)
 
     local subsLabel = NewLabel(detail, "Sub-sequences")
-    subsLabel:SetPoint("TOPLEFT", 0, -104)
+    subsLabel:SetPoint("TOPLEFT", 0, -146)
 
     -- Sub-sequences: any number, in a scroll frame.
-    local subScroll = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
-    subScroll:SetPoint("TOPLEFT", 0, -120)
-    subScroll:SetPoint("BOTTOMRIGHT", -24, 40)
+    local subScroll = NewScroll(detail)
+    subScroll:SetPoint("TOPLEFT", 0, -162)
+    subScroll:SetPoint("BOTTOMRIGHT", -24, 44)
     local subContent = CreateFrame("Frame", nil, subScroll)
     subContent:SetSize(500, 10)
     subScroll:SetScrollChild(subContent)
@@ -1524,60 +1967,26 @@ local function CreateEditor()
             return sub and sub.entries
         end, false)
         block.row.clip = subScroll
-        block.row.frame:SetPoint("TOPLEFT", 0, -14)
+        block.row.frame:SetPoint("TOPLEFT", 22, -14)
         block.cost = NewLabel(block, "", "GameFontHighlightSmall")
-        block.cost:SetPoint("TOPLEFT", 0, 0)
-        block.remove = NewButton(block, "Remove", 70, function()
+        block.cost:SetPoint("TOPLEFT", 22, 0)
+        -- Remove: a small X to the left of the row.
+        block.remove = CreateFrame("Button", nil, block)
+        block.remove:SetSize(18, 18)
+        block.remove:SetPoint("RIGHT", block.row.frame, "LEFT", -2, 0)
+        block.remove:SetNormalFontObject("GameFontRedLarge")
+        block.remove:SetHighlightFontObject("GameFontHighlightLarge")
+        block.remove:SetText("x")
+        block.remove:SetScript("OnClick", function()
             if SubAt(block) and Unlocked() then
                 table.remove(selSeq.subs, block.index)
                 Changed()
             end
         end)
-        block.remove:SetPoint("LEFT", block.row.frame, "LEFT", 6 * (SLOT_SIZE + SLOT_GAP) + 150, 0)
-        block.hide = NewCheck(block, "Hide when unusable", function(checked)
-            local sub = SubAt(block)
-            if sub then
-                sub.hideOnCooldown = checked
-                Changed()
-            end
-        end)
-        block.hide:SetPoint("BOTTOMLEFT", block.remove, "TOPLEFT", 0, 0)
-        block.include = NewCheck(block, "Include in this window", function(checked)
-            f.SetIncluded(SubAt(block), checked)
-        end)
-        block.include:SetPoint("LEFT", block.remove, "LEFT", 0, 0)
+        Tooltip(block.remove, "Remove this sub-sequence")
         self.subBlocks[i] = block
         return block
     end
-
-    f.lockButton = NewButton(subContent, "Unlock", 90, function()
-        if Unlocked() then
-            Lock()
-        elseif selSeq and not ReadOnly() then
-            Lock() -- any other sequence still unlocked
-            ns.unsortedSequence = selSeq
-            Changed()
-            subScroll:SetVerticalScroll(subScroll:GetVerticalScrollRange())
-        end
-    end)
-    Tooltip(f.lockButton, "Unlock / Lock",
-        "Unlock to change the Primary and sub-sequences: an empty row waits at the bottom, and rows keep " ..
-        "their places while you work. Lock (or pick something else) to drop empty rows and put them back in " ..
-        "order, costliest first.")
-
-    -- A sequence picked under a window is shown read-only, with a way into the library.
-    f.nameText = NewLabel(detail, "", "GameFontHighlight")
-    f.nameText:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
-    f.editButton = NewButton(detail, "Edit in library", 120, function()
-        selWindow, selItem = nil, nil
-        -- You pressed it to change the sequence, so it opens unlocked.
-        if selSeq then
-            ns.unsortedSequence = selSeq
-            KeepEmptyRow()
-        end
-        f:Refresh()
-    end)
-    f.editButton:SetPoint("TOPRIGHT", 0, -22)
 
     local hint = NewLabel(detail,
         "Unlock, then drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
@@ -1591,34 +2000,16 @@ local function CreateEditor()
     f.empty = NewLabel(f, "", "GameFontDisable")
     f.empty:SetPoint("CENTER", detail, "CENTER")
 
-    -- Bottom: options for every window.
-
-    f.regen = NewButton(f, "", 150, function()
-        local current = 1
-        for i, mode in ipairs(REGEN_MODES) do
-            if mode == ns.db.regenMode then
-                current = i
-            end
-        end
-        ns.SetRegenMode(REGEN_MODES[current % #REGEN_MODES + 1])
-        f:Refresh()
-    end)
-    f.regen:SetPoint("BOTTOMLEFT", LEFT, 22)
-    Tooltip(f.regen, "Mana regen during a sequence",
-        "Smooth: a steady flow (Forever's regen). " ..
-        "Off: ignore regen.")
-    local moveHint = NewLabel(f, "While this is open, every window is shown and can be dragged.", "GameFontDisableSmall")
-    moveHint:SetPoint("LEFT", f.regen, "RIGHT", 16, 0)
+    local moveHint = NewLabel(f, "While this is open, every window is shown: drag one to move it, or its corner to " ..
+        "resize it (double-click the corner for normal size).", "GameFontDisableSmall")
+    moveHint:SetPoint("BOTTOMLEFT", LEFT, 22)
 
     f.picker = CreatePicker(f)
 
     function f:Refresh()
         local windows = Windows()
         if selWindow and not IndexOf(windows, selWindow) then
-            selWindow, selItem = nil, nil
-        end
-        if selItem and not (selWindow and IndexOf(selWindow.items, selItem)) then
-            selItem = nil
+            selWindow = nil
         end
         if selSeq and not IndexOf(Library(), selSeq) then
             selSeq = nil
@@ -1634,38 +2025,31 @@ local function CreateEditor()
         -- Windows list.
         local items = WindowListItems()
         windowOffset = math.max(0, math.min(windowOffset, #items - WINDOW_ROWS))
+        local closed = ns.UIState().closed
         for i, row in ipairs(windowRows) do
             local data = items[i + windowOffset]
             row.data = data
             if data then
-                local isWindow = data.item == nil
-                local target = data.item or data.window
-                local list = isWindow and windows or data.window.items
-                local index = IndexOf(list, target)
-                row.enabled:ClearAllPoints()
-                row.enabled:SetPoint("LEFT", isWindow and 0 or 16, 0)
-                row.text:SetPoint("LEFT", row.enabled, "RIGHT", 2, 0)
-                row.text:SetFontObject(isWindow and "GameFontNormal" or "GameFontHighlight")
-                if isWindow then
-                    row.text:SetText((data.window.name or "?") .. " (" .. ns.TypeLabel(data.window.type):lower() .. ")")
+                row.text:ClearAllPoints()
+                row.text:SetPoint("RIGHT", -4, 0)
+                if data.section then
+                    row.text:SetPoint("LEFT", 2, 0)
+                    row.text:SetFontObject("GameFontNormal")
+                    row.text:SetText((closed[data.section] and "+  " or "-  ") .. ns.TypeLabel(data.section) ..
+                        "  |cff808080(" .. data.count .. ")|r")
+                    row.selectedTexture:Hide()
                 else
-                    local learned = ns.AllLearned(data.def.entries)
-                    row.text:SetText(learned and (data.def.name or "?") or
-                        ("|cff808080" .. (data.def.name or "?") .. " (not learned)|r"))
+                    local window = data.window
+                    row.text:SetPoint("LEFT", 18, 0)
+                    row.text:SetFontObject("GameFontHighlight")
+                    row.text:SetText(window.enabled and (window.name or "?") or ("|cff808080" .. (window.name or "?") .. "|r"))
+                    row.selectedTexture:SetShown(window == selWindow and not selSeq)
                 end
-                row.enabled:SetChecked(target.enabled and true or false)
-                local selected = (isWindow and data.window == selWindow and selItem == nil)
-                    or (not isWindow and data.item == selItem)
-                row.selectedTexture:SetShown(selected)
-                row.up:SetEnabled(index > 1)
-                row.down:SetEnabled(index < #list)
                 row:Show()
             else
                 row:Hide()
             end
         end
-        self.windowDelete:SetText(selItem and "Remove" or "Delete")
-        self.windowDelete:SetEnabled(selWindow ~= nil)
 
         -- Library.
         local library = Library()
@@ -1678,100 +2062,55 @@ local function CreateEditor()
                 local learned = ns.AllLearned(def.entries)
                 row.text:SetText((learned and "" or "|cff808080") .. (def.name or "?") .. (learned and "" or "|r") ..
                     (used > 0 and ("  |cff808080(" .. used .. ")|r") or "  |cff808080(unused)|r"))
-                row.selectedTexture:SetShown(def == selSeq and selItem == nil)
-                local index = i + libraryOffset
-                row.up:SetEnabled(index > 1)
-                row.down:SetEnabled(index < #library)
+                row.selectedTexture:SetShown(def == selSeq)
                 row:Show()
             else
                 row:Hide()
             end
         end
-        self.copySequence:SetEnabled(selSeq ~= nil)
-        self.librarySequenceDelete:SetEnabled(selSeq ~= nil)
 
-        -- Window settings.
-        self.windowPanel:SetShown(selWindow ~= nil)
-        local dynamic = selWindow and selWindow.type ~= "fixed"
-        if selWindow then
-            if not self.windowName:HasFocus() then
-                self.windowName:SetText(selWindow.name or "")
-            end
-            self.windowTypeText:SetText("Type: " .. ns.TypeLabel(selWindow.type) .. " (change)")
-            local stacked = selWindow.type == "stacked"
-            self.skipOverheal:SetShown(selWindow.type == "dynamic")
-            self.skipOverheal:SetChecked(selWindow.skipOverheal and true or false)
-            self.showNext:SetShown(stacked)
-            self.costOrder:SetShown(stacked)
-            self.showNext:SetChecked(selWindow.showNext and true or false)
-            self.costOrder:SetChecked(selWindow.costOrder ~= false)
-            self.windowClick:SetShown(selWindow.type == "fixed")
-            self.windowClick:SetChecked(selWindow.clickable ~= false)
-            self.onlyInCombat:SetChecked(selWindow.onlyInCombat and true or false)
-            self.gates:SetShown(dynamic)
-            if dynamic then
-                self.manaGate:SetChecked(selWindow.manaGate and true or false)
-                self.healthGate:SetChecked(selWindow.healthGate and true or false)
-                for box, key in pairs({ [self.manaMargin] = "manaMargin", [self.holdSeconds] = "holdSeconds",
-                    [self.healthPercent] = "healthPercent" }) do
-                    if not box:HasFocus() then
-                        box:SetText(tostring(selWindow[key] or 0))
-                    end
+        -- Right: a window's tabs, or a library sequence.
+        local showWindow = selWindow ~= nil and selSeq == nil
+        self.windowView:SetShown(showWindow)
+        self.detail:SetShown(selSeq ~= nil)
+        self.empty:SetShown(not showWindow and selSeq == nil)
+        self.empty:SetText("Press New window to start.")
+        if showWindow then
+            for _, button in ipairs(self.tabButtons) do
+                if button.key == tab then
+                    button:LockHighlight()
+                else
+                    button:UnlockHighlight()
                 end
             end
-            -- Only applies with "only show in combat": greyed out without it.
-            self.fightRow:SetShown(dynamic)
-            local inCombatOnly = selWindow.onlyInCombat and true or false
-            for _, check in ipairs(self.fightChecks) do
-                check:SetChecked((selWindow.fight or "all") == check.key)
-                check:SetEnabled(inCombatOnly)
-                check.label:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
-            end
-            self.fightLabel:SetFontObject(inCombatOnly and "GameFontHighlightSmall" or "GameFontDisableSmall")
+            self.settingsTab:SetShown(tab == "settings")
+            self.sequencesTab:SetShown(tab == "sequences")
+            self:RefreshSettings()
+            self:RefreshSequences()
         end
-        self.divider:Hide()
 
-        -- The sequence: editable from the library, read-only when picked under a window.
         local def = selSeq
-        local readOnly = ReadOnly()
-        self.windowPanel:SetShown(selWindow ~= nil and not readOnly)
-        self.detail:SetShown(def ~= nil)
-        self.empty:SetShown(def == nil and selWindow == nil)
-        self.empty:SetText("Press New window to start.")
         if def then
-            self.nameBox:SetShown(not readOnly)
-            self.nameText:SetShown(readOnly)
-            self.nameText:SetText(def.name or "")
-            self.editButton:SetShown(readOnly)
             if not self.nameBox:HasFocus() then
                 self.nameBox:SetText(def.name or "")
             end
             local used = UsedIn(def)
             self.usedIn:SetText(#used > 0 and ("Used in: " .. table.concat(used, ", "))
                 or "Not in any window yet: drag it from the library onto one.")
-            self.primaryHide:SetShown(ns.AnyCooldown(def.entries))
-            self.primaryHide:SetChecked(def.hideOnCooldown and true or false)
-            self.primaryHide:SetEnabled(not readOnly)
+            self.lockButton:SetText(Unlocked() and "Lock" or "Unlock")
+            local anyCooldown = ns.AnyCooldown(def.entries)
+            for _, sub in ipairs(def.subs) do
+                anyCooldown = anyCooldown or ns.AnyCooldown(sub.entries)
+            end
+            self.hideCheck:SetShown(anyCooldown or def.hideOnCooldown)
+            self.hideCheck:SetChecked(def.hideOnCooldown and true or false)
             self.primaryCost:SetText(CostText(def.entries))
             RefreshSlotRow(self.primaryRow)
-            local stacked = readOnly and selWindow and selWindow.type == "stacked"
-            local excluded = (stacked and selItem.excluded) or {}
-            local pinned = stacked and selWindow.topId == def.id
-            ns.EnsureVariationIds(def)
-            self.primaryInclude:SetShown(stacked and not pinned)
-            self.primaryInclude:SetChecked(not excluded[def.vid])
-            self.pinTop:SetShown(stacked)
-            self.pinTop:SetChecked(pinned)
             for i = 1, math.max(#def.subs, #self.subBlocks) do
                 local sub = def.subs[i]
                 if sub then
                     local block = self:SubBlock(i)
-                    block.hide:SetShown(ns.AnyCooldown(sub.entries))
-                    block.hide:SetChecked(sub.hideOnCooldown and true or false)
-                    block.hide:SetEnabled(not readOnly)
                     block.remove:SetShown(Unlocked() and not IsEmpty(sub))
-                    block.include:SetShown(stacked and not IsEmpty(sub))
-                    block.include:SetChecked(not excluded[sub.vid])
                     block.cost:SetText(i .. ". " .. CostText(sub.entries))
                     RefreshSlotRow(block.row)
                     block:Show()
@@ -1779,15 +2118,10 @@ local function CreateEditor()
                     self.subBlocks[i]:Hide()
                 end
             end
-            self.lockButton:ClearAllPoints()
-            self.lockButton:SetPoint("TOPLEFT", 0, -#def.subs * SUB_BLOCK_HEIGHT - 2)
-            self.lockButton:SetText(Unlocked() and "Lock" or "Unlock")
-            self.lockButton:SetShown(not readOnly)
-            self.subContent:SetHeight(#def.subs * SUB_BLOCK_HEIGHT + 30)
+            self.subContent:SetHeight(math.max(#def.subs * SUB_BLOCK_HEIGHT, 10))
         end
 
         self.profileButton:SetText(ProfileLabel(ns.CurrentProfile() or "?"))
-        self.regen:SetText(REGEN_LABELS[ns.db.regenMode] or ns.db.regenMode)
         -- The list of spells and items is only for adding to a sequence: open while one is unlocked.
         self.picker:SetShown(Unlocked())
         if Unlocked() then
@@ -1795,9 +2129,13 @@ local function CreateEditor()
         end
     end
 
-    -- The mana figures change with regen and the 5-second rule; keep them current.
+    -- The mana figures change with regen and the 5-second rule; keep them current. While a
+    -- list item is dragged, the line showing where it'll go follows the cursor.
     local elapsedSinceCosts = 0
     f:SetScript("OnUpdate", function(self, elapsed)
+        if listDrag then
+            UpdateDropLine()
+        end
         elapsedSinceCosts = elapsedSinceCosts + elapsed
         if elapsedSinceCosts < 1 or not selSeq then
             return
@@ -1825,14 +2163,15 @@ local function CreateEditor()
         if drag or listDrag then
             drag, listDrag = nil, nil
             ghost:Hide()
+            UpdateDropLine()
         end
     end)
     f:Hide()
     return f
 end
 
--- Open (show = true) or toggle the editor. With a window, select it (and scroll the windows
--- list to it).
+-- Open (show = true) or toggle the editor. With a window, select it (opening its section and
+-- scrolling the list to it).
 function ns.ToggleEditor(show, window)
     if not ns.db then
         return
@@ -1840,11 +2179,13 @@ function ns.ToggleEditor(show, window)
     editor = editor or CreateEditor()
     if show or not editor:IsShown() then
         if window and IndexOf(Windows(), window) then
-            selWindow, selItem, selSeq = window, nil, nil
+            Lock()
+            selWindow, selSeq, tab = window, nil, "settings"
+            ns.UIState().closed[window.type or "dynamic"] = nil
             for i, data in ipairs(WindowListItems()) do
-                if data.window == window and data.item == nil then
+                if data.window == window then
                     if i <= windowOffset or i > windowOffset + WINDOW_ROWS then
-                        windowOffset = math.max(0, i - 1)
+                        windowOffset = math.max(0, i - 2)
                     end
                 end
             end
