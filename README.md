@@ -114,7 +114,7 @@ for switching back, but only the current type's are used):
 
 **Sequences.** Each has a Primary and any number of sub-sequences (any spells or items, up to 8 each). The Primary is
 always the variation you can cast that costs the most mana: variations with every spell learned come first, then the
-dearest. They're re-sorted after every edit, when you learn a spell or rank, and when you switch profile, so adding a
+dearest. They're re-sorted when you lock the sequence after editing it, when you learn a spell or rank, and when you switch profile, so adding a
 spell to a sub-sequence (or learning a dearer rank) can make it the Primary, and on a character that hasn't learned
 one of the Primary's spells the dearest variation it can cast takes its place until it does. Each variation keeps
 its own *hide when unusable*.
@@ -165,6 +165,11 @@ a window selects it; they lock again when the options close.
   hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
   The spellbook and bags work too. Escape closes the options, and the mouse wheel over them never reaches your
   key bindings.
+- A sequence's rows start locked: press *Unlock* (below the sub-sequences) to change them. While unlocked, an empty
+  sub-sequence waits at the bottom (another appears once you add to it; *Remove* shows only on rows with icons), and
+  rows keep their places, so nothing jumps while you add to it. *Lock*, or picking another sequence or window, or
+  closing the options, drops the empty rows and puts the variations back in order. A new library sequence starts
+  unlocked.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
   spell to pin it one rank lower (stopping at rank 1), ctrl-click to go one rank higher; back at your highest rank the

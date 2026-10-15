@@ -45,6 +45,28 @@ local function ReadOnly()
     return selItem ~= nil
 end
 
+-- The selected sequence's rows only change while it's unlocked; until it's locked again, its
+-- variations keep their order (so a row doesn't jump while you're adding to it), and an
+-- empty sub-sequence waits at the bottom.
+local function Unlocked()
+    return selSeq ~= nil and ns.unsortedSequence == selSeq and not ReadOnly()
+end
+
+local function IsEmpty(sub)
+    return #sub.entries == 0
+end
+
+-- While unlocked, the last sub-sequence is always an empty one to add to.
+local function KeepEmptyRow()
+    local def = ns.unsortedSequence
+    if def then
+        local last = def.subs[#def.subs]
+        if not last or not IsEmpty(last) then
+            def.subs[#def.subs + 1] = { entries = {}, hideOnCooldown = false }
+        end
+    end
+end
+
 local function Print(msg)
     ns.Print(msg)
 end
@@ -59,11 +81,27 @@ end
 
 local function Changed()
     -- An edit can make a sub-sequence the dearest; the Primary is always the dearest.
+    KeepEmptyRow()
     ns.SortAllVariations()
     ns.RequestRebuild()
     if editor then
         editor:Refresh()
     end
+end
+
+-- Lock the unlocked sequence: empty sub-sequences go, and the variations sort again.
+local function Lock()
+    local def = ns.unsortedSequence
+    if not def then
+        return
+    end
+    ns.unsortedSequence = nil
+    for i = #def.subs, 1, -1 do
+        if IsEmpty(def.subs[i]) then
+            table.remove(def.subs, i)
+        end
+    end
+    Changed()
 end
 
 local function IndexOf(list, value)
@@ -229,7 +267,7 @@ local function PrimaryOrderIndex(target, primary, fromIndex)
 end
 
 local function SlotUnderMouse()
-    if ReadOnly() then
+    if not Unlocked() then
         return nil
     end
     for _, row in ipairs(slotRows) do
@@ -373,6 +411,8 @@ local function SlotTooltip(slot)
         end
         if ReadOnly() then
             GameTooltip:AddLine("Press Edit in library to change this sequence.", 0.6, 0.6, 0.6, true)
+        elseif not Unlocked() then
+            GameTooltip:AddLine("Press Unlock to change the rows.", 0.6, 0.6, 0.6, true)
         else
             GameTooltip:AddLine("Drag to move or copy, or off the window to remove.", 0.6, 0.6, 0.6, true)
             if entry.kind == "spell" then
@@ -419,7 +459,7 @@ local function CreateSlot(row, index)
     slot:RegisterForDrag("LeftButton")
 
     slot:SetScript("OnClick", function(self, button)
-        if ReadOnly() then
+        if not Unlocked() then
             return
         end
         if GetCursorInfo() then
@@ -436,13 +476,13 @@ local function CreateSlot(row, index)
         end
     end)
     slot:SetScript("OnReceiveDrag", function(self)
-        if not ReadOnly() then
+        if Unlocked() then
             DropCursor(self.row, self.index)
         end
     end)
     slot:SetScript("OnDragStart", function(self)
         local entry = self.row.list()[self.index]
-        if entry and not GetCursorInfo() and not ReadOnly() then
+        if entry and not GetCursorInfo() and Unlocked() then
             StartDrag(entry, self.row, self.index)
         end
     end)
@@ -479,7 +519,7 @@ local function RefreshSlotRow(row)
             slot.plus:Hide()
             slot.rank:SetText(ns.RankText(info) or "")
             slot:Show()
-        elseif i == #list + 1 and i <= MAX_ENTRIES and not ReadOnly() then
+        elseif i == #list + 1 and i <= MAX_ENTRIES and Unlocked() then
             slot.icon:Hide()
             slot.plus:Show()
             slot.rank:SetText("")
@@ -597,6 +637,11 @@ local function NewSequence()
     library[#library + 1] = def
     selSeq = def
     selItem = selWindow and Place(def, selWindow) or nil
+    -- Placed in a window it's shown read-only there; from the library, ready to fill.
+    if not selItem then
+        Lock()
+        ns.unsortedSequence = def
+    end
     Changed()
 end
 
@@ -880,6 +925,8 @@ local function CreatePicker(f)
         row:SetScript("OnClick", function(self)
             if ReadOnly() then
                 Print("press Edit in library to change this sequence.")
+            elseif selSeq and not Unlocked() then
+                Print("press Unlock to change this sequence's rows.")
             elseif selSeq and Insert(selSeq.entries, #selSeq.entries + 1, ns.CopyTable(self.item.entry)) then
                 Changed()
             elseif not selSeq then
@@ -1378,7 +1425,7 @@ local function CreateEditor()
         block.cost = NewLabel(block, "", "GameFontHighlightSmall")
         block.cost:SetPoint("TOPLEFT", 0, 0)
         block.remove = NewButton(block, "Remove", 70, function()
-            if SubAt(block) and not ReadOnly() then
+            if SubAt(block) and Unlocked() then
                 table.remove(selSeq.subs, block.index)
                 Changed()
             end
@@ -1396,13 +1443,20 @@ local function CreateEditor()
         return block
     end
 
-    f.addSub = NewButton(subContent, "Add sub-sequence", 140, function()
-        if selSeq and not ReadOnly() then
-            selSeq.subs[#selSeq.subs + 1] = { entries = {}, hideOnCooldown = false }
+    f.lockButton = NewButton(subContent, "Unlock", 90, function()
+        if Unlocked() then
+            Lock()
+        elseif selSeq and not ReadOnly() then
+            Lock() -- any other sequence still unlocked
+            ns.unsortedSequence = selSeq
             Changed()
             subScroll:SetVerticalScroll(subScroll:GetVerticalScrollRange())
         end
     end)
+    Tooltip(f.lockButton, "Unlock / Lock",
+        "Unlock to change the Primary and sub-sequences: an empty row waits at the bottom, and rows keep " ..
+        "their places while you work. Lock (or pick something else) to drop empty rows and put them back in " ..
+        "order, dearest first.")
 
     -- A sequence picked under a window is shown read-only, with a way into the library.
     f.nameText = NewLabel(detail, "", "GameFontHighlight")
@@ -1414,10 +1468,9 @@ local function CreateEditor()
     f.editButton:SetPoint("TOPRIGHT", 0, -22)
 
     local hint = NewLabel(detail,
-        "Drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
+        "Unlock, then drag spells and items onto a row from the list on the right, your spellbook or your bags. " ..
         "Drag icons to move them, onto another row to copy them, or off the window to remove them. " ..
-        "Right-click an icon to remove it; shift-right-click a spell for one rank down, ctrl-click for one up. " ..
-        "Changes show in every window using this sequence.",
+        "Right-click an icon to remove it; shift-right-click a spell for one rank down, ctrl-click for one up.",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 0, 4)
     hint:SetPoint("BOTTOMRIGHT", 0, 4)
@@ -1460,6 +1513,10 @@ local function CreateEditor()
         end
         if not selWindow and not selSeq then
             selWindow = windows[1]
+        end
+        -- Picking anything else locks the sequence being edited.
+        if ns.unsortedSequence and not Unlocked() then
+            Lock()
         end
 
         -- Windows list.
@@ -1585,7 +1642,7 @@ local function CreateEditor()
                     block.hide:SetShown(ns.AnyCooldown(sub.entries))
                     block.hide:SetChecked(sub.hideOnCooldown and true or false)
                     block.hide:SetEnabled(not readOnly)
-                    block.remove:SetShown(not readOnly)
+                    block.remove:SetShown(Unlocked() and not IsEmpty(sub))
                     block.cost:SetText(i .. ". " .. CostText(sub.entries))
                     RefreshSlotRow(block.row)
                     block:Show()
@@ -1593,9 +1650,10 @@ local function CreateEditor()
                     self.subBlocks[i]:Hide()
                 end
             end
-            self.addSub:ClearAllPoints()
-            self.addSub:SetPoint("TOPLEFT", 0, -#def.subs * SUB_BLOCK_HEIGHT - 2)
-            self.addSub:SetShown(not readOnly)
+            self.lockButton:ClearAllPoints()
+            self.lockButton:SetPoint("TOPLEFT", 0, -#def.subs * SUB_BLOCK_HEIGHT - 2)
+            self.lockButton:SetText(Unlocked() and "Lock" or "Unlock")
+            self.lockButton:SetShown(not readOnly)
             self.subContent:SetHeight(#def.subs * SUB_BLOCK_HEIGHT + 30)
         end
 
@@ -1629,6 +1687,7 @@ local function CreateEditor()
         self:Refresh()
     end)
     f:SetScript("OnHide", function()
+        Lock()
         ns.SetEditorOpen(false)
         if drag or listDrag then
             drag, listDrag = nil, nil

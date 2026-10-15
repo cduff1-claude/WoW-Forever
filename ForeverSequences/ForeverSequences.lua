@@ -2109,10 +2109,15 @@ local function SortVariations(def)
     return true
 end
 
+-- The editor holds one sequence's order still while it's unlocked for editing.
+ns.unsortedSequence = nil
+
 function ns.SortAllVariations()
     local moved = false
     for _, def in ipairs(db.library or {}) do
-        moved = SortVariations(def) or moved
+        if def ~= ns.unsortedSequence then
+            moved = SortVariations(def) or moved
+        end
     end
     return moved
 end
