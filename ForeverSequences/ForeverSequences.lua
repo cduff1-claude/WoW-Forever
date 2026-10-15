@@ -1296,28 +1296,57 @@ local function CreateCell(parent, secure)
     grey:SetDesaturated(true)
     grey:SetVertexColor(GREY_SHADE, GREY_SHADE, GREY_SHADE)
 
+    -- Click-to-cast icons (only fixed windows' Primaries have them) also get a second colour
+    -- layer, filling from the right (greying from the left), for when you're partway through
+    -- the sequence. Which one shows is decided by `gate`, a switch frozen when the sequence
+    -- starts: on if you had the mana for all of it then (Lua can't tell: mana is secret).
+    -- `fadeGate` keeps the last start's answer, so the reset fade (a dimming overlay) only
+    -- shows on a sequence that really started.
+    local gate, gateOn, gateOff, fadeGate, fadeClip, fadeShade, fadeAnim
+    local fillRev, colorClipRev, colorHolderRev, colorRev
+    if secure then
+        gate = NewSwitch(cell, cell)
+        gateOn = NewClip(cell, gate, "LEFT", gate:GetStatusBarTexture(), "RIGHT")
+        gateOff = NewClip(cell, gate:GetStatusBarTexture(), "RIGHT", gate, "RIGHT")
+    end
     local fill = NewSwitch(cell, cell)
-    local colorClip = NewClip(cell, fill, "LEFT", fill:GetStatusBarTexture(), "RIGHT")
+    local colorClip = NewClip(gateOff or cell, fill, "LEFT", fill:GetStatusBarTexture(), "RIGHT")
     local colorHolder = NewFrame("Frame", colorClip)
     colorHolder:SetAllPoints(cell)
     local color = NewIconTexture(colorHolder, "ARTWORK", cell)
-    -- Click-to-cast icons (only fixed windows' Primaries have them) also get the same, filling
-    -- from the right (greying from the left), for when you're partway through the sequence.
-    -- Only one of the two is ever non-empty.
-    local fillRev, colorClipRev, colorHolderRev, colorRev
     if secure then
         fillRev = NewSwitch(cell, cell)
         fillRev:SetReverseFill(true)
-        colorClipRev = NewClip(cell, fillRev:GetStatusBarTexture(), "LEFT", fillRev, "RIGHT")
+        colorClipRev = NewClip(gateOn, fillRev:GetStatusBarTexture(), "LEFT", fillRev, "RIGHT")
         colorHolderRev = NewFrame("Frame", colorClipRev)
         colorHolderRev:SetAllPoints(cell)
         colorRev = NewIconTexture(colorHolderRev, "ARTWORK", cell)
+        fadeGate = NewSwitch(cell, cell)
+        fadeClip = NewClip(cell, fadeGate, "LEFT", fadeGate:GetStatusBarTexture(), "RIGHT")
+        fadeClip:SetFrameLevel(level + 3)
+        fadeShade = fadeClip:CreateTexture(nil, "OVERLAY")
+        fadeShade:SetAllPoints(cell)
+        fadeShade:SetColorTexture(0, 0, 0, 0.65)
+        fadeShade:SetAlpha(0)
+        fadeAnim = fadeClip:CreateAnimationGroup()
+        local dim = fadeAnim:CreateAnimation("Alpha")
+        dim:SetTarget(fadeShade)
+        dim:SetFromAlpha(0)
+        dim:SetToAlpha(1)
+        dim:SetDuration(0.25)
+        dim:SetOrder(1)
+        local undim = fadeAnim:CreateAnimation("Alpha")
+        undim:SetTarget(fadeShade)
+        undim:SetFromAlpha(1)
+        undim:SetToAlpha(0)
+        undim:SetDuration(0.35)
+        undim:SetOrder(2)
     end
 
     -- Blizzard's cooldown swipe and countdown, over the icon.
     local cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
     cooldown:SetAllPoints(cell)
-    cooldown:SetFrameLevel(level + 3)
+    cooldown:SetFrameLevel(level + 4)
     if cooldown.SetHideCountdownNumbers then
         cooldown:SetHideCountdownNumbers(false)
     end
@@ -1330,7 +1359,7 @@ local function CreateCell(parent, secure)
     local prevSwitch = NewSwitch(cell, glowArea)
     local enoughNow = NewClip(cell, nowSwitch, "LEFT", nowSwitch:GetStatusBarTexture(), "RIGHT")
     local fresh = NewClip(enoughNow, prevSwitch:GetStatusBarTexture(), "RIGHT", prevSwitch, "RIGHT")
-    fresh:SetFrameLevel(level + 4)
+    fresh:SetFrameLevel(level + 5)
     local glow = NewFrame("Frame", fresh)
     glow:SetAllPoints(glowArea)
 
@@ -1364,7 +1393,7 @@ local function CreateCell(parent, secure)
     -- Rank label ("R3") for a pinned lower rank, on top of everything.
     local top = NewFrame("Frame", cell)
     top:SetAllPoints(cell)
-    top:SetFrameLevel(level + 6)
+    top:SetFrameLevel(level + 7)
     local rankText = top:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     rankText:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -1, 2)
 
@@ -1374,6 +1403,7 @@ local function CreateCell(parent, secure)
     cell.colorRev = colorRev
     cell.colorClipRev = colorClipRev
     cell.fillRev = fillRev
+    cell.gate, cell.fadeGate, cell.fadeAnim = gate, fadeGate, fadeAnim
     cell.fresh = fresh
     cell.fill = fill
     cell.cooldown = cooldown
@@ -1384,7 +1414,8 @@ local function CreateCell(parent, secure)
     -- Inner frames' levels above the cell, re-applied when the cell is reused elsewhere.
     cell.levels = {}
     for _, frame in ipairs({ fill, colorClip, colorHolder, cooldown, glowArea, nowSwitch, prevSwitch,
-        enoughNow, fresh, glow, top, fillRev, colorClipRev, colorHolderRev }) do
+        enoughNow, fresh, glow, top, gate, gateOn, gateOff, fillRev, colorClipRev, colorHolderRev, fadeGate,
+        fadeClip }) do
         cell.levels[#cell.levels + 1] = { frame, frame:GetFrameLevel() - level }
     end
     cell.start = 0
@@ -1424,6 +1455,12 @@ local function AcquireCell(rowFrame, index, size, secure)
     cell.shownStart, cell.shownDuration = nil, nil
     cell.cooldown:Clear()
     cell.rankText:SetText("")
+    if cell.gate then
+        for _, switch in ipairs({ cell.gate, cell.fadeGate }) do
+            switch:SetMinMaxValues(NEVER - 1, NEVER)
+            switch:SetValue(0)
+        end
+    end
     cell:Show()
     if not cell.pulse:IsPlaying() then
         cell.pulse:Play()
@@ -2298,50 +2335,65 @@ local function Matches(cell, spellID, name)
     return info.itemID ~= nil and GetItemUseSpell(info.itemID) == spellID
 end
 
-local function Fade(row, apply)
-    local frame = row.frame
-    if not frame.CreateAnimationGroup then
-        apply()
-        return
-    end
-    if not frame.resetFade then
-        local group = frame:CreateAnimationGroup()
-        local out = group:CreateAnimation("Alpha")
-        out:SetFromAlpha(1)
-        out:SetToAlpha(0.35)
-        out:SetDuration(0.25)
-        out:SetOrder(1)
-        local back = group:CreateAnimation("Alpha")
-        back:SetFromAlpha(0.35)
-        back:SetToAlpha(1)
-        back:SetDuration(0.35)
-        back:SetOrder(2)
-        out:SetScript("OnFinished", function()
-            local fn = frame.resetApply
-            frame.resetApply = nil
-            if fn then
-                fn()
+-- Freeze each icon's gate on "mana >= need": both empty (the normal view) without a need.
+local function SetGates(row, need, mana, alsoFade)
+    for _, cell in ipairs(row.cells) do
+        local switches = alsoFade and { cell.gate, cell.fadeGate } or { cell.gate }
+        for _, switch in ipairs(switches) do
+            if need then
+                switch:SetMinMaxValues(need - 1, need)
+                switch:SetValue(mana)
+            else
+                switch:SetMinMaxValues(NEVER - 1, NEVER)
+                switch:SetValue(0)
             end
-        end)
-        frame.resetFade = group
+        end
     end
-    frame.resetApply = apply
-    frame.resetFade:Stop()
-    frame.resetFade:Play()
 end
 
+-- Back to the start: dim (only where the sequence really started), swap at the darkest.
 local function Reset(row)
     if (row.step or 0) == 0 or row.resetting then
         return
     end
     row.resetting, row.deadline = true, nil
-    Fade(row, function()
+    local function Swap()
         row.step, row.resetting = 0, false
+        SetGates(row, nil)
         work.thresholdsDirty, work.dirty = true, true
-    end)
+    end
+    if not (C_Timer and C_Timer.After) then
+        Swap()
+        return
+    end
+    for _, cell in ipairs(row.cells) do
+        cell.fadeAnim:Stop()
+        cell.fadeAnim:Play()
+    end
+    C_Timer.After(0.25, Swap)
+end
+
+-- The first icon was cast: freeze whether you had the mana for the whole sequence, just
+-- before it (the last reading, from before its cost came off) against what it all needed:
+-- the first icon's cost and the rest from now.
+local function Start(row)
+    local rest = { cells = {} }
+    for k = 2, #row.cells do
+        rest.cells[#rest.cells + 1] = row.cells[k]
+    end
+    local need = row.cells[1].cost or 0
+    if #rest.cells > 0 then
+        local needs = RowNeeds(rest, Context(GetTime()))
+        need = need + math.max(0, needs[#needs] or 0)
+    end
+    row.startNeed = need
+    SetGates(row, need, work.lastMana or 0, true)
 end
 
 local function Advance(row, step, now)
+    if step == 1 then
+        Start(row)
+    end
     row.step = step
     work.thresholdsDirty, work.dirty = true, true
     if step >= #row.cells then
@@ -2386,11 +2438,35 @@ end
 local function UpdateThresholds(ctx)
     for _, row in ipairs(rows) do
       if Visible(row) then
-        local step = row.step or 0
-        if step > 0 then
-            -- Partway through a fixed window's Primary: each icon is coloured while you can
+        -- The normal view: each icon fills while you can afford the sequence up to it.
+        local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
+        row.thresholds = thresholds
+        local previous = 0
+        row.total = 0
+        for i, cell in ipairs(row.cells) do
+            local need = thresholds[i]
+            cell.start = math.min(previous, need)
+            cell.total = need
+            if cell.total > cell.start then
+                cell.fill:SetMinMaxValues(cell.start, cell.total)
+            else
+                -- Free entry: all or nothing on the mana before it.
+                cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
+            end
+            cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+            cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+            if cell.fillRev then
+                cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
+            end
+            previous = need
+            row.total = need
+        end
+        if (row.step or 0) > 0 then
+            -- Partway through a fixed window's Primary (shown instead if you had the mana for
+            -- all of it when it started; see the gates): each icon is coloured while you can
             -- afford it and everything after it, from now. With enough for the whole sequence
-            -- nothing changes; below that it greys from the left, and regen fills it back.
+            -- nothing changes; below that it greys from the left, and regen fills it back. No
+            -- highlights meanwhile.
             local n = #row.cells
             local suffix = {}
             for i = n, 1, -1 do
@@ -2404,40 +2480,15 @@ local function UpdateThresholds(ctx)
             for i, cell in ipairs(row.cells) do
                 local high = suffix[i]
                 local low = math.min(suffix[i + 1] or 0, high)
-                cell.start, cell.total = low, high
-                cell.fill:SetMinMaxValues(NEVER - 1, NEVER)
                 if high > low then
                     cell.fillRev:SetMinMaxValues(low, high)
                 else
                     cell.fillRev:SetMinMaxValues(high - 1, high)
                 end
-                cell.nowSwitch:SetMinMaxValues(high - 1, high)
-                cell.prevSwitch:SetMinMaxValues(high - 1, high)
+                cell.nowSwitch:SetMinMaxValues(NEVER - 1, NEVER)
+                cell.prevSwitch:SetMinMaxValues(NEVER - 1, NEVER)
             end
-            row.thresholds, row.total = suffix, suffix[1] or 0
-        else
-            local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
-            row.thresholds = thresholds
-            local previous = 0
-            row.total = 0
-            for i, cell in ipairs(row.cells) do
-                local need = thresholds[i]
-                cell.start = math.min(previous, need)
-                cell.total = need
-                if cell.total > cell.start then
-                    cell.fill:SetMinMaxValues(cell.start, cell.total)
-                else
-                    -- Free entry: all or nothing on the mana before it.
-                    cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
-                end
-                if cell.fillRev then
-                    cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
-                end
-                cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-                cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-                previous = need
-                row.total = need
-            end
+            row.suffix = suffix
         end
       end
     end
@@ -2776,6 +2827,7 @@ local function UpdateMana()
     end
     local mana = ReadMana()
     RecordMana(now, mana)
+    work.lastMana = mana
     local previous = ManaAgo(now, FLASH_HOLD)
     UpdateGates(now, mana)
     for _, row in ipairs(rows) do
@@ -3334,8 +3386,10 @@ local function PrintDebug()
                 end
                 for _, row in ipairs(list) do
                     print(string.format("    %s%s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
-                        row.label, row.progressive and string.format(" (cast %d of %d%s)", row.step or 0, #row.cells,
-                            row.deadline and string.format(", next due within %.1fs", row.deadline - GetTime()) or "") or "",
+                        row.label, row.progressive and string.format(" (cast %d of %d%s%s)", row.step or 0, #row.cells,
+                            row.deadline and string.format(", next due within %.1fs", row.deadline - GetTime()) or "",
+                            (row.step or 0) > 0 and string.format(", counts if you had %s mana when it started",
+                                tostring(row.startNeed)) or "") or "",
                         tostring(row.total),
                         row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
                         tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
