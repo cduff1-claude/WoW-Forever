@@ -1301,6 +1301,14 @@ local function CreateCell(parent, secure)
     local colorHolder = NewFrame("Frame", colorClip)
     colorHolder:SetAllPoints(cell)
     local color = NewIconTexture(colorHolder, "ARTWORK", cell)
+    -- The same, filling from the right (greying from the left), for a fixed window's Primary
+    -- partway through. Only one of the two is ever non-empty.
+    local fillRev = NewSwitch(cell, cell)
+    fillRev:SetReverseFill(true)
+    local colorClipRev = NewClip(cell, fillRev:GetStatusBarTexture(), "LEFT", fillRev, "RIGHT")
+    local colorHolderRev = NewFrame("Frame", colorClipRev)
+    colorHolderRev:SetAllPoints(cell)
+    local colorRev = NewIconTexture(colorHolderRev, "ARTWORK", cell)
 
     -- Blizzard's cooldown swipe and countdown, over the icon.
     local cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
@@ -1359,6 +1367,9 @@ local function CreateCell(parent, secure)
     cell.grey = grey
     cell.color = color
     cell.colorClip = colorClip
+    cell.colorRev = colorRev
+    cell.colorClipRev = colorClipRev
+    cell.fillRev = fillRev
     cell.fresh = fresh
     cell.fill = fill
     cell.cooldown = cooldown
@@ -1368,8 +1379,8 @@ local function CreateCell(parent, secure)
     cell.pulse = pulse
     -- Inner frames' levels above the cell, re-applied when the cell is reused elsewhere.
     cell.levels = {}
-    for _, frame in ipairs({ fill, colorClip, colorHolder, cooldown, glowArea, nowSwitch, prevSwitch,
-        enoughNow, fresh, glow, top }) do
+    for _, frame in ipairs({ fill, colorClip, colorHolder, fillRev, colorClipRev, colorHolderRev, cooldown,
+        glowArea, nowSwitch, prevSwitch, enoughNow, fresh, glow, top }) do
         cell.levels[#cell.levels + 1] = { frame, frame:GetFrameLevel() - level }
     end
     cell.start = 0
@@ -1847,6 +1858,7 @@ local function RefreshEntries()
                 or cell.actionPending then
                 cell.grey:SetTexture(info.icon)
                 cell.color:SetTexture(info.icon)
+                cell.colorRev:SetTexture(info.icon)
                 cell.actionPending = InCombatLockdown()
                 ApplyAction(cell)
             end
@@ -1971,6 +1983,7 @@ local function UpdateCooldowns()
                 or (cell.bandage and work.recentlyBandaged)
             local alpha = unusable and 0 or 1
             cell.colorClip:SetAlpha(alpha)
+            cell.colorClipRev:SetAlpha(alpha)
             cell.fresh:SetAlpha(alpha)
             blocked = blocked or unusable
         end
@@ -2365,46 +2378,56 @@ end
 local function UpdateThresholds(ctx)
     for _, row in ipairs(rows) do
       if Visible(row) then
-        -- Partway through (fixed windows' Primary): what's left is measured from now, and the
-        -- icons already cast are grey.
         local step = row.step or 0
-        local thresholds
         if step > 0 then
-            local rest = { cells = {} }
-            for i = step + 1, #row.cells do
-                rest.cells[#rest.cells + 1] = row.cells[i]
+            -- Partway through a fixed window's Primary: each icon is coloured while you can
+            -- afford it and everything after it, from now. With enough for the whole sequence
+            -- nothing changes; below that it greys from the left, and regen fills it back.
+            local n = #row.cells
+            local suffix = {}
+            for i = n, 1, -1 do
+                local rest = { cells = {} }
+                for k = i, n do
+                    rest.cells[#rest.cells + 1] = row.cells[k]
+                end
+                local needs = RowNeeds(rest, ctx)
+                suffix[i] = math.max(needs[#needs] or 0, suffix[i + 1] or 0)
             end
-            thresholds = {}
-            for i, need in ipairs(RowNeeds(rest, ctx)) do
-                thresholds[step + i] = need
+            for i, cell in ipairs(row.cells) do
+                local high = suffix[i]
+                local low = math.min(suffix[i + 1] or 0, high)
+                cell.start, cell.total = low, high
+                cell.fill:SetMinMaxValues(NEVER - 1, NEVER)
+                if high > low then
+                    cell.fillRev:SetMinMaxValues(low, high)
+                else
+                    cell.fillRev:SetMinMaxValues(high - 1, high)
+                end
+                cell.nowSwitch:SetMinMaxValues(high - 1, high)
+                cell.prevSwitch:SetMinMaxValues(high - 1, high)
             end
+            row.thresholds, row.total = suffix, suffix[1] or 0
         else
-            thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
-        end
-        row.thresholds = thresholds
-        local previous = 0
-        row.total = 0
-        for i, cell in ipairs(row.cells) do
-          if i <= step then
-            cell.start, cell.total = NEVER, NEVER
-            cell.fill:SetMinMaxValues(NEVER - 1, NEVER)
-            cell.nowSwitch:SetMinMaxValues(NEVER - 1, NEVER)
-            cell.prevSwitch:SetMinMaxValues(NEVER - 1, NEVER)
-          else
-            local need = thresholds[i]
-            cell.start = math.min(previous, need)
-            cell.total = need
-            if cell.total > cell.start then
-                cell.fill:SetMinMaxValues(cell.start, cell.total)
-            else
-                -- Free entry: all or nothing on the mana before it.
-                cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
+            local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
+            row.thresholds = thresholds
+            local previous = 0
+            row.total = 0
+            for i, cell in ipairs(row.cells) do
+                local need = thresholds[i]
+                cell.start = math.min(previous, need)
+                cell.total = need
+                if cell.total > cell.start then
+                    cell.fill:SetMinMaxValues(cell.start, cell.total)
+                else
+                    -- Free entry: all or nothing on the mana before it.
+                    cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
+                end
+                cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
+                cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+                cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
+                previous = need
+                row.total = need
             end
-            cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-            cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
-            previous = need
-            row.total = need
-          end
         end
       end
     end
@@ -2753,6 +2776,7 @@ local function UpdateMana()
         end
         for _, cell in ipairs(row.cells) do
             cell.fill:SetValue(mana)
+            cell.fillRev:SetValue(mana)
             cell.nowSwitch:SetValue(mana)
             cell.prevSwitch:SetValue(previous)
         end

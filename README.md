@@ -107,9 +107,10 @@ for switching back, but only the current type's are used):
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
-  - **Clicking through it:** as you cast the Primary's icons in order (from the window or anywhere else), the ones
-    you've cast go grey and the rest are measured from your mana now, so the icons ahead stay coloured as long as
-    you can still afford them. It goes back to the start, fading out partly and back in as it does, when you cast
+  - **Clicking through it:** once you cast the Primary's first icon (from the window or anywhere else), each icon
+    is coloured while you can afford it and everything after it, from your mana now. With enough for the whole
+    sequence (twice over, say) nothing changes as you cast; below that the row greys from the left (each icon from
+    its left edge), and regen fills it back towards the left. Before you start, it fills from the left as usual. It goes back to the start, fading out partly and back in as it does, when you cast
     the last icon, cast another spell from your spellbook, or don't cast the next icon in time (its cast time and
     the global cooldown after the last one, plus 5 seconds; 2 out of combat, so a heal or two after a kill still
     counts). Casting the first icon again starts again from it.
