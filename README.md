@@ -183,7 +183,9 @@ right-hand side are shaded boxes; the one you're working on (and the right-hand 
 - Left, bottom: the *Sequence Library* (with how many windows use each), with *New sequence* beside the heading
   (opened unlocked for editing; also added to the window showing, if any). Drag to reorder, onto a window's name or
   into its Sequences tab to show it there.
-- Right, for a window: two tabs.
+- Right, for a window: two tabs (clicking another window keeps the tab you're on). Opening a library sequence keeps
+  the window selected (lightly highlighted); dragging a library sequence then shows that window's Sequences tab to
+  drop it into, and dropping it anywhere else goes back to the sequence.
   - *Settings*: its name, type, *enabled*, *only show in combat*, *click the Primary to cast* (static), for switching
     and stacked windows the mana, health and fight options, *skip sequences that would overheal* (switching), *show
     the next one up* and *costliest at the top* (stacked), and *Delete window*.

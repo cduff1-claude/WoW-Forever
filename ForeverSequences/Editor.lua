@@ -42,6 +42,15 @@ local drag      -- an icon being dragged: { entry, row (nil from the list of spe
 -- A list item being dragged: { kind = "window" (window), "seq" (def, from the library) or
 -- "placement" (def, window, item: from a window's Sequences tab) }.
 local listDrag
+-- While a library sequence is dragged from the sequence editor, the window you were last on
+-- shows (its Sequences tab), to drop it into.
+local previewing = false
+
+-- The right-hand side shows the selected window (its tabs) unless a library sequence is open.
+-- The window stays selected while you edit a sequence, lightly highlighted in the list.
+local function ShowingWindow()
+    return selWindow ~= nil and (selSeq == nil or previewing)
+end
 
 -- The selected sequence's rows only change while it's unlocked; until it's locked again, its
 -- variations keep their order (so a row doesn't jump while you're adding to it), and an
@@ -683,7 +692,7 @@ local function EditSequence(def, unlocked)
         return
     end
     Lock()
-    selWindow, selSeq = nil, def
+    selSeq = def
     if unlocked then
         ns.unsortedSequence = def
     end
@@ -704,7 +713,7 @@ local function NewSequence()
         subs = {},
     }
     library[#library + 1] = def
-    if selWindow and not selSeq then
+    if ShowingWindow() then
         Place(def, selWindow)
     end
     EditSequence(def, true)
@@ -766,6 +775,10 @@ local function StartListDrag(data, icon)
     listDrag = data
     ghostIcon:SetTexture(icon or 134400)
     ghost:Show()
+    if data.kind == "seq" and selSeq and selWindow and editor then
+        previewing, tab = true, "sequences"
+        editor:Refresh()
+    end
 end
 
 -- The row under the cursor among `rows` that `accept` takes, and whether a drop there goes
@@ -816,7 +829,7 @@ local function ResolveDrop(source)
             return { kind = "reorderLibrary", row = row, before = before }
         end
     end
-    if selWindow and not selSeq and editor.sequencesTab:IsVisible() then
+    if ShowingWindow() and editor.sequencesTab:IsVisible() then
         local entry, before = RowAtCursor(editor.entries, function(r) return r.item ~= nil end, editor.seqScroll)
         if entry then
             return { kind = "intoWindow", row = entry, before = before }
@@ -858,23 +871,13 @@ local function UpdateDropLine()
     line:Show()
 end
 
-local function FinishListDrag()
-    if not listDrag then
-        return
-    end
-    local source = listDrag
-    local target = ResolveDrop(source)
-    listDrag = nil
-    ghost:Hide()
-    UpdateDropLine()
-    if not target then
-        return
-    end
+-- Carry out a drop; false if nothing changed.
+local function ApplyDrop(source, target)
     if target.kind == "reorderWindow" then
         local list = Windows()
         local onto = target.row.data.window
         if onto == source.window then
-            return
+            return false
         end
         table.remove(list, IndexOf(list, source.window))
         local index = #list + 1
@@ -892,7 +895,7 @@ local function FinishListDrag()
     elseif target.kind == "reorderLibrary" then
         local list = Library()
         if target.row.def == source.def then
-            return
+            return false
         end
         table.remove(list, IndexOf(list, source.def))
         table.insert(list, IndexOf(list, target.row.def) + (target.before and 0 or 1), source.def)
@@ -900,18 +903,18 @@ local function FinishListDrag()
         local window = target.window
         if source.kind == "placement" then
             if window == source.window then
-                return
+                return false
             end
             if ItemIndex(window, source.def.id) then
                 Print("\"" .. (source.def.name or "?") .. "\" is already in " .. (window.name or "?") .. ".")
-                return
+                return false
             end
             table.remove(source.window.items, IndexOf(source.window.items, source.item))
             table.insert(window.items, source.item)
         elseif Place(source.def, window) then
             Print("\"" .. (source.def.name or "?") .. "\" added to " .. (window.name or "?") .. ".")
         else
-            return
+            return false
         end
     elseif target.kind == "intoWindow" then
         local window = selWindow
@@ -927,12 +930,32 @@ local function FinishListDrag()
             table.remove(window.items, from)
             table.insert(window.items, index, source.item)
         elseif not Place(source.def, window, index) then
-            return
+            return false
         end
     elseif target.kind == "remove" then
         table.remove(source.window.items, IndexOf(source.window.items, source.item))
     end
     Changed()
+    return true
+end
+
+local function FinishListDrag()
+    if not listDrag then
+        return
+    end
+    local source = listDrag
+    local target = ResolveDrop(source)
+    listDrag = nil
+    ghost:Hide()
+    local wasPreviewing = previewing
+    previewing = false
+    UpdateDropLine()
+    if wasPreviewing and target and target.kind == "intoWindow" then
+        selSeq = nil -- dropped into the window: stay there
+    end
+    if not (target and ApplyDrop(source, target)) and editor then
+        editor:Refresh()
+    end
 end
 
 local function NewListRow(parent, i)
@@ -964,10 +987,8 @@ local function CreateWindowRow(f, area, i)
             local closed = ns.UIState().closed
             closed[data.section] = (not closed[data.section]) or nil
         else
+            -- Same tab as before, on this window.
             Lock()
-            if selWindow ~= data.window or selSeq then
-                tab = "settings"
-            end
             selWindow, selSeq = data.window, nil
         end
         f:Refresh()
@@ -2146,12 +2167,15 @@ local function CreateEditor()
                     row.text:SetText((closed[data.section] and "+  " or "-  ") .. ns.TypeLabel(data.section) ..
                         "  |cff808080(" .. data.count .. ")|r")
                     row.selectedTexture:Hide()
+                    row.selectedTexture:SetAlpha(1)
                 else
                     local window = data.window
                     row.text:SetPoint("LEFT", 18, 0)
                     row.text:SetFontObject("GameFontHighlight")
                     row.text:SetText(window.enabled and (window.name or "?") or ("|cff808080" .. (window.name or "?") .. "|r"))
-                    row.selectedTexture:SetShown(window == selWindow and not selSeq)
+                    -- The selected window; only lightly while a sequence is open.
+                    row.selectedTexture:SetShown(window == selWindow)
+                    row.selectedTexture:SetAlpha(ShowingWindow() and 1 or 0.35)
                 end
                 row:Show()
             else
@@ -2178,12 +2202,12 @@ local function CreateEditor()
         end
 
         -- Right: a window's tabs, or a library sequence. Its side is brought forward.
-        local showWindow = selWindow ~= nil and selSeq == nil
+        local showWindow = ShowingWindow()
         SetPaneActive(self.windowsPane, showWindow)
-        SetPaneActive(self.libraryPane, selSeq ~= nil)
+        SetPaneActive(self.libraryPane, selSeq ~= nil and not showWindow)
         SetPaneActive(self.rightPane, showWindow or selSeq ~= nil)
         self.windowView:SetShown(showWindow)
-        self.detail:SetShown(selSeq ~= nil)
+        self.detail:SetShown(selSeq ~= nil and not showWindow)
         self.empty:SetShown(not showWindow and selSeq == nil)
         self.empty:SetText("Press New window to start.")
         if showWindow then
@@ -2272,6 +2296,7 @@ local function CreateEditor()
     f:SetScript("OnHide", function()
         Lock()
         ns.SetEditorOpen(false)
+        previewing = false
         if drag or listDrag then
             drag, listDrag = nil, nil
             ghost:Hide()
