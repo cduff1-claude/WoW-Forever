@@ -107,6 +107,12 @@ for switching back, but only the current type's are used):
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
+  - **Clicking through it:** as you cast the Primary's icons in order (from the window or anywhere else), the ones
+    you've cast go grey and the rest are measured from your mana now, so the icons ahead stay coloured as long as
+    you can still afford them. It goes back to the start, fading out partly and back in as it does, when you cast
+    the last icon, cast another spell from your spellbook, or don't cast the next icon in time (its cast time and
+    the global cooldown after the last one, plus 5 seconds; 2 out of combat, so a heal or two after a kill still
+    counts). Casting the first icon again starts again from it.
 - *Only show in combat* (any window) hides it out of combat.
 - Switching and stacked windows can also show only when you're low, and only for some targets:
   - *Mana*: below the costliest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not

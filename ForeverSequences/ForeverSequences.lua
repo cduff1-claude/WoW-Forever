@@ -58,6 +58,7 @@ local work = {
     FSR_RECALC = 0.2,        -- seconds between needs worked out inside the 5-second rule
     ENTRY_REFRESH = 60,      -- seconds between re-reading spell data with nothing else asking
     cost = {}, calls = {}, since = 0, -- for /fseq perf
+    progressRows = {},       -- fixed windows' Primaries, which track how far through you are
 }
 
 local GREY_SHADE = 0.5
@@ -1569,6 +1570,9 @@ local function BuildWindow(root, window)
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
                 group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
+                -- Clicked through in order: tracks how far through it you are (see work.ProgressCast).
+                group.primary.progressive = true
+                work.progressRows[#work.progressRows + 1] = group.primary
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
@@ -1756,6 +1760,7 @@ local function BuildDisplay()
     end
     wipe(groups)
     wipe(rows)
+    wipe(work.progressRows)
 
     -- How long recent mana keeps mattering after it changes: the highlight, and the longest
     -- "keep showing" of a mana threshold in use.
@@ -2250,14 +2255,142 @@ function ns.Need(entries)
     return math.max(0, thresholds[#thresholds] or 0), cost
 end
 
+-- Clicking through a fixed window's Primary. Each icon's fill normally means "enough mana to
+-- start the sequence and get this far", so as you cast, the icons at the far end would grey
+-- first. Instead, each cast of the next icon moves the row on a step: the icons cast are grey,
+-- and the rest are measured from now. It goes back to the start (fading out partly and back,
+-- swapping at the faintest) when the last icon is cast, when you cast another spell of yours,
+-- or when the next icon isn't cast in time: its cast time and the global cooldown after the
+-- last one, plus 5 seconds (2 out of combat, so a heal or two after a kill still counts).
+-- Casting the first icon again starts again from it.
+do
+local SLACK_IN_COMBAT, SLACK_OUT_OF_COMBAT = 5, 2
+
+local function Matches(cell, spellID, name)
+    local info = cell.info
+    if not info then
+        return false
+    end
+    if info.kind == "spell" then
+        return info.spellID == spellID or (name ~= nil and SpellNameOf(info.spellID) == name)
+    end
+    return info.itemID ~= nil and GetItemUseSpell(info.itemID) == spellID
+end
+
+local function Fade(row, apply)
+    local frame = row.frame
+    if not frame.CreateAnimationGroup then
+        apply()
+        return
+    end
+    if not frame.resetFade then
+        local group = frame:CreateAnimationGroup()
+        local out = group:CreateAnimation("Alpha")
+        out:SetFromAlpha(1)
+        out:SetToAlpha(0.35)
+        out:SetDuration(0.25)
+        out:SetOrder(1)
+        local back = group:CreateAnimation("Alpha")
+        back:SetFromAlpha(0.35)
+        back:SetToAlpha(1)
+        back:SetDuration(0.35)
+        back:SetOrder(2)
+        out:SetScript("OnFinished", function()
+            local fn = frame.resetApply
+            frame.resetApply = nil
+            if fn then
+                fn()
+            end
+        end)
+        frame.resetFade = group
+    end
+    frame.resetApply = apply
+    frame.resetFade:Stop()
+    frame.resetFade:Play()
+end
+
+local function Reset(row)
+    if (row.step or 0) == 0 or row.resetting then
+        return
+    end
+    row.resetting, row.deadline = true, nil
+    Fade(row, function()
+        row.step, row.resetting = 0, false
+        work.thresholdsDirty, work.dirty = true, true
+    end)
+end
+
+local function Advance(row, step, now)
+    row.step = step
+    work.thresholdsDirty, work.dirty = true, true
+    if step >= #row.cells then
+        Reset(row)
+        return
+    end
+    local done, nextCell = row.cells[step], row.cells[step + 1]
+    row.deadline = now + (done.channel or 0) + (done.gcd or 0) + (nextCell.castTime or 0)
+end
+
+-- A spell of yours finished casting.
+function work.ProgressCast(spellID)
+    local name = SpellNameOf(spellID)
+    local now = GetTime()
+    for _, row in ipairs(work.progressRows) do
+        if not row.resetting then
+            local step = row.step or 0
+            local nextCell = row.cells[step + 1]
+            if nextCell and Matches(nextCell, spellID, name) then
+                Advance(row, step + 1, now)
+            elseif step > 0 and Matches(row.cells[1], spellID, name) then
+                Advance(row, 1, now)
+            elseif step > 0 and name and BookEntry(name) then
+                -- Another spell from your spellbook (not procs or the game's own spells).
+                Reset(row)
+            end
+        end
+    end
+end
+
+-- Every tick: rows whose next icon is overdue go back to the start.
+function work.ProgressCheck(now)
+    local slack = InCombatLockdown() and SLACK_IN_COMBAT or SLACK_OUT_OF_COMBAT
+    for _, row in ipairs(work.progressRows) do
+        if row.deadline and now > row.deadline + slack then
+            Reset(row)
+        end
+    end
+end
+end
+
 local function UpdateThresholds(ctx)
     for _, row in ipairs(rows) do
       if Visible(row) then
-        local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
+        -- Partway through (fixed windows' Primary): what's left is measured from now, and the
+        -- icons already cast are grey.
+        local step = row.step or 0
+        local thresholds
+        if step > 0 then
+            local rest = { cells = {} }
+            for i = step + 1, #row.cells do
+                rest.cells[#rest.cells + 1] = row.cells[i]
+            end
+            thresholds = {}
+            for i, need in ipairs(RowNeeds(rest, ctx)) do
+                thresholds[step + i] = need
+            end
+        else
+            thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
+        end
         row.thresholds = thresholds
         local previous = 0
         row.total = 0
         for i, cell in ipairs(row.cells) do
+          if i <= step then
+            cell.start, cell.total = NEVER, NEVER
+            cell.fill:SetMinMaxValues(NEVER - 1, NEVER)
+            cell.nowSwitch:SetMinMaxValues(NEVER - 1, NEVER)
+            cell.prevSwitch:SetMinMaxValues(NEVER - 1, NEVER)
+          else
             local need = thresholds[i]
             cell.start = math.min(previous, need)
             cell.total = need
@@ -2271,6 +2404,7 @@ local function UpdateThresholds(ctx)
             cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             previous = need
             row.total = need
+          end
         end
       end
     end
@@ -2698,6 +2832,9 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if tickElapsed >= TICK then
         tickElapsed = 0
         local now = GetTime()
+        if #work.progressRows > 0 then
+            Guarded(function() work.ProgressCheck(now) end)
+        end
         if work.full then
             -- A window was just shown: it was skipped while hidden.
             work.full, work.dirty, work.thresholdsDirty = false, false, true
@@ -2858,6 +2995,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
             if cost and cost > 0 then
                 fsrEndTime = GetTime() + FIVE_SECOND_RULE
             end
+            work.ProgressCast(spellID)
         end
         work.dirty = true
     elseif event == "PLAYER_TARGET_CHANGED" then
@@ -3159,8 +3297,10 @@ local function PrintDebug()
                     list[#list + 1] = row
                 end
                 for _, row in ipairs(list) do
-                    print(string.format("    %s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
-                        row.label, tostring(row.total),
+                    print(string.format("    %s%s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
+                        row.label, row.progressive and string.format(" (cast %d of %d%s)", row.step or 0, #row.cells,
+                            row.deadline and string.format(", next due within %.1fs", row.deadline - GetTime()) or "") or "",
+                        tostring(row.total),
                         row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
                         tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
                     for _, cell in ipairs(row.cells) do
