@@ -189,13 +189,21 @@ a window selects it; they lock again when the options close.
   "R" label goes and it follows newly learned ranks again. A lower rank dragged in from the spellbook is pinned too.
 - Bottom: the regen mode.
 - Changes made in combat reach the windows when combat ends.
+- It only works when something changes. Mana updates come from the game's mana events (at most 20 a second), and
+  carry on for a couple of seconds after the last one (longer if a window's mana threshold keeps showing), and
+  through the 5-second rule; at full mana with nothing going on it does nothing. Needs are only worked out again
+  when regen, max mana, Clearcasting, cooldowns or spell data change, or as the 5-second rule runs out. Spell data
+  (costs, cast times, descriptions) is read again on events (spells learned, gear, bags), while the options are
+  open, and once a minute otherwise. Hidden windows (only-in-combat ones out of combat) aren't updated at all, and
+  catch up when shown. In stacked windows each variation's needs are worked out once for all its copies.
 - If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5
   seconds, rather than repeating many times a second.
 
 Druids only. A character with no class default yet starts with a switching "Main" window and a fixed "Clickable"
 one. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
 empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults` (restore the starting
-windows and sequences), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
+windows and sequences), `/fseq perf` (milliseconds per second spent on mana updates, the once-a-second check and
+events since the last `/fseq perf`), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
 instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule, mana update gaps,
 Clearcasting and the mana potions found; for stacked windows, each variation's need and the mana band it shows
 over in each row).

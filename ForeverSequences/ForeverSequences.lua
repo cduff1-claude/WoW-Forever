@@ -35,7 +35,7 @@ local PADDING = 6
 local GLOW_SIZE = 3          -- highlight border width, drawn just outside the icon
 local FLASH_HOLD = 2.0       -- seconds the highlight stays after a spell becomes affordable
 local TICK = 0.05            -- how often mana is re-read
-local REFRESH = 1.0          -- how often spell data, cooldowns and auras are re-read
+local REFRESH = 1.0          -- how often cooldowns are re-read
 local TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
 local FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
 local GLOBAL_COOLDOWN = 1.5  -- used when the game won't say a spell's global cooldown
@@ -44,6 +44,21 @@ local FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
 local NEVER = 1e9            -- a mana value no one reaches
 local MAX_GATES = 13         -- health, mana now, and mana 1..MAX_HOLD seconds ago
 local MAX_HOLD = 10          -- longest "keep showing" time for the mana threshold
+
+-- What needs redoing, so the addon does nothing it doesn't have to. Mana is secret, so there's
+-- no telling when it's full; but the game only sends mana events when it changes, so with no
+-- event for a while (and nothing else going on) there's nothing to update.
+local work = {
+    dirty = true,            -- something changed: update the windows on the next tick
+    thresholdsDirty = true,  -- spell data, cooldowns or the rows changed: work out needs again
+    full = false,            -- a window was shown: refresh everything on the next tick
+    lastManaEvent = 0,
+    thresholdTime = 0,
+    entriesTime = 0,
+    FSR_RECALC = 0.2,        -- seconds between needs worked out inside the 5-second rule
+    ENTRY_REFRESH = 60,      -- seconds between re-reading spell data with nothing else asking
+    cost = {}, calls = {}, since = 0, -- for /fseq perf
+}
 
 local GREY_SHADE = 0.5
 local GLOW_COLOR = { 1.0, 0.85, 0.2 }
@@ -1114,6 +1129,10 @@ local function GetRoot(index)
         previous = gate
     end
     root.content = NewClip(root, previous:GetStatusBarTexture(), "RIGHT", root, "RIGHT")
+    -- Hidden windows aren't updated (only-in-combat ones out of combat, say): catch up on show.
+    root:HookScript("OnShow", function()
+        work.full = true
+    end)
     root.mover, root.label = mover, label
     root.lines, root.groups, root.linePool = {}, {}, {}
     roots[index] = root
@@ -1151,6 +1170,7 @@ end
 
 function ns.SetEditorOpen(open)
     editorOpen = open and true or false
+    work.full = true -- spell data read again, every window brought up to date
     ApplyVisibility()
 end
 
@@ -1443,7 +1463,7 @@ local function CreateRow(group, rowFrame, line, def, size, label, secure)
     rowFrame:ClearAllPoints()
     rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
     rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - GLOW_SIZE * 2), size)
-    local row = { frame = rowFrame, group = group, def = def, label = label, cells = {}, total = 0 }
+    local row = { frame = rowFrame, group = group, root = group.root, def = def, label = label, cells = {}, total = 0 }
     local window = group.root and group.root.window
     for i, entry in ipairs(def.entries) do
         local cell = AcquireCell(rowFrame, i, size, secure)
@@ -1631,6 +1651,8 @@ local function BuildStacked(root, window)
         local cand = { order = i, name = v.name, rows = {} }
         for k, line in ipairs(stack.lines) do
             cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
+            -- Every copy needs what the first one needs: work it out once.
+            cand.rows[k].twin = k > 1 and cand.rows[1] or nil
         end
         stack.cands[i] = cand
     end
@@ -1725,6 +1747,14 @@ local function BuildDisplay()
     wipe(groups)
     wipe(rows)
 
+    -- How long recent mana keeps mattering after it changes: the highlight, and the longest
+    -- "keep showing" of a mana threshold in use.
+    work.holdTime = FLASH_HOLD + 0.5
+    for index, window in ipairs(db.windows) do
+        if window.enabled and window.type ~= "fixed" and window.manaGate then
+            work.holdTime = math.max(work.holdTime, math.min(MAX_HOLD, window.holdSeconds or 0) + 0.5)
+        end
+    end
     for index, window in ipairs(db.windows) do
         local root = GetRoot(index)
         root.window = window
@@ -1782,8 +1812,11 @@ local function EntryData(entry, info, target)
         and not CLEARCASTING_IGNORES[entry.name]
 end
 
--- Re-read everything about each icon.
+-- Re-read everything about each icon. Hidden windows too: a fixed window's buttons have to be
+-- set up before combat, when it may still be hidden.
 local function RefreshEntries()
+    work.entriesTime = GetTime()
+    work.thresholdsDirty = true
     for _, row in ipairs(rows) do
         for _, cell in ipairs(row.cells) do
             local info = ResolveEntry(cell.entry)
@@ -1900,11 +1933,16 @@ local function TargetDoesNotFit(types)
     return not types[creature]
 end
 
+-- Hidden windows are skipped; they catch up when shown.
+local function Visible(row)
+    return row.root == nil or row.root:IsShown()
+end
+
 local function UpdateCooldowns()
     local now = GetTime()
     for _, row in ipairs(rows) do
         local blocked = false
-        for _, cell in ipairs(row.cells) do
+        for _, cell in ipairs(Visible(row) and row.cells or {}) do
             UpdateCellCooldown(cell, now)
             -- Greyed out while on cooldown or not in your bags: no colour, no highlight.
             cell.wrongTarget = TargetDoesNotFit(cell.creatureTypes)
@@ -1914,7 +1952,11 @@ local function UpdateCooldowns()
             cell.fresh:SetAlpha(alpha)
             blocked = blocked or unusable
         end
-        row.onCooldown = blocked
+        if Visible(row) and row.onCooldown ~= blocked then
+            row.onCooldown = blocked
+            work.thresholdsDirty = true
+            work.dirty = true
+        end
     end
 end
 
@@ -2179,10 +2221,11 @@ function ns.Need(entries)
     return math.max(0, thresholds[#thresholds] or 0), cost
 end
 
-local function UpdateThresholds(now)
-    local ctx = Context(now)
+local function UpdateThresholds(ctx)
     for _, row in ipairs(rows) do
-        local thresholds = RowNeeds(row, ctx)
+      if Visible(row) then
+        local thresholds = row.twin and row.twin.thresholds or RowNeeds(row, ctx)
+        row.thresholds = thresholds
         local previous = 0
         row.total = 0
         for i, cell in ipairs(row.cells) do
@@ -2200,6 +2243,7 @@ local function UpdateThresholds(now)
             previous = need
             row.total = need
         end
+      end
     end
 end
 
@@ -2439,8 +2483,9 @@ local function TargetKind()
 end
 
 local function ReadTarget()
-    if inFight and TargetKind() == "pvp" then
+    if inFight and fightKind ~= "pvp" and TargetKind() == "pvp" then
         fightKind = "pvp"
+        work.dirty = true
     end
 end
 
@@ -2460,7 +2505,7 @@ end
 local function UpdateGates(now, mana)
     for _, root in ipairs(roots) do
         local window = root.window
-        if window then
+        if window and root:IsShown() then
             local gates = root.gates
             local used = 0
             if not (editorOpen or root.fixed) then
@@ -2518,15 +2563,27 @@ local function UpdateGates(now, mana)
     end
 end
 
+-- Needs only change with regen, max mana, Clearcasting, spell data or cooldowns, and inside
+-- the 5-second rule (as it runs out). Otherwise last time's still hold.
 local function UpdateMana()
     local now = GetTime()
-    UpdateThresholds(now)
-    UpdateBands()
+    local ctx = Context(now)
+    local key = table.concat({ tostring(ctx.base), tostring(ctx.casting), tostring(ctx.maxMana),
+        tostring(ctx.clearcasting), tostring(db.regenMode) }, ":")
+    local inRule = ctx.fsrRemaining > 0
+    if work.thresholdsDirty or key ~= work.ctxKey or inRule ~= work.inRule
+        or (inRule and now - work.thresholdTime >= work.FSR_RECALC) then
+        work.thresholdsDirty = false
+        work.ctxKey, work.inRule, work.thresholdTime = key, inRule, now
+        UpdateThresholds(ctx)
+        UpdateBands()
+    end
     local mana = ReadMana()
     RecordMana(now, mana)
     local previous = ManaAgo(now, FLASH_HOLD)
     UpdateGates(now, mana)
     for _, row in ipairs(rows) do
+      if Visible(row) then
         if row.low then
             row.low:SetValue(mana)
             row.high:SetValue(mana)
@@ -2536,6 +2593,7 @@ local function UpdateMana()
             cell.nowSwitch:SetValue(mana)
             cell.prevSwitch:SetValue(previous)
         end
+      end
     end
 end
 
@@ -2565,10 +2623,24 @@ local function Guarded(fn)
     end
 end
 
+-- Timings for /fseq perf.
+local function Timed(name, fn)
+    if not debugprofilestop then
+        return fn()
+    end
+    local start = debugprofilestop()
+    fn()
+    work.cost[name] = (work.cost[name] or 0) + debugprofilestop() - start
+    work.calls[name] = (work.calls[name] or 0) + 1
+end
+
+-- Once a second: cooldowns (for when they end). Spell data only when the options are open, or
+-- once a minute in case an event was missed; events re-read it when it changes.
 local function Periodic()
-    RefreshEntries()
+    if editorOpen or GetTime() - work.entriesTime >= work.ENTRY_REFRESH then
+        RefreshEntries()
+    end
     UpdateCooldowns()
-    UpdateClearcasting()
     if descriptionsLoaded then
         -- Descriptions we asked for have arrived; look at the bags again (mana potions).
         descriptionsLoaded = false
@@ -2586,12 +2658,23 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     refreshElapsed = refreshElapsed + elapsed
     if refreshElapsed >= REFRESH then
         refreshElapsed = 0
-        Guarded(Periodic)
+        Timed("periodic", function() Guarded(Periodic) end)
     end
     tickElapsed = tickElapsed + elapsed
     if tickElapsed >= TICK then
         tickElapsed = 0
-        Guarded(UpdateMana)
+        local now = GetTime()
+        if work.full then
+            -- A window was just shown: it was skipped while hidden.
+            work.full, work.dirty, work.thresholdsDirty = false, false, true
+            Timed("mana", function() Guarded(Refresh) end)
+        elseif work.dirty or testStartTime or now < fsrEndTime + TICK
+            or now - work.lastManaEvent < (work.holdTime or HISTORY) then
+            -- Something changed, or recent mana changes still matter (the highlight, and the
+            -- mana threshold's "keep showing"). At full mana with nothing going on, nothing runs.
+            work.dirty = false
+            Timed("mana", function() Guarded(UpdateMana) end)
+        end
     end
 end)
 
@@ -2673,6 +2756,8 @@ driver:RegisterEvent("BAG_UPDATE_DELAYED")
 driver:RegisterEvent("SPELL_DATA_LOAD_RESULT")
 driver:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 driver:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+driver:RegisterUnitEvent("UNIT_HEALTH", "player")
+driver:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
 driver:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 driver:RegisterUnitEvent("UNIT_AURA", "player")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -2705,10 +2790,10 @@ local function OnEvent(_, event, unit, arg2, arg3)
         return
     elseif event == "PLAYER_REGEN_DISABLED" then
         SetInFight(true)
-        UpdateMana()
+        work.dirty = true
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetInFight(false)
-        UpdateMana()
+        work.dirty = true
         if pendingRebuild then
             Rebuild()
         else
@@ -2728,7 +2813,9 @@ local function OnEvent(_, event, unit, arg2, arg3)
                 table.remove(manaEventTimes, 1)
             end
         end
-        UpdateMana()
+        -- Picked up by the next tick (at most 20 a second, however many events come).
+        work.lastManaEvent = GetTime()
+        work.dirty = true
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- A spell that costs mana starts the 5-second rule.
         local spellID = arg3
@@ -2738,17 +2825,18 @@ local function OnEvent(_, event, unit, arg2, arg3)
                 fsrEndTime = GetTime() + FIVE_SECOND_RULE
             end
         end
-        UpdateMana()
+        work.dirty = true
     elseif event == "PLAYER_TARGET_CHANGED" then
         ReadTarget()
         UpdateCooldowns()
-        UpdateMana()
+    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+        -- For the health threshold: picked up by the next tick.
+        work.dirty = true
     elseif event == "UNIT_AURA" then
         UpdateClearcasting()
-        UpdateMana()
+        work.dirty = true
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "BAG_UPDATE_COOLDOWN" then
         UpdateCooldowns()
-        UpdateMana()
     elseif event == "SPELLS_CHANGED" or event == "UPDATE_SHAPESHIFT_FORMS" then
         ScanSpellbook()
         -- A spell or rank learned can change which variation is the costliest one you can cast.
@@ -2774,8 +2862,10 @@ end
 
 driver:SetScript("OnEvent", function(self, event, ...)
     local count, args = select("#", ...), { ... }
-    Guarded(function()
-        OnEvent(self, event, unpack(args, 1, count))
+    Timed("events", function()
+        Guarded(function()
+            OnEvent(self, event, unpack(args, 1, count))
+        end)
     end)
 end)
 
@@ -3092,6 +3182,28 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateCooldowns()
             UpdateMana()
         end
+    elseif cmd == "perf" then
+        -- Time spent since the last /fseq perf (or login), per part.
+        local seconds = math.max(0.001, GetTime() - work.since)
+        if not debugprofilestop then
+            Print("no timer available.")
+        end
+        local total = 0
+        for _, name in ipairs({ "mana", "periodic", "events" }) do
+            local cost = work.cost[name] or 0
+            total = total + cost
+            Print(string.format("%s: %.2f ms/s over %d calls (%.1f a second)", name, cost / seconds,
+                work.calls[name] or 0, (work.calls[name] or 0) / seconds))
+        end
+        local cells = 0
+        for _, row in ipairs(rows) do
+            cells = cells + #row.cells
+        end
+        Print(string.format("total %.2f ms/s over the last %.0fs; %d rows, %d icons built. Counters reset.",
+            total / seconds, seconds, #rows, cells))
+        wipe(work.cost)
+        wipe(work.calls)
+        work.since = GetTime()
     elseif cmd == "defaults" then
         ns.ResetToDefaults()
         Print("windows and sequences reset to the defaults.")
@@ -3100,6 +3212,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq (options) | reset | test | cdtest [spell] | defaults | debug")
+        Print("/fseq (options) | reset | test | cdtest [spell] | defaults | perf | debug")
     end
 end
