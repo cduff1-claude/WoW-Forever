@@ -79,6 +79,9 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   with `SPELL_DATA_LOAD_RESULT`, and many spells' descriptions are always empty. Request each spell only
   once, and in the event handler only set a flag for later. Refreshing from the event, which reads
   descriptions and requests again, loops and froze or crashed the client.
+- **Idle cost:** don't redraw on a constant timer. `UNIT_POWER_FREQUENT` only fires when mana changes, so drive
+  mana work from it, with a short tail after the last event for anything time-based. At full mana, nothing then
+  runs. Skip hidden windows too. Confirmed in game: idle CPU fell to under 10% of the constant-timer version.
 - **Lua's limit of 200 local variables per function** includes a file's top level. A big addon file can hit it
   ("too many local variables" when it loads, and the whole file fails). Keep self-contained helpers in a
   `do ... end` block, or on `ns`, rather than adding top-level locals.
