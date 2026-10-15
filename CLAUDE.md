@@ -84,7 +84,10 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   runs. Skip hidden windows too. Confirmed in game: idle CPU fell to under 10% of the constant-timer version.
 - **Lua's limit of 200 local variables per function** includes a file's top level. A big addon file can hit it
   ("too many local variables" when it loads, and the whole file fails). Keep self-contained helpers in a
-  `do ... end` block, or on `ns`, rather than adding top-level locals.
+  `do ... end` block, or on `ns`, rather than adding top-level locals. ForeverSequences keeps its constants in a
+  `C` table, spell-description parsers in `Parse`, run-time state in `work`, and the overheal row helpers in `Terms`;
+  add new things to those (or a new table) rather than as top-level locals. To check how many slots are left, load
+  the file with N extra `local` lines appended and find the largest N that still loads.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
   - Open from a slash command with `pcall(Settings.OpenToCategory, category:GetID())`. See the existing addons.

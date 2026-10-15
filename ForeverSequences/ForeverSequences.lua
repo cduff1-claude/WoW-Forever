@@ -16,34 +16,37 @@
 --   fill bar   : range [mana needed before this spell, mana needed up to and including it],
 --                value = current mana. Its fill edge is how far the colour icon is revealed.
 --   now switch : range [total - 1, total], value = current mana. Empty or full width.
---   prev switch: the same, but its value is the mana reading from FLASH_HOLD seconds ago.
---   highlight  : clipped to "now full" and "prev empty", so it shows for FLASH_HOLD seconds
+--   prev switch: the same, but its value is the mana reading from C.FLASH_HOLD seconds ago.
+--   highlight  : clipped to "now full" and "prev empty", so it shows for C.FLASH_HOLD seconds
 --                after the mana for this spell arrives, then disappears by itself.
 --   band       : every candidate row of a sequence sits in the same place, clipped to
 --                "mana >= low" and "mana < high". The bands don't overlap, so one row shows.
 
-local ADDON_NAME, ns = ...
+local _, ns = ...
 
-local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+-- Constants (in one table: the file's top level is near Lua's limit of 200 locals).
+local C = {}
 
-local ICON_SIZE = 36
-local SUB_ICON_SIZE = 28     -- the sub-sequence row under an always-shown Primary
-local SUB_INDENT = 14
-local ICON_GAP = 4
-local ROW_GAP = 6
-local PADDING = 6
-local GLOW_SIZE = 3          -- highlight border width, drawn just outside the icon
-local FLASH_HOLD = 2.0       -- seconds the highlight stays after a spell becomes affordable
-local TICK = 0.05            -- how often mana is re-read
-local REFRESH = 1.0          -- how often cooldowns are re-read
-local TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
-local FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
-local GLOBAL_COOLDOWN = 1.5  -- used when the game won't say a spell's global cooldown
-local INSTANT_LIMIT = 10     -- "instant cast" effects work on casts shorter than this
-local FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
-local NEVER = 1e9            -- a mana value no one reaches
-local MAX_GATES = 13         -- health, mana now, and mana 1..MAX_HOLD seconds ago
-local MAX_HOLD = 10          -- longest "keep showing" time for the mana threshold
+C.MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+
+C.ICON_SIZE = 36
+C.SUB_ICON_SIZE = 28     -- the sub-sequence row under an always-shown Primary
+C.SUB_INDENT = 14
+C.ICON_GAP = 4
+C.ROW_GAP = 6
+C.PADDING = 6
+C.GLOW_SIZE = 3          -- highlight border width, drawn just outside the icon
+C.FLASH_HOLD = 2.0       -- seconds the highlight stays after a spell becomes affordable
+C.TICK = 0.05            -- how often mana is re-read
+C.REFRESH = 1.0          -- how often cooldowns are re-read
+C.TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
+C.FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
+C.GLOBAL_COOLDOWN = 1.5  -- used when the game won't say a spell's global cooldown
+C.INSTANT_LIMIT = 10     -- "instant cast" effects work on casts shorter than this
+C.FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
+C.NEVER = 1e9            -- a mana value no one reaches
+C.MAX_GATES = 13         -- health, mana now, and mana 1..MAX_HOLD seconds ago
+C.MAX_HOLD = 10          -- longest "keep showing" time for the mana threshold
 
 -- What needs redoing, so the addon does nothing it doesn't have to. Mana is secret, so there's
 -- no telling when it's full; but the game only sends mana events when it changes, so with no
@@ -61,20 +64,20 @@ local work = {
     progressRows = {},       -- fixed windows' Primaries, which track how far through you are
 }
 
-local GREY_SHADE = 0.5
-local GLOW_COLOR = { 1.0, 0.85, 0.2 }
-local POTION_ICON = 134853   -- a generic blue potion, for "best mana potion" with none in bags
+C.GREY_SHADE = 0.5
+C.GLOW_COLOR = { 1.0, 0.85, 0.2 }
+C.POTION_ICON = 134853   -- a generic blue potion, for "best mana potion" with none in bags
 
 -- The Clearcasting buff (Omen of Clarity) makes the next spell that uses it free. These
 -- don't use it, so it carries on to the next spell. Forms and items never use it either.
-local CLEARCASTING = "Clearcasting"
-local CLEARCASTING_IGNORES = {
+C.CLEARCASTING = "Clearcasting"
+C.CLEARCASTING_IGNORES = {
     ["Wrath"] = true,
 }
 
 -- Forms, cast as "/cast !Form" so clicking them never shifts you back out. The stance bar
 -- adds whatever forms you know; this list covers them before they're learned.
-local FORM_NAMES = {
+C.FORM_NAMES = {
     ["Bear Form"] = true,
     ["Dire Bear Form"] = true,
     ["Cat Form"] = true,
@@ -84,7 +87,7 @@ local FORM_NAMES = {
 }
 
 -- Spells that are replaced by another once learned (the spellbook then only lists the new one).
-local REPLACED_BY = {
+C.REPLACED_BY = {
     ["Bear Form"] = "Dire Bear Form",
 }
 
@@ -97,7 +100,7 @@ end
 -- Starting sequences and windows, for a character with no class default yet: a switching
 -- window (one row per sequence, gaps close up) and a fixed one (the Primary always shown,
 -- clickable, with the best sub-sequence under it).
-local DEFAULT_LIBRARY = {
+C.DEFAULT_LIBRARY = {
     {
         id = 1,
         name = "Bear out",
@@ -118,7 +121,7 @@ local DEFAULT_LIBRARY = {
         },
     },
 }
-local DEFAULT_WINDOWS = {
+C.DEFAULT_WINDOWS = {
     { name = "Main", type = "dynamic", items = { { id = 1, enabled = true } } },
     { name = "Clickable", type = "fixed", items = { { id = 2, enabled = true } } },
 }
@@ -126,7 +129,7 @@ local DEFAULT_WINDOWS = {
 ForeverSequencesDB = ForeverSequencesDB or {}
 local db = ForeverSequencesDB
 
-local DEFAULTS = {
+C.DEFAULTS = {
     regenMode = "smooth", -- "smooth" (Forever's regen, a steady flow) or "off"
 }
 
@@ -158,7 +161,7 @@ ns.EnsureVariationIds = EnsureVariationIds
 
 -- Settings a window gets when it doesn't have them yet. The thresholds and target filter
 -- only apply to switching and stacked windows.
-local WINDOW_DEFAULTS = {
+C.WINDOW_DEFAULTS = {
     type = "dynamic",
     enabled = true,
     onlyInCombat = false,
@@ -192,14 +195,14 @@ ns.NewId = NewId
 -- lists the ones it shows ({ id, enabled }), so the same sequence can be in several windows.
 local function PrepareProfile()
     if type(db.windows) ~= "table" then
-        db.windows = CopyTable(DEFAULT_WINDOWS)
-        db.library = CopyTable(DEFAULT_LIBRARY)
+        db.windows = CopyTable(C.DEFAULT_WINDOWS)
+        db.library = CopyTable(C.DEFAULT_LIBRARY)
     end
     db.library = db.library or {}
     for _, window in ipairs(db.windows) do
         window.items = window.items or {}
         window.id = window.id or NewId()
-        for key, value in pairs(WINDOW_DEFAULTS) do
+        for key, value in pairs(C.WINDOW_DEFAULTS) do
             if window[key] == nil then
                 window[key] = value
             end
@@ -242,7 +245,7 @@ end
 
 function ns.NewWindow(name)
     local window = { name = name, items = {} }
-    for key, value in pairs(WINDOW_DEFAULTS) do
+    for key, value in pairs(C.WINDOW_DEFAULTS) do
         window[key] = type(value) == "table" and CopyTable(value) or value
     end
     return window
@@ -289,7 +292,7 @@ end
 -- Spellbook: every rank of every spell you know
 ----------------------------------------------------------------------------------------------
 
-local BOOK_BANK = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
+C.BOOK_BANK = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
 local spellbook = {}   -- name -> { ranks = { [rank] = spellID }, maxRank = n, maxID = id }
 local rankOfSpell = {} -- spellID -> rank (0 for spells without ranks)
 local formSpells = {}  -- spellID -> true, from the stance bar
@@ -310,8 +313,8 @@ local function ScanSpellbook()
                 local first = (info.itemIndexOffset or 0) + 1
                 local last = (info.itemIndexOffset or 0) + (info.numSpellBookItems or 0)
                 for index = first, last do
-                    local okType, itemType = pcall(book.GetSpellBookItemType, index, BOOK_BANK)
-                    local item = book.GetSpellBookItemInfo(index, BOOK_BANK)
+                    local okType, itemType = pcall(book.GetSpellBookItemType, index, C.BOOK_BANK)
+                    local item = book.GetSpellBookItemInfo(index, C.BOOK_BANK)
                     local name = item and Text(item.name)
                     local spellID = item and (item.spellID or item.actionID)
                     if name and IsReadableNumber(spellID) and not item.isPassive
@@ -356,7 +359,7 @@ local function SpellNameOf(spellID)
 end
 
 local function BookEntry(name)
-    return spellbook[name] or (REPLACED_BY[name] and spellbook[REPLACED_BY[name]])
+    return spellbook[name] or (C.REPLACED_BY[name] and spellbook[C.REPLACED_BY[name]])
 end
 
 -- Every rank you know of a spell, lowest first, for the editor.
@@ -393,7 +396,7 @@ local function ResolveSpell(name, pinnedRank)
 end
 
 local function IsForm(name, spellID)
-    return (spellID and formSpells[spellID]) or FORM_NAMES[name] or false
+    return (spellID and formSpells[spellID]) or C.FORM_NAMES[name] or false
 end
 
 ----------------------------------------------------------------------------------------------
@@ -412,7 +415,7 @@ local function GetManaCost(spellID)
     for _, info in ipairs(costs) do
         local isMana = false
         if info.type ~= nil and not IsSecret(info.type) then
-            isMana = info.type == MANA_POWER_TYPE
+            isMana = info.type == C.MANA_POWER_TYPE
         end
         if not isMana and info.name ~= nil and not IsSecret(info.name) then
             isMana = info.name == "MANA"
@@ -470,8 +473,11 @@ local function GetDescription(spellID)
     return nil
 end
 
+-- Reading spell descriptions (in one table, to save top-level locals).
+local Parse = {}
+
 -- Whether the spell's tooltip says "Channeled".
-local function IsChanneled(spellID)
+function Parse.IsChanneled(spellID)
     if not (spellID and C_TooltipInfo and C_TooltipInfo.GetSpellByID) then
         return false
     end
@@ -488,23 +494,23 @@ local function IsChanneled(spellID)
     return false
 end
 
-local function Number(text)
+function Parse.Number(text)
     return text and tonumber((text:gsub(",", ""))) or nil
 end
 
 -- What a description says about mana: instant amount, or amount and seconds for "over N sec".
 -- Uses the low end of "X to Y", so the sequence is never shown as affordable too early.
-local function ParseManaGain(description)
+function Parse.ParseManaGain(description)
     if not description then
         return nil
     end
     local text = description:gsub("\r?\n", " ")
     local low = text:match("[Rr]estores ([%d,]+) to [%d,]+ mana") or text:match("[Rr]estores ([%d,]+) mana")
-    local amount = Number(low)
+    local amount = Parse.Number(low)
     if not amount then
         return nil
     end
-    local over = Number(text:match("[Rr]estores [^%.]-mana over ([%d%.]+) sec"))
+    local over = Parse.Number(text:match("[Rr]estores [^%.]-mana over ([%d%.]+) sec"))
     return amount, over
 end
 
@@ -522,29 +528,29 @@ function ns.ParseHeal(description)
         if amount then
             local rest = text:sub(after, after + 30):gsub("^ to [%d,]+", "")
             if not (rest:find("^ over") or rest:find("^ health over")) then
-                return Number(amount)
+                return Parse.Number(amount)
             end
         end
     end
     return nil
 end
 
-local function ChannelTime(spellID, description)
-    if not (description and IsChanneled(spellID)) then
+function Parse.ChannelTime(spellID, description)
+    if not (description and Parse.IsChanneled(spellID)) then
         return 0
     end
-    return Number(description:match("over ([%d%.]+) sec")) or 0
+    return Parse.Number(description:match("over ([%d%.]+) sec")) or 0
 end
 
 -- "Increases the target's Mana regeneration by 400% and allows 100% of the target's Mana
 -- regeneration to continue while casting. Lasts 20 sec." (Innervate, cast on yourself.)
-local function ParseRegenBoost(description)
+function Parse.ParseRegenBoost(description)
     if not description then
         return nil
     end
     local text = description:gsub("\r?\n", " ")
-    local percent = Number(text:match("[Mm]ana regeneration by ([%d,]+)%%"))
-    local duration = Number(text:match("[Ll]asts ([%d%.]+) sec")) or Number(text:match("for ([%d%.]+) sec"))
+    local percent = Parse.Number(text:match("[Mm]ana regeneration by ([%d,]+)%%"))
+    local duration = Parse.Number(text:match("[Ll]asts ([%d%.]+) sec")) or Parse.Number(text:match("for ([%d%.]+) sec"))
     if not (percent and duration and duration > 0) then
         return nil
     end
@@ -557,7 +563,7 @@ end
 
 -- "Only works on Beasts and Dragonkin." -> { Beast = true, Dragonkin = true }, matched against
 -- UnitCreatureType (singular names).
-local function ParseCreatureTypes(description)
+function Parse.ParseCreatureTypes(description)
     local list = description and description:match("[Oo]nly works on ([%a ,]+)")
     if not list then
         return nil
@@ -573,7 +579,7 @@ local function ParseCreatureTypes(description)
     return next(types) and types or nil
 end
 
-local function MakesNextInstant(description)
+function Parse.MakesNextInstant(description)
     return description ~= nil and description:find("becomes an instant cast") ~= nil
 end
 
@@ -614,8 +620,8 @@ end
 
 local bagCounts = {}
 local manaPotions = {} -- { itemID, gain }, most mana first
-local POTION_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
-local POTION_SUBCLASS = 1 -- Consumable > Potion
+C.POTION_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
+C.POTION_SUBCLASS = 1 -- Consumable > Potion
 
 local function ScanBags()
     wipe(bagCounts)
@@ -634,9 +640,9 @@ local function ScanBags()
     end
     for itemID in pairs(bagCounts) do
         local ok, _, _, _, _, _, classID, subclassID = pcall(C_Item.GetItemInfoInstant, itemID)
-        if ok and classID == POTION_CLASS and subclassID == POTION_SUBCLASS then
+        if ok and classID == C.POTION_CLASS and subclassID == C.POTION_SUBCLASS then
             local spellID = GetItemUseSpell(itemID)
-            local gain, over = ParseManaGain(GetDescription(spellID))
+            local gain, over = Parse.ParseManaGain(GetDescription(spellID))
             if gain and not over then
                 manaPotions[#manaPotions + 1] = { itemID = itemID, gain = gain }
             end
@@ -677,7 +683,7 @@ local function ResolveEntry(entry)
         local best = manaPotions[1]
         info.itemID = best and best.itemID
         info.spellID = best and GetItemUseSpell(best.itemID)
-        info.icon = best and GetItemIcon(best.itemID) or POTION_ICON
+        info.icon = best and GetItemIcon(best.itemID) or C.POTION_ICON
         info.available = best ~= nil
     end
     return info
@@ -768,14 +774,14 @@ function ns.HasCooldown(entry)
         return true
     end
     local spellID = ResolveSpell(entry.name, entry.rank) or entry.spellID
-    if ParseCreatureTypes(GetDescription(spellID)) then
+    if Parse.ParseCreatureTypes(GetDescription(spellID)) then
         return true
     end
     local fn = (C_Spell and C_Spell.GetSpellBaseCooldown) or GetSpellBaseCooldown
     if spellID and fn then
         local ok, cooldownMS = pcall(fn, spellID)
         if ok and IsReadableNumber(cooldownMS) then
-            return cooldownMS > GLOBAL_COOLDOWN * 1000
+            return cooldownMS > C.GLOBAL_COOLDOWN * 1000
         end
     end
     return false
@@ -1040,8 +1046,8 @@ end
 local function SetSwitchAt(switch, at)
     if at == -math.huge then
         switch:SetMinMaxValues(-2, -1)
-    elseif at >= NEVER then
-        switch:SetMinMaxValues(NEVER - 1, NEVER)
+    elseif at >= C.NEVER then
+        switch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
     else
         switch:SetMinMaxValues(at - 1, at)
     end
@@ -1205,11 +1211,11 @@ local function GetRoot(index)
     -- switches are kept full; with no conditions the first is kept empty.
     root.gates = {}
     local previous
-    for i = 1, MAX_GATES do
+    for i = 1, C.MAX_GATES do
         local gate = NewFrame("StatusBar", root)
         gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         gate:SetStatusBarColor(0, 0, 0, 0)
-        gate:SetMinMaxValues(NEVER - 1, NEVER)
+        gate:SetMinMaxValues(C.NEVER - 1, C.NEVER)
         gate:SetValue(0)
         if previous then
             local edge = previous:GetStatusBarTexture()
@@ -1278,7 +1284,7 @@ end
 -- Clicking (fixed windows' Primary only: those buttons never move or swap)
 ----------------------------------------------------------------------------------------------
 
-local buttonCount = 0
+work.buttonCount = 0
 local pendingActions = false -- secure changes waiting for the end of combat
 
 local function SetPassThrough(frame, ...)
@@ -1356,8 +1362,8 @@ end
 local function CreateCell(parent, secure)
     local cell
     if secure then
-        buttonCount = buttonCount + 1
-        cell = CreateFrame("Button", "ForeverSequencesButton" .. buttonCount, parent, "SecureActionButtonTemplate")
+        work.buttonCount = work.buttonCount + 1
+        cell = CreateFrame("Button", "ForeverSequencesButton" .. work.buttonCount, parent, "SecureActionButtonTemplate")
         cell:SetFrameLevel(parent:GetFrameLevel() + 1)
         cell:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
         cell:HookScript("OnEnter", ShowTooltip)
@@ -1383,7 +1389,7 @@ local function CreateCell(parent, secure)
     -- Grey icon underneath; the colour icon on top is revealed by the fill bar's edge.
     local grey = NewIconTexture(cell, "ARTWORK", cell)
     grey:SetDesaturated(true)
-    grey:SetVertexColor(GREY_SHADE, GREY_SHADE, GREY_SHADE)
+    grey:SetVertexColor(C.GREY_SHADE, C.GREY_SHADE, C.GREY_SHADE)
 
     -- Click-to-cast icons (only fixed windows' Primaries have them) also get a second colour
     -- layer, filling from the right (greying from the left), for when you're partway through
@@ -1440,10 +1446,10 @@ local function CreateCell(parent, secure)
         cooldown:SetHideCountdownNumbers(false)
     end
 
-    -- Highlight: shown only while "enough now" and "not enough FLASH_HOLD seconds ago".
+    -- Highlight: shown only while "enough now" and "not enough C.FLASH_HOLD seconds ago".
     local glowArea = NewFrame("Frame", cell)
-    glowArea:SetPoint("TOPLEFT", cell, "TOPLEFT", -GLOW_SIZE, GLOW_SIZE)
-    glowArea:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", GLOW_SIZE, -GLOW_SIZE)
+    glowArea:SetPoint("TOPLEFT", cell, "TOPLEFT", -C.GLOW_SIZE, C.GLOW_SIZE)
+    glowArea:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", C.GLOW_SIZE, -C.GLOW_SIZE)
     local nowSwitch = NewSwitch(cell, glowArea)
     local prevSwitch = NewSwitch(cell, glowArea)
     local enoughNow = NewClip(cell, nowSwitch, "LEFT", nowSwitch:GetStatusBarTexture(), "RIGHT")
@@ -1452,7 +1458,7 @@ local function CreateCell(parent, secure)
     local glow = NewFrame("Frame", fresh)
     glow:SetAllPoints(glowArea)
 
-    local r, g, b = GLOW_COLOR[1], GLOW_COLOR[2], GLOW_COLOR[3]
+    local r, g, b = C.GLOW_COLOR[1], C.GLOW_COLOR[2], C.GLOW_COLOR[3]
     local function Edge(p1, p2, w, h)
         local t = glow:CreateTexture(nil, "OVERLAY")
         t:SetColorTexture(r, g, b, 1)
@@ -1461,10 +1467,10 @@ local function CreateCell(parent, secure)
         if w then t:SetWidth(w) end
         if h then t:SetHeight(h) end
     end
-    Edge("TOPLEFT", "TOPRIGHT", nil, GLOW_SIZE)
-    Edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, GLOW_SIZE)
-    Edge("TOPLEFT", "BOTTOMLEFT", GLOW_SIZE, nil)
-    Edge("TOPRIGHT", "BOTTOMRIGHT", GLOW_SIZE, nil)
+    Edge("TOPLEFT", "TOPRIGHT", nil, C.GLOW_SIZE)
+    Edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, C.GLOW_SIZE)
+    Edge("TOPLEFT", "BOTTOMLEFT", C.GLOW_SIZE, nil)
+    Edge("TOPRIGHT", "BOTTOMRIGHT", C.GLOW_SIZE, nil)
 
     local flash = glow:CreateTexture(nil, "OVERLAY")
     flash:SetAllPoints(cell)
@@ -1541,14 +1547,14 @@ local function AcquireCell(rowFrame, index, size, secure)
     end
     cell:SetSize(size, size)
     cell:ClearAllPoints()
-    cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", (index - 1) * (size + ICON_GAP), 0)
+    cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", (index - 1) * (size + C.ICON_GAP), 0)
     cell.info, cell.onCooldown, cell.actionPending, cell.fakeCooldownEnd = nil, nil, nil, nil
     cell.shownStart, cell.shownDuration = nil, nil
     cell.cooldown:Clear()
     cell.rankText:SetText("")
     if cell.gate then
         for _, switch in ipairs({ cell.gate, cell.fadeGate }) do
-            switch:SetMinMaxValues(NEVER - 1, NEVER)
+            switch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
             switch:SetValue(0)
         end
     end
@@ -1652,26 +1658,26 @@ end
 function Terms.Set(term, x1, x2)
     SetSwitchAt(term.s1, x1)
     if term.or2 then
-        SetSwitchAt(term.s2, x2 or (term.ge2 and NEVER or -math.huge))
+        SetSwitchAt(term.s2, x2 or (term.ge2 and C.NEVER or -math.huge))
     end
 end
 
 function Terms.Always(term)
-    Terms.Set(term, term.ge1 and -math.huge or NEVER)
+    Terms.Set(term, term.ge1 and -math.huge or C.NEVER)
 end
 
 local groups = {}
 local rows = {}       -- every candidate row of every group, for the threshold maths
 
 local function LineWidth(cellCount, size)
-    return cellCount * size + math.max(0, cellCount - 1) * ICON_GAP + GLOW_SIZE * 2
+    return cellCount * size + math.max(0, cellCount - 1) * C.ICON_GAP + C.GLOW_SIZE * 2
 end
 
 -- One row of icons inside `parent`, placed at the top left of `line`.
 local function CreateRow(group, rowFrame, line, def, size, label, secure)
     rowFrame:ClearAllPoints()
-    rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", GLOW_SIZE, -GLOW_SIZE)
-    rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - GLOW_SIZE * 2), size)
+    rowFrame:SetPoint("TOPLEFT", line, "TOPLEFT", C.GLOW_SIZE, -C.GLOW_SIZE)
+    rowFrame:SetSize(math.max(1, LineWidth(#def.entries, size) - C.GLOW_SIZE * 2), size)
     local row = { frame = rowFrame, group = group, root = group.root, def = def, label = label, cells = {}, total = 0,
         hide = group.def and group.def.hideOnCooldown or false }
     local window = group.root and group.root.window
@@ -1802,8 +1808,8 @@ local function BuildWindow(root, window)
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed,
                 skipOverheal = window.skipOverheal and not root.fixed or nil }
             if root.fixed then
-                group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
-                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
+                group.mainLine = NewLine(root, LineWidth(#def.entries, C.ICON_SIZE), C.ICON_SIZE + C.GLOW_SIZE * 2)
+                group.primary = CreatePlainRow(group, group.mainLine, def, C.ICON_SIZE, "primary", true)
                 -- Clicked through in order: tracks how far through it you are (see work.ProgressCast).
                 group.primary.progressive = true
                 work.progressRows[#work.progressRows + 1] = group.primary
@@ -1811,23 +1817,23 @@ local function BuildWindow(root, window)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
                     -- and click-to-cast buttons can't move in combat.
-                    group.subLine = NewLine(root, LineWidth(subCount, SUB_ICON_SIZE), SUB_ICON_SIZE + GLOW_SIZE * 2)
+                    group.subLine = NewLine(root, LineWidth(subCount, C.SUB_ICON_SIZE), C.SUB_ICON_SIZE + C.GLOW_SIZE * 2)
                     for i, sub in ipairs(subs) do
-                        group.subs[i] = CreateBandedRow(group, group.subLine, sub, SUB_ICON_SIZE, "sub " .. i)
+                        group.subs[i] = CreateBandedRow(group, group.subLine, sub, C.SUB_ICON_SIZE, "sub " .. i)
                     end
                 end
             else
                 local count = math.max(#def.entries, MostEntries(subs))
-                group.mainLine = NewLine(root, LineWidth(count, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
+                group.mainLine = NewLine(root, LineWidth(count, C.ICON_SIZE), C.ICON_SIZE + C.GLOW_SIZE * 2)
                 if group.skipOverheal then
-                    group.primary = CreateTermRow(group, group.mainLine, def, ICON_SIZE, "primary", #subs)
+                    group.primary = CreateTermRow(group, group.mainLine, def, C.ICON_SIZE, "primary", #subs)
                     for i, sub in ipairs(subs) do
-                        group.subs[i] = CreateTermRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i, #subs)
+                        group.subs[i] = CreateTermRow(group, group.mainLine, sub, C.ICON_SIZE, "sub " .. i, #subs)
                     end
                 else
-                    group.primary = CreateBandedRow(group, group.mainLine, def, ICON_SIZE, "primary")
+                    group.primary = CreateBandedRow(group, group.mainLine, def, C.ICON_SIZE, "primary")
                     for i, sub in ipairs(subs) do
-                        group.subs[i] = CreateBandedRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i)
+                        group.subs[i] = CreateBandedRow(group, group.mainLine, sub, C.ICON_SIZE, "sub " .. i)
                     end
                 end
             end
@@ -1892,12 +1898,12 @@ local function BuildStacked(root, window)
     for _, v in ipairs(variations) do
         count = math.max(count, #v.variation.entries)
     end
-    local width = LineWidth(count, ICON_SIZE)
-    local height = ICON_SIZE + GLOW_SIZE * 2
+    local width = LineWidth(count, C.ICON_SIZE)
+    local height = C.ICON_SIZE + C.GLOW_SIZE * 2
     local group = { name = window.name or "?", root = root, stack = stack }
     if pinnedDef then
         stack.pinnedLine = NewLine(root, width, height)
-        stack.pinned = CreatePlainRow(group, stack.pinnedLine, pinnedDef, ICON_SIZE, "top", false)
+        stack.pinned = CreatePlainRow(group, stack.pinnedLine, pinnedDef, C.ICON_SIZE, "top", false)
         stack.pinnedName = pinnedDef.name or "?"
     end
     for k = 1, #variations do
@@ -1906,7 +1912,7 @@ local function BuildStacked(root, window)
     for i, v in ipairs(variations) do
         local cand = { order = i, name = v.name, rows = {} }
         for k, line in ipairs(stack.lines) do
-            cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
+            cand.rows[k] = CreateBandedRow(group, line, v.variation, C.ICON_SIZE, string.format("%03d", i))
             -- Every copy needs what the first one needs: work it out once.
             cand.rows[k].twin = k > 1 and cand.rows[1] or nil
             cand.rows[k].hide = v.hide
@@ -1928,7 +1934,7 @@ local function LayoutWindows()
             local key = tostring(stack.active)
             if key ~= root.layoutKey then
                 root.layoutKey = key
-                local y = -PADDING
+                local y = -C.PADDING
                 local width = 0
                 local lines = {}
                 if stack.pinnedLine then
@@ -1942,11 +1948,11 @@ local function LayoutWindows()
                 end
                 for _, line in ipairs(lines) do
                     line:ClearAllPoints()
-                    line:SetPoint("TOPLEFT", root, "TOPLEFT", PADDING - GLOW_SIZE, y + GLOW_SIZE)
+                    line:SetPoint("TOPLEFT", root, "TOPLEFT", C.PADDING - C.GLOW_SIZE, y + C.GLOW_SIZE)
                     width = math.max(width, line:GetWidth())
-                    y = y - ICON_SIZE - ROW_GAP
+                    y = y - C.ICON_SIZE - C.ROW_GAP
                 end
-                root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 60), math.max(-y - ROW_GAP + PADDING, 24))
+                root:SetSize(math.max(width + C.PADDING * 2 - C.GLOW_SIZE * 2, 60), math.max(-y - C.ROW_GAP + C.PADDING, 24))
                 for i = 2, #root.gates do
                     root.gates[i]:SetWidth(root:GetWidth())
                 end
@@ -1959,7 +1965,7 @@ local function LayoutWindows()
             key = table.concat(key)
             if key ~= root.layoutKey then
                 root.layoutKey = key
-                local y = -PADDING
+                local y = -C.PADDING
                 local width = 0
                 for _, group in ipairs(root.groups) do
                     local shown = root.fixed or not group.collapsed
@@ -1969,21 +1975,21 @@ local function LayoutWindows()
                     end
                     if shown then
                         group.mainLine:ClearAllPoints()
-                        group.mainLine:SetPoint("TOPLEFT", root, "TOPLEFT", PADDING - GLOW_SIZE, y + GLOW_SIZE)
+                        group.mainLine:SetPoint("TOPLEFT", root, "TOPLEFT", C.PADDING - C.GLOW_SIZE, y + C.GLOW_SIZE)
                         width = math.max(width, group.mainLine:GetWidth())
-                        y = y - ICON_SIZE
+                        y = y - C.ICON_SIZE
                         if group.subLine then
                             group.subLine:ClearAllPoints()
                             group.subLine:SetPoint("TOPLEFT", root, "TOPLEFT",
-                                PADDING - GLOW_SIZE + SUB_INDENT, y - ICON_GAP + GLOW_SIZE)
-                            width = math.max(width, group.subLine:GetWidth() + SUB_INDENT)
-                            y = y - ICON_GAP - SUB_ICON_SIZE
+                                C.PADDING - C.GLOW_SIZE + C.SUB_INDENT, y - C.ICON_GAP + C.GLOW_SIZE)
+                            width = math.max(width, group.subLine:GetWidth() + C.SUB_INDENT)
+                            y = y - C.ICON_GAP - C.SUB_ICON_SIZE
                         end
-                        y = y - ROW_GAP
+                        y = y - C.ROW_GAP
                     end
                 end
-                local height = -y - ROW_GAP + PADDING
-                root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 60), math.max(height, 24))
+                local height = -y - C.ROW_GAP + C.PADDING
+                root:SetSize(math.max(width + C.PADDING * 2 - C.GLOW_SIZE * 2, 60), math.max(height, 24))
                 -- The later threshold switches are as wide as the window (see GetRoot).
                 for i = 2, #root.gates do
                     root.gates[i]:SetWidth(root:GetWidth())
@@ -2007,10 +2013,10 @@ local function BuildDisplay()
 
     -- How long recent mana keeps mattering after it changes: the highlight, and the longest
     -- "keep showing" of a mana threshold in use.
-    work.holdTime = FLASH_HOLD + 0.5
+    work.holdTime = C.FLASH_HOLD + 0.5
     for index, window in ipairs(db.windows) do
         if window.enabled and window.type ~= "fixed" and window.manaGate then
-            work.holdTime = math.max(work.holdTime, math.min(MAX_HOLD, window.holdSeconds or 0) + 0.5)
+            work.holdTime = math.max(work.holdTime, math.min(C.MAX_HOLD, window.holdSeconds or 0) + 0.5)
         end
     end
     for index, window in ipairs(db.windows) do
@@ -2055,20 +2061,20 @@ local function EntryData(entry, info, target)
     local isItem = info.kind ~= "spell"
     target.cost = (not isItem) and GetManaCost(spellID) or 0
     target.castTime = GetCastTime(spellID)
-    target.gcd = GetGlobalCooldown(spellID) or (isItem and 0 or GLOBAL_COOLDOWN)
-    target.channel = ChannelTime(spellID, description)
-    local gain, over = ParseManaGain(description)
+    target.gcd = GetGlobalCooldown(spellID) or (isItem and 0 or C.GLOBAL_COOLDOWN)
+    target.channel = Parse.ChannelTime(spellID, description)
+    local gain, over = Parse.ParseManaGain(description)
     if info.kind == "manapot" then
         gain, over = manaPotions[1] and manaPotions[1].gain or nil, nil
     end
     target.gain = (gain and not over) and gain or 0
     target.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
-    target.instantNext = MakesNextInstant(description)
+    target.instantNext = Parse.MakesNextInstant(description)
     target.heal = ns.ParseHeal(description) or 0
-    target.regenBoost = ParseRegenBoost(description)
-    target.creatureTypes = ParseCreatureTypes(description)
+    target.regenBoost = Parse.ParseRegenBoost(description)
+    target.creatureTypes = Parse.ParseCreatureTypes(description)
     target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
-        and not CLEARCASTING_IGNORES[entry.name]
+        and not C.CLEARCASTING_IGNORES[entry.name]
     target.bandage = false
     if info.kind == "item" and info.itemID and C_Item and C_Item.GetItemInfoInstant then
         local ok, _, _, subType, _, _, classID, subclassID = pcall(C_Item.GetItemInfoInstant, info.itemID)
@@ -2128,7 +2134,7 @@ end
 local function UpdateCellCooldown(cell, now)
     local cooldown = cell.cooldown
     if cell.fakeCooldownEnd and cell.fakeCooldownEnd > now then
-        cooldown:SetCooldown(cell.fakeCooldownEnd - FAKE_COOLDOWN, FAKE_COOLDOWN)
+        cooldown:SetCooldown(cell.fakeCooldownEnd - C.FAKE_COOLDOWN, C.FAKE_COOLDOWN)
         cell.onCooldown = true
         cell.cooldownNote = "fake"
         return
@@ -2148,7 +2154,7 @@ local function UpdateCellCooldown(cell, now)
     end
 
     if IsReadableNumber(start) and IsReadableNumber(duration) then
-        local isGCD = (onGCD ~= nil and not IsSecret(onGCD) and onGCD) or duration <= GLOBAL_COOLDOWN
+        local isGCD = (onGCD ~= nil and not IsSecret(onGCD) and onGCD) or duration <= C.GLOBAL_COOLDOWN
         if start > 0 and duration > 0 and not isGCD then
             if cell.shownStart ~= start or cell.shownDuration ~= duration then
                 cooldown:SetCooldown(start, duration, IsReadableNumber(modRate) and modRate or 1)
@@ -2249,7 +2255,7 @@ end
 -- Clearcasting, and "Recently Bandaged" (bandages can't be used while it's on you, and the
 -- game doesn't show it as a cooldown on the item). Cooldowns are checked again when it changes.
 local function UpdateClearcasting()
-    clearcasting = HasAura(CLEARCASTING, "HELPFUL")
+    clearcasting = HasAura(C.CLEARCASTING, "HELPFUL")
     local bandaged = HasAura("Recently Bandaged", "HARMFUL")
     if bandaged ~= work.recentlyBandaged then
         work.recentlyBandaged = bandaged
@@ -2306,7 +2312,7 @@ end
 
 -- `boosts` raise regen for a while ({ start, finish, multiplier, full regen while casting }),
 -- from Innervate and the like; with any, smooth regen is added up in small steps.
-local REGEN_STEP = 0.1
+C.REGEN_STEP = 0.1
 
 local function Gain(T, windows, extras, base, casting, boosts)
     if T <= 0 then
@@ -2319,9 +2325,9 @@ local function Gain(T, windows, extras, base, casting, boosts)
     else
         local t = 0
         while t < T do
-            local dt = math.min(REGEN_STEP, T - t)
+            local dt = math.min(C.REGEN_STEP, T - t)
             gained = gained + dt * RegenAt(t + dt / 2, windows, boosts, base, casting)
-            t = t + REGEN_STEP
+            t = t + C.REGEN_STEP
         end
     end
     for _, e in ipairs(extras) do
@@ -2351,7 +2357,7 @@ local function RowThresholds(row, ctx)
     local lastRegained = 0
     for i, cell in ipairs(row.cells) do
         local castTime = cell.castTime or 0
-        if instantNext and castTime > 0 and castTime < INSTANT_LIMIT then
+        if instantNext and castTime > 0 and castTime < C.INSTANT_LIMIT then
             castTime = 0
             instantNext = false
         end
@@ -2376,7 +2382,7 @@ local function RowThresholds(row, ctx)
         thresholds[i] = highest
 
         if cost > 0 then
-            windows[#windows + 1] = { due, due + FIVE_SECOND_RULE }
+            windows[#windows + 1] = { due, due + C.FIVE_SECOND_RULE }
         end
         if cell.regenBoost then
             local r = cell.regenBoost
@@ -2389,7 +2395,7 @@ local function RowThresholds(row, ctx)
         if cell.instantNext then
             instantNext = true
         end
-        startTime = startTime + math.max(castTime + (cell.channel or 0), cell.gcd or GLOBAL_COOLDOWN)
+        startTime = startTime + math.max(castTime + (cell.channel or 0), cell.gcd or C.GLOBAL_COOLDOWN)
     end
     return thresholds, lastRegained
 end
@@ -2405,7 +2411,7 @@ local function Context(now)
             ctx.base, ctx.casting = base, casting
         end
     end
-    local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
+    local maxMana = UnitPowerMax("player", C.MANA_POWER_TYPE)
     ctx.maxMana = (IsReadableNumber(maxMana) and maxMana > 0) and maxMana or nil
     ctx.fsrRemaining = math.max(0, fsrEndTime - now)
     return ctx
@@ -2534,7 +2540,7 @@ local function SetGates(row, need, mana, alsoFade)
                 switch:SetMinMaxValues(need - 1, need)
                 switch:SetValue(mana)
             else
-                switch:SetMinMaxValues(NEVER - 1, NEVER)
+                switch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
                 switch:SetValue(0)
             end
         end
@@ -2646,7 +2652,7 @@ local function UpdateThresholds(ctx)
             cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
             if cell.fillRev then
-                cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
+                cell.fillRev:SetMinMaxValues(C.NEVER - 1, C.NEVER)
             end
             previous = need
             row.total = need
@@ -2675,8 +2681,8 @@ local function UpdateThresholds(ctx)
                 else
                     cell.fillRev:SetMinMaxValues(high - 1, high)
                 end
-                cell.nowSwitch:SetMinMaxValues(NEVER - 1, NEVER)
-                cell.prevSwitch:SetMinMaxValues(NEVER - 1, NEVER)
+                cell.nowSwitch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
+                cell.prevSwitch:SetMinMaxValues(C.NEVER - 1, C.NEVER)
             end
             row.suffix = suffix
         end
@@ -2687,7 +2693,7 @@ end
 local function SetBand(row, low, high)
     low, high = low or -math.huge, high or math.huge
     if low >= high then
-        low, high = NEVER, NEVER -- never shown
+        low, high = C.NEVER, C.NEVER -- never shown
     end
     row.bandLow, row.bandHigh = low, high
     SetSwitchAt(row.low, low)
@@ -2705,9 +2711,9 @@ local function Candidates(list)
                     Terms.Always(term)
                 end
                 Terms.Set(row.terms[1], -math.huge) -- health < nothing: never
-                row.bandLow, row.bandHigh = NEVER, NEVER
+                row.bandLow, row.bandHigh = C.NEVER, C.NEVER
             else
-                SetBand(row, NEVER, NEVER)
+                SetBand(row, C.NEVER, C.NEVER)
             end
         else
             result[#result + 1] = row
@@ -2738,7 +2744,7 @@ local function UpdateStack(root)
         cand.low, cand.high = {}, {}
         if first.hide and first.onCooldown then
             for _, row in ipairs(cand.rows) do
-                SetBand(row, NEVER, NEVER)
+                SetBand(row, C.NEVER, C.NEVER)
             end
         else
             active[#active + 1] = cand
@@ -2788,7 +2794,7 @@ local function UpdateStack(root)
             if cand.low[k] then
                 SetBand(row, cand.low[k], cand.high[k])
             else
-                SetBand(row, NEVER, NEVER)
+                SetBand(row, C.NEVER, C.NEVER)
             end
         end
     end
@@ -2813,7 +2819,7 @@ function Terms.UpdateBands(list)
     for k, row in ipairs(list) do
         local terms = row.terms
         local line = row.overhealLine
-        Terms.Set(terms[1], line == math.huge and NEVER or line)
+        Terms.Set(terms[1], line == math.huge and C.NEVER or line)
         local low = -math.huge
         for j = 1, k - 1 do
             if list[j].overhealLine == math.huge then
@@ -2840,7 +2846,7 @@ function Terms.UpdateBands(list)
             for j = k + 1, #list do
                 later = math.max(later, list[j].overhealLine)
             end
-            Terms.Set(last, row.total, later == math.huge and NEVER or later)
+            Terms.Set(last, row.total, later == math.huge and C.NEVER or later)
         end
         row.bandLow, row.bandHigh = low, (k < #list) and row.total or math.huge
     end
@@ -2911,25 +2917,25 @@ local testStartTime = nil
 local function ReadMana()
     if testStartTime then
         local top = math.max(GetHighestTotal() * 1.15, 100)
-        local t = ((GetTime() - testStartTime) % TEST_SWEEP_TIME) / TEST_SWEEP_TIME
+        local t = ((GetTime() - testStartTime) % C.TEST_SWEEP_TIME) / C.TEST_SWEEP_TIME
         return math.floor(top * t)
     end
-    local mana = UnitPower("player", MANA_POWER_TYPE)
+    local mana = UnitPower("player", C.MANA_POWER_TYPE)
     if mana == nil then
         return 0
     end
     return mana
 end
 
--- Mana readings from the last FLASH_HOLD seconds, oldest first. They may be secret; they're
+-- Mana readings from the last C.FLASH_HOLD seconds, oldest first. They may be secret; they're
 -- only ever stored and handed to StatusBars.
 local samples = {}
 
-local HISTORY = math.max(FLASH_HOLD, MAX_HOLD) + 0.5
+C.HISTORY = math.max(C.FLASH_HOLD, C.MAX_HOLD) + 0.5
 
 local function RecordMana(now, mana)
     samples[#samples + 1] = { time = now, mana = mana }
-    while #samples >= 2 and samples[2].time <= now - HISTORY do
+    while #samples >= 2 and samples[2].time <= now - C.HISTORY do
         table.remove(samples, 1)
     end
 end
@@ -3035,7 +3041,7 @@ local function UpdateGates(now, mana)
                     end
                     local threshold = math.ceil(costliest * (1 + (window.manaMargin or 0) / 100))
                     root.manaThreshold = threshold
-                    local hold = math.max(0, math.min(MAX_HOLD, math.floor(window.holdSeconds or 0)))
+                    local hold = math.max(0, math.min(C.MAX_HOLD, math.floor(window.holdSeconds or 0)))
                     for t = 0, hold do
                         used = used + 1
                         SetSwitchAt(gates[used], threshold)
@@ -3045,7 +3051,7 @@ local function UpdateGates(now, mana)
             end
             if used == 0 then
                 -- Always open: the first switch empty.
-                gates[1]:SetMinMaxValues(NEVER - 1, NEVER)
+                gates[1]:SetMinMaxValues(C.NEVER - 1, C.NEVER)
                 gates[1]:SetValue(0)
                 used = 1
             end
@@ -3081,7 +3087,7 @@ local function UpdateMana()
     local mana = ReadMana()
     RecordMana(now, mana)
     work.lastMana = mana
-    local previous = ManaAgo(now, FLASH_HOLD)
+    local previous = ManaAgo(now, C.FLASH_HOLD)
     UpdateGates(now, mana)
     local health = UnitHealth("player") or 0
     for _, row in ipairs(rows) do
@@ -3110,7 +3116,7 @@ local function UpdateMana()
 end
 
 local driver = CreateFrame("Frame")
-local tickElapsed, refreshElapsed = 0, 0
+work.tickElapsed, work.refreshElapsed = 0, 0
 
 local function Refresh()
     RefreshEntries()
@@ -3120,17 +3126,17 @@ local function Refresh()
 end
 
 -- An error in the update loop would repeat 20 times a second; report it once and pause.
-local ERROR_PAUSE = 5
-local pausedUntil = 0
-local lastError
+C.ERROR_PAUSE = 5
+work.pausedUntil = 0
+work.lastError = nil
 
 local function Guarded(fn)
     local ok, err = pcall(fn)
     if not ok then
-        pausedUntil = GetTime() + ERROR_PAUSE
-        if err ~= lastError then
-            lastError = err
-            Print("|cffff6060error, pausing updates for " .. ERROR_PAUSE .. "s:|r " .. tostring(err))
+        work.pausedUntil = GetTime() + C.ERROR_PAUSE
+        if err ~= work.lastError then
+            work.lastError = err
+            Print("|cffff6060error, pausing updates for " .. C.ERROR_PAUSE .. "s:|r " .. tostring(err))
         end
     end
 end
@@ -3169,17 +3175,17 @@ local function Periodic()
 end
 
 driver:SetScript("OnUpdate", function(_, elapsed)
-    if not active or GetTime() < pausedUntil then
+    if not active or GetTime() < work.pausedUntil then
         return
     end
-    refreshElapsed = refreshElapsed + elapsed
-    if refreshElapsed >= REFRESH then
-        refreshElapsed = 0
+    work.refreshElapsed = work.refreshElapsed + elapsed
+    if work.refreshElapsed >= C.REFRESH then
+        work.refreshElapsed = 0
         Timed("periodic", function() Guarded(Periodic) end)
     end
-    tickElapsed = tickElapsed + elapsed
-    if tickElapsed >= TICK then
-        tickElapsed = 0
+    work.tickElapsed = work.tickElapsed + elapsed
+    if work.tickElapsed >= C.TICK then
+        work.tickElapsed = 0
         local now = GetTime()
         if #work.progressRows > 0 then
             Guarded(function() work.ProgressCheck(now) end)
@@ -3188,8 +3194,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
             -- A window was just shown: it was skipped while hidden.
             work.full, work.dirty, work.thresholdsDirty = false, false, true
             Timed("mana", function() Guarded(Refresh) end)
-        elseif work.dirty or testStartTime or now < fsrEndTime + TICK
-            or now - work.lastManaEvent < (work.holdTime or HISTORY) then
+        elseif work.dirty or testStartTime or now < fsrEndTime + C.TICK
+            or now - work.lastManaEvent < (work.holdTime or C.HISTORY) then
             -- Something changed, or recent mana changes still matter (the highlight, and the
             -- mana threshold's "keep showing"). At full mana with nothing going on, nothing runs.
             work.dirty = false
@@ -3199,11 +3205,11 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 -- Rebuilding moves and hides secure buttons, so in combat it waits for the end of combat.
-local pendingRebuild = false
+work.pendingRebuild = false
 
 -- Which placed sequences and sub-sequences have all their spells learned; a change means the
 -- windows need rebuilding (a spell was learned, or unlearned by a talent reset).
-local learnedSignature = nil
+work.learnedSignature = nil
 
 local function LearnedSignature()
     local parts = {}
@@ -3225,15 +3231,15 @@ local function Rebuild()
     if not active then
         return
     end
-    learnedSignature = LearnedSignature()
+    work.learnedSignature = LearnedSignature()
     if InCombatLockdown() then
-        if not pendingRebuild then
+        if not work.pendingRebuild then
             Print("the windows will update after combat.")
         end
-        pendingRebuild = true
+        work.pendingRebuild = true
         return
     end
-    pendingRebuild = false
+    work.pendingRebuild = false
     BuildDisplay()
     wipe(samples)
     Refresh()
@@ -3241,15 +3247,15 @@ end
 ns.Rebuild = Rebuild
 
 -- Several changes in a row (the options) make one rebuild, on the next frame.
-local rebuildQueued = false
+work.rebuildQueued = false
 
 function ns.RequestRebuild()
-    if rebuildQueued then
+    if work.rebuildQueued then
         return
     end
-    rebuildQueued = true
+    work.rebuildQueued = true
     C_Timer.After(0, function()
-        rebuildQueued = false
+        work.rebuildQueued = false
         Rebuild()
     end)
 end
@@ -3314,7 +3320,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetInFight(false)
         work.dirty = true
-        if pendingRebuild then
+        if work.pendingRebuild then
             Rebuild()
         else
             if pendingVisibility then
@@ -3342,7 +3348,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
         if spellID ~= nil and not IsSecret(spellID) then
             local cost = GetManaCost(spellID)
             if cost and cost > 0 then
-                fsrEndTime = GetTime() + FIVE_SECOND_RULE
+                fsrEndTime = GetTime() + C.FIVE_SECOND_RULE
             end
             work.ProgressCast(spellID)
         end
@@ -3365,7 +3371,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
         ScanSpellbook()
         -- A spell or rank learned can change which variation is the costliest one you can cast.
         local moved = ns.SortAllVariations()
-        if moved or LearnedSignature() ~= learnedSignature then
+        if moved or LearnedSignature() ~= work.learnedSignature then
             Rebuild()
         end
         Refresh()
@@ -3416,7 +3422,7 @@ local function UseProfileTable(name)
     db = root.profiles[name]
     charDB.profile = name
     ns.db = db
-    for key, value in pairs(DEFAULTS) do
+    for key, value in pairs(C.DEFAULTS) do
         if db[key] == nil then
             db[key] = value
         end
@@ -3573,13 +3579,13 @@ local function Band(value)
     if value == nil then return "-" end
     if value == -math.huge then return "-inf" end
     if value == math.huge then return "inf" end
-    if value >= NEVER then return "never" end
+    if value >= C.NEVER then return "never" end
     return tostring(value)
 end
 
 local function PrintDebug()
-    local mana = UnitPower("player", MANA_POWER_TYPE)
-    local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
+    local mana = UnitPower("player", C.MANA_POWER_TYPE)
+    local maxMana = UnitPowerMax("player", C.MANA_POWER_TYPE)
     Print("recently bandaged=" .. tostring(work.recentlyBandaged and true or false))
     Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s, clearcasting=%s",
         tostring(IsDruid()), Describe(mana), tostring(IsSecret(mana)), Describe(maxMana),
@@ -3631,7 +3637,7 @@ local function PrintDebug()
                 for _, cand in ipairs(stack.cands) do
                     local bands = {}
                     for k, row in ipairs(cand.rows) do
-                        if row.bandLow and row.bandLow < NEVER then
+                        if row.bandLow and row.bandLow < C.NEVER then
                             bands[#bands + 1] = string.format("row %d from %s to %s", k, Band(row.bandLow), Band(row.bandHigh))
                         end
                     end
@@ -3696,7 +3702,7 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
         else
             testStartTime = GetTime()
             wipe(samples)
-            Print("test sweep on: fake mana goes from 0 to full every " .. TEST_SWEEP_TIME .. "s. /fseq test to stop.")
+            Print("test sweep on: fake mana goes from 0 to full every " .. C.TEST_SWEEP_TIME .. "s. /fseq test to stop.")
         end
         if active then
             UpdateMana()
@@ -3704,7 +3710,7 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     elseif cmd == "cdtest" then
         local target = arg ~= "" and arg or "rejuvenation"
         local count = 0
-        local ends = GetTime() + FAKE_COOLDOWN
+        local ends = GetTime() + C.FAKE_COOLDOWN
         for _, row in ipairs(rows) do
             for _, cell in ipairs(row.cells) do
                 if ns.EntryName(cell.entry):lower():find(target, 1, true) then
@@ -3713,7 +3719,7 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
                 end
             end
         end
-        Print(string.format("fake %ds cooldown on %d %s icon(s).", FAKE_COOLDOWN, count, target))
+        Print(string.format("fake %ds cooldown on %d %s icon(s).", C.FAKE_COOLDOWN, count, target))
         if active then
             UpdateCooldowns()
             UpdateMana()
