@@ -784,14 +784,18 @@ local function HasUseLine(itemID)
     return false
 end
 
--- Items that never belong in a sequence: quest items, recipes, items with no "Use:",
+-- Items that never belong in a sequence: quest items, recipes, scrolls, items with no "Use:",
 -- hearthstones and anything you have to sit down for (food, drink).
 local function IsOutOfCombatItem(itemID, description)
     if itemID == 6948 then -- Hearthstone
         return true
     end
-    local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, itemID)
+    local ok, _, _, subType, _, _, classID, subclassID = pcall(C_Item.GetItemInfoInstant, itemID)
     if ok and (classID == QUEST_CLASS or classID == RECIPE_CLASS) then
+        return true
+    end
+    local scroll = Enum and Enum.ItemConsumableSubclass and Enum.ItemConsumableSubclass.Scroll
+    if ok and (subType == "Scroll" or (scroll and classID == 0 and subclassID == scroll)) then
         return true
     end
     if not HasUseLine(itemID) then
@@ -1130,8 +1134,14 @@ local function GetRoot(index)
     end
     root.content = NewClip(root, previous:GetStatusBarTexture(), "RIGHT", root, "RIGHT")
     -- Hidden windows aren't updated (only-in-combat ones out of combat, say): catch up on show.
+    -- Brought up to date at once, before it's drawn: otherwise it shows a frame of what it
+    -- last had (with both "only in combat" and a mana threshold, a flash as combat starts).
     root:HookScript("OnShow", function()
-        work.full = true
+        if work.refreshNow then
+            work.refreshNow()
+        else
+            work.full = true
+        end
     end)
     root.mover, root.label = mover, label
     root.lines, root.groups, root.linePool = {}, {}, {}
@@ -2636,6 +2646,11 @@ end
 
 -- Once a second: cooldowns (for when they end). Spell data only when the options are open, or
 -- once a minute in case an event was missed; events re-read it when it changes.
+work.refreshNow = function()
+    work.thresholdsDirty = true
+    Guarded(Refresh)
+end
+
 local function Periodic()
     if editorOpen or GetTime() - work.entriesTime >= work.ENTRY_REFRESH then
         RefreshEntries()

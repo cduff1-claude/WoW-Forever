@@ -174,7 +174,7 @@ a window selects it; they lock again when the options close.
   buffs and utility (Mark/Gift of the Wild, Thorns, Omen of Clarity, Teleport: Moonglade, Soothe Animal, tracking),
   anything that can't be cast in combat (Revive), or the rest of General and Feral. *Show all* lists every spell,
   plus the items section. Never listed, even then: passives, internal spells ("(DND)", "Shapeshift"), quest items,
-  recipes, items with no "Use:",
+  recipes, scrolls, items with no "Use:",
   hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
   The spellbook and bags work too. Escape closes the options, and the mouse wheel over them never reaches your
   key bindings.
