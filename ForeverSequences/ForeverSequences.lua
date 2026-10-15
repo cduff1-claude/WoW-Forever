@@ -1099,6 +1099,55 @@ local function ApplyPosition(root, window, index)
     end
 end
 
+-- A grid over the screen while a window is dragged, like Edit Mode's (at Edit Mode's grid
+-- spacing when the game says what it is), with the centre lines picked out.
+function work.ShowGrid(show)
+    local grid = work.grid
+    if not grid then
+        if not show then
+            return
+        end
+        grid = CreateFrame("Frame", nil, UIParent)
+        grid:SetAllPoints(UIParent)
+        grid:SetFrameStrata("BACKGROUND")
+        local editGrid = EditModeManagerFrame and EditModeManagerFrame.Grid
+        local spacing = editGrid and tonumber(editGrid.gridSpacing) or 50
+        spacing = math.max(10, spacing)
+        local function Line(vertical, offset, centre)
+            local line = grid:CreateTexture(nil, "BACKGROUND")
+            if centre then
+                line:SetColorTexture(1, 0.82, 0, 0.5)
+            else
+                line:SetColorTexture(1, 1, 1, 0.12)
+            end
+            local thickness = centre and 2 or 1
+            if vertical then
+                line:SetWidth(thickness)
+                line:SetPoint("TOP", grid, "TOP", offset, 0)
+                line:SetPoint("BOTTOM", grid, "BOTTOM", offset, 0)
+            else
+                line:SetHeight(thickness)
+                line:SetPoint("LEFT", grid, "LEFT", 0, offset)
+                line:SetPoint("RIGHT", grid, "RIGHT", 0, offset)
+            end
+        end
+        local width, height = UIParent:GetWidth(), UIParent:GetHeight()
+        Line(true, 0, true)
+        for x = spacing, width / 2, spacing do
+            Line(true, x)
+            Line(true, -x)
+        end
+        Line(false, 0, true)
+        for y = spacing, height / 2, spacing do
+            Line(false, y)
+            Line(false, -y)
+        end
+        grid:Hide()
+        work.grid = grid
+    end
+    grid:SetShown(show and true or false)
+end
+
 local function GetRoot(index)
     if roots[index] then
         return roots[index]
@@ -1127,10 +1176,12 @@ local function GetRoot(index)
         mover.dragged = true
         if not InCombatLockdown() then
             root:StartMoving()
+            work.ShowGrid(true)
         end
     end)
     mover:SetScript("OnDragStop", function()
         root:StopMovingOrSizing()
+        work.ShowGrid(false)
         SavePosition(root)
     end)
     -- A click (not a drag) on a window while the options are open selects it there.

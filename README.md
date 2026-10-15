@@ -168,8 +168,10 @@ setup, and editing it never changes the class default. To tidy up the class defa
 say), switch to it, edit, and switch back.
 
 **Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). Right-clicking an icon opens
-them with its window selected. While they're open, every window is shown and can be dragged to move it or resized
-from its corner, and clicking a window selects it; they lock again when the options close.
+them with its window selected. While they're open, every window is shown and can be dragged to move it (a grid
+like Edit Mode's shows while you drag, at Edit Mode's spacing where the game says it) or resized from its corner,
+and clicking a window selects it; they lock again when the options close. The windows list, the library and the
+right-hand side are shaded boxes; the one you're working on (and the right-hand side) is picked out in gold.
 - Left, top: *Windows*, with *New window* beside the heading, in a section per type (Static, Switching, Stacked;
   click a heading to open or close it, remembered per character). Disabled windows are greyed out. Click one for its
   settings; drag to reorder within its section (a gold line shows where it'll go). Drop a library sequence on a

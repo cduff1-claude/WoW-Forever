@@ -1022,6 +1022,32 @@ local function ScrollArea(f, rowsShown, onWheel)
     return area
 end
 
+-- A shaded box behind a part of the options; brought forward (gold) while it's what you're
+-- working on.
+local PANE_BACKDROP = {
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
+local function NewPane(parent)
+    local pane = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    pane:SetBackdrop(PANE_BACKDROP)
+    pane:SetFrameLevel(parent:GetFrameLevel())
+    return pane
+end
+
+local function SetPaneActive(pane, active)
+    if active then
+        pane:SetBackdropColor(1, 0.82, 0, 0.08)
+        pane:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+    else
+        pane:SetBackdropColor(1, 1, 1, 0.03)
+        pane:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.6)
+    end
+end
+
 -- A scroll frame whose scroll bar only shows when there's something to scroll to.
 local function NewScroll(parent)
     local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
@@ -1521,6 +1547,9 @@ local function CreateSettingsTab(f, panel)
         self.costOrder:SetShown(stacked)
         self.showNext:SetChecked(window.showNext and true or false)
         self.costOrder:SetChecked(window.costOrder ~= false)
+        -- Delete sits just under the last of this type's settings.
+        self.windowDelete:ClearAllPoints()
+        self.windowDelete:SetPoint("TOPLEFT", 0, window.type == "fixed" and -66 or -192)
         self.windowClick:SetShown(window.type == "fixed")
         self.windowClick:SetChecked(window.clickable ~= false)
         self.onlyInCombat:SetChecked(window.onlyInCombat and true or false)
@@ -1809,6 +1838,11 @@ local function CreateEditor()
     f.dropLine:SetHeight(2)
     f.dropLine:Hide()
 
+    -- Shaded boxes behind the windows list, the library and the right-hand side.
+    f.windowsPane = NewPane(f)
+    f.libraryPane = NewPane(f)
+    f.rightPane = NewPane(f)
+
     -- Left, top: the windows, by type.
     local windowsLabel = NewLabel(f, "Windows")
     windowsLabel:SetPoint("TOPLEFT", LEFT, -52)
@@ -1840,35 +1874,70 @@ local function CreateEditor()
     for i = 1, LIBRARY_ROWS do
         libraryRows[i] = CreateLibraryRow(f, libraryArea, i)
     end
+    f.windowsPane:SetPoint("TOPLEFT", f, "TOPLEFT", LEFT - 8, -42)
+    f.windowsPane:SetPoint("BOTTOMRIGHT", windowArea, "BOTTOMRIGHT", 8, -6)
+    f.libraryPane:SetPoint("TOPLEFT", libraryLabel, "TOPLEFT", -8, 10)
+    f.libraryPane:SetPoint("BOTTOMRIGHT", libraryArea, "BOTTOMRIGHT", 8, -6)
+    f.rightPane:SetPoint("TOPLEFT", f, "TOPLEFT", RIGHT_X - 10, -40)
+    f.rightPane:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 36)
 
     -- Right, for a window: its tabs.
     local windowView = CreateFrame("Frame", nil, f)
     windowView:SetPoint("TOPLEFT", RIGHT_X, -44)
     windowView:SetPoint("BOTTOMRIGHT", -20, 40)
     f.windowView = windowView
+    -- Tabs: a box for the tab's contents, with the tabs along its top. The open tab is the
+    -- box's colour and sits over its top edge, so it reads as joined to it; the other is darker.
+    local tabBox = CreateFrame("Frame", nil, windowView, "BackdropTemplate")
+    tabBox:SetPoint("TOPLEFT", 0, -26)
+    tabBox:SetPoint("BOTTOMRIGHT", 0, 0)
+    tabBox:SetBackdrop(PANE_BACKDROP)
+    tabBox:SetBackdropColor(0.22, 0.2, 0.14, 0.75)
+    tabBox:SetBackdropBorderColor(1, 0.82, 0, 0.7)
     f.tabButtons = {}
     for i, key in ipairs({ "settings", "sequences" }) do
-        local button = NewButton(windowView, key == "settings" and "Settings" or "Sequences", 100, function()
+        local button = CreateFrame("Button", nil, windowView, "BackdropTemplate")
+        button:SetSize(110, 26)
+        button:SetPoint("BOTTOMLEFT", tabBox, "TOPLEFT", 10 + (i - 1) * 114, -3)
+        button:SetBackdrop(PANE_BACKDROP)
+        button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        button.text:SetPoint("CENTER", 0, 1)
+        button.text:SetText(key == "settings" and "Settings" or "Sequences")
+        button:SetScript("OnClick", function()
             tab = key
             f:Refresh()
         end)
-        button:SetPoint("TOPLEFT", (i - 1) * 104, 0)
         button.key = key
+        function button:SetSelected(selected)
+            if selected then
+                self:SetFrameLevel(tabBox:GetFrameLevel() + 2)
+                self:SetBackdropColor(0.22, 0.2, 0.14, 1)
+                self:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+                self.text:SetFontObject("GameFontNormal")
+            else
+                self:SetFrameLevel(tabBox:GetFrameLevel())
+                self:SetBackdropColor(0, 0, 0, 0.5)
+                self:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.6)
+                self.text:SetFontObject("GameFontDisable")
+            end
+        end
         f.tabButtons[i] = button
     end
-    local tabLine = windowView:CreateTexture(nil, "ARTWORK")
-    tabLine:SetColorTexture(1, 0.82, 0, 0.35)
-    tabLine:SetHeight(1)
-    tabLine:SetPoint("TOPLEFT", 0, -26)
-    tabLine:SetPoint("RIGHT", windowView, "RIGHT", 0, 0)
-    local settingsTab = CreateFrame("Frame", nil, windowView)
-    settingsTab:SetPoint("TOPLEFT", 0, -32)
-    settingsTab:SetPoint("BOTTOMRIGHT")
+    -- Covers the box's top edge under the open tab (on a frame above the box, so it's on top).
+    local joinFrame = CreateFrame("Frame", nil, windowView)
+    joinFrame:SetAllPoints(windowView)
+    joinFrame:SetFrameLevel(tabBox:GetFrameLevel() + 3)
+    f.tabJoin = joinFrame:CreateTexture(nil, "OVERLAY")
+    f.tabJoin:SetColorTexture(0.22, 0.2, 0.14, 1)
+    f.tabJoin:SetHeight(5)
+    local settingsTab = CreateFrame("Frame", nil, tabBox)
+    settingsTab:SetPoint("TOPLEFT", 10, -10)
+    settingsTab:SetPoint("BOTTOMRIGHT", -8, 8)
     f.settingsTab = settingsTab
     CreateSettingsTab(f, settingsTab)
-    local sequencesTab = CreateFrame("Frame", nil, windowView)
-    sequencesTab:SetPoint("TOPLEFT", 0, -32)
-    sequencesTab:SetPoint("BOTTOMRIGHT")
+    local sequencesTab = CreateFrame("Frame", nil, tabBox)
+    sequencesTab:SetPoint("TOPLEFT", 10, -10)
+    sequencesTab:SetPoint("BOTTOMRIGHT", -8, 8)
     f.sequencesTab = sequencesTab
     CreateSequencesTab(f, sequencesTab)
 
@@ -2069,18 +2138,22 @@ local function CreateEditor()
             end
         end
 
-        -- Right: a window's tabs, or a library sequence.
+        -- Right: a window's tabs, or a library sequence. Its side is brought forward.
         local showWindow = selWindow ~= nil and selSeq == nil
+        SetPaneActive(self.windowsPane, showWindow)
+        SetPaneActive(self.libraryPane, selSeq ~= nil)
+        SetPaneActive(self.rightPane, showWindow or selSeq ~= nil)
         self.windowView:SetShown(showWindow)
         self.detail:SetShown(selSeq ~= nil)
         self.empty:SetShown(not showWindow and selSeq == nil)
         self.empty:SetText("Press New window to start.")
         if showWindow then
             for _, button in ipairs(self.tabButtons) do
+                button:SetSelected(button.key == tab)
                 if button.key == tab then
-                    button:LockHighlight()
-                else
-                    button:UnlockHighlight()
+                    self.tabJoin:ClearAllPoints()
+                    self.tabJoin:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 4, -2)
+                    self.tabJoin:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, -2)
                 end
             end
             self.settingsTab:SetShown(tab == "settings")
