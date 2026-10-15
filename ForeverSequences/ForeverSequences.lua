@@ -1820,6 +1820,12 @@ local function EntryData(entry, info, target)
     target.creatureTypes = ParseCreatureTypes(description)
     target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
         and not CLEARCASTING_IGNORES[entry.name]
+    target.bandage = false
+    if info.kind == "item" and info.itemID and C_Item and C_Item.GetItemInfoInstant then
+        local ok, _, _, subType, _, _, classID, subclassID = pcall(C_Item.GetItemInfoInstant, info.itemID)
+        local bandage = Enum and Enum.ItemConsumableSubclass and Enum.ItemConsumableSubclass.Bandage
+        target.bandage = ok and (subType == "Bandage" or (bandage ~= nil and classID == 0 and subclassID == bandage))
+    end
 end
 
 -- Re-read everything about each icon. Hidden windows too: a fixed window's buttons have to be
@@ -1957,6 +1963,7 @@ local function UpdateCooldowns()
             -- Greyed out while on cooldown or not in your bags: no colour, no highlight.
             cell.wrongTarget = TargetDoesNotFit(cell.creatureTypes)
             local unusable = cell.onCooldown == true or not cell.info.available or cell.wrongTarget
+                or (cell.bandage and work.recentlyBandaged)
             local alpha = unusable and 0 or 1
             cell.colorClip:SetAlpha(alpha)
             cell.fresh:SetAlpha(alpha)
@@ -1972,14 +1979,26 @@ end
 
 local clearcasting = false
 
-local function UpdateClearcasting()
-    clearcasting = false
+-- Whether you have an aura of this name ("HELPFUL" or "HARMFUL").
+local function HasAura(name, filter)
     if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
-        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", CLEARCASTING, "HELPFUL")
-        clearcasting = ok and aura ~= nil
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, filter)
+        return ok and aura ~= nil
     elseif AuraUtil and AuraUtil.FindAuraByName then
-        local ok, name = pcall(AuraUtil.FindAuraByName, CLEARCASTING, "player", "HELPFUL")
-        clearcasting = ok and name ~= nil
+        local ok, found = pcall(AuraUtil.FindAuraByName, name, "player", filter)
+        return ok and found ~= nil
+    end
+    return false
+end
+
+-- Clearcasting, and "Recently Bandaged" (bandages can't be used while it's on you, and the
+-- game doesn't show it as a cooldown on the item). Cooldowns are checked again when it changes.
+local function UpdateClearcasting()
+    clearcasting = HasAura(CLEARCASTING, "HELPFUL")
+    local bandaged = HasAura("Recently Bandaged", "HARMFUL")
+    if bandaged ~= work.recentlyBandaged then
+        work.recentlyBandaged = bandaged
+        UpdateCooldowns()
     end
 end
 
@@ -3067,6 +3086,7 @@ end
 local function PrintDebug()
     local mana = UnitPower("player", MANA_POWER_TYPE)
     local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
+    Print("recently bandaged=" .. tostring(work.recentlyBandaged and true or false))
     Print(string.format("class druid=%s, mana=%s (secret=%s), max mana=%s, test mode=%s, clearcasting=%s",
         tostring(IsDruid()), Describe(mana), tostring(IsSecret(mana)), Describe(maxMana),
         tostring(testStartTime ~= nil), tostring(clearcasting)))
@@ -3145,13 +3165,14 @@ local function PrintDebug()
                         tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
                     for _, cell in ipairs(row.cells) do
                         local info = cell.info or {}
-                        print(string.format("       %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s",
+                        print(string.format("       %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s%s",
                             ns.EntryName(cell.entry), tostring(info.spellID), tostring(info.rank), tostring(info.maxRank),
                             tostring(info.known), tostring(cell.cost), tostring(cell.castTime), tostring(cell.gcd),
                             tostring(cell.channel), tostring(cell.gain),
                             cell.gainOver and string.format(" (+%s over %ss)", cell.gainOver.amount, cell.gainOver.duration) or "",
                             tostring(cell.instantNext), tostring(cell.usesClearcasting),
-                            tostring(cell.start), tostring(cell.total), tostring(cell.cooldownNote)))
+                            tostring(cell.start), tostring(cell.total), tostring(cell.cooldownNote),
+                            cell.bandage and ", bandage" or ""))
                     end
                 end
             end

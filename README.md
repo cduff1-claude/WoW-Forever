@@ -133,7 +133,7 @@ one of the Primary's spells the costliest variation it can cast takes its place 
 its own *hide when unusable*.
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
-  them (or you have no enemy target), is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
+  them (or you have no enemy target), or a bandage while you're Recently Bandaged, is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
   your "show numbers for cooldowns" setting. *Hide when unusable* (offered only where something can be unusable,
   and not for a fixed window's Primary) drops that sequence or sub-sequence out while that's true, and the next one
   shows.
