@@ -1301,14 +1301,18 @@ local function CreateCell(parent, secure)
     local colorHolder = NewFrame("Frame", colorClip)
     colorHolder:SetAllPoints(cell)
     local color = NewIconTexture(colorHolder, "ARTWORK", cell)
-    -- The same, filling from the right (greying from the left), for a fixed window's Primary
-    -- partway through. Only one of the two is ever non-empty.
-    local fillRev = NewSwitch(cell, cell)
-    fillRev:SetReverseFill(true)
-    local colorClipRev = NewClip(cell, fillRev:GetStatusBarTexture(), "LEFT", fillRev, "RIGHT")
-    local colorHolderRev = NewFrame("Frame", colorClipRev)
-    colorHolderRev:SetAllPoints(cell)
-    local colorRev = NewIconTexture(colorHolderRev, "ARTWORK", cell)
+    -- Click-to-cast icons (only fixed windows' Primaries have them) also get the same, filling
+    -- from the right (greying from the left), for when you're partway through the sequence.
+    -- Only one of the two is ever non-empty.
+    local fillRev, colorClipRev, colorHolderRev, colorRev
+    if secure then
+        fillRev = NewSwitch(cell, cell)
+        fillRev:SetReverseFill(true)
+        colorClipRev = NewClip(cell, fillRev:GetStatusBarTexture(), "LEFT", fillRev, "RIGHT")
+        colorHolderRev = NewFrame("Frame", colorClipRev)
+        colorHolderRev:SetAllPoints(cell)
+        colorRev = NewIconTexture(colorHolderRev, "ARTWORK", cell)
+    end
 
     -- Blizzard's cooldown swipe and countdown, over the icon.
     local cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
@@ -1379,8 +1383,8 @@ local function CreateCell(parent, secure)
     cell.pulse = pulse
     -- Inner frames' levels above the cell, re-applied when the cell is reused elsewhere.
     cell.levels = {}
-    for _, frame in ipairs({ fill, colorClip, colorHolder, fillRev, colorClipRev, colorHolderRev, cooldown,
-        glowArea, nowSwitch, prevSwitch, enoughNow, fresh, glow, top }) do
+    for _, frame in ipairs({ fill, colorClip, colorHolder, cooldown, glowArea, nowSwitch, prevSwitch,
+        enoughNow, fresh, glow, top, fillRev, colorClipRev, colorHolderRev }) do
         cell.levels[#cell.levels + 1] = { frame, frame:GetFrameLevel() - level }
     end
     cell.start = 0
@@ -1858,7 +1862,9 @@ local function RefreshEntries()
                 or cell.actionPending then
                 cell.grey:SetTexture(info.icon)
                 cell.color:SetTexture(info.icon)
-                cell.colorRev:SetTexture(info.icon)
+                if cell.colorRev then
+                    cell.colorRev:SetTexture(info.icon)
+                end
                 cell.actionPending = InCombatLockdown()
                 ApplyAction(cell)
             end
@@ -1983,7 +1989,9 @@ local function UpdateCooldowns()
                 or (cell.bandage and work.recentlyBandaged)
             local alpha = unusable and 0 or 1
             cell.colorClip:SetAlpha(alpha)
-            cell.colorClipRev:SetAlpha(alpha)
+            if cell.colorClipRev then
+                cell.colorClipRev:SetAlpha(alpha)
+            end
             cell.fresh:SetAlpha(alpha)
             blocked = blocked or unusable
         end
@@ -2422,7 +2430,9 @@ local function UpdateThresholds(ctx)
                     -- Free entry: all or nothing on the mana before it.
                     cell.fill:SetMinMaxValues(cell.total - 1, cell.total)
                 end
-                cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
+                if cell.fillRev then
+                    cell.fillRev:SetMinMaxValues(NEVER - 1, NEVER)
+                end
                 cell.nowSwitch:SetMinMaxValues(cell.total - 1, cell.total)
                 cell.prevSwitch:SetMinMaxValues(cell.total - 1, cell.total)
                 previous = need
@@ -2776,7 +2786,9 @@ local function UpdateMana()
         end
         for _, cell in ipairs(row.cells) do
             cell.fill:SetValue(mana)
-            cell.fillRev:SetValue(mana)
+            if cell.fillRev then
+                cell.fillRev:SetValue(mana)
+            end
             cell.nowSwitch:SetValue(mana)
             cell.prevSwitch:SetValue(previous)
         end
