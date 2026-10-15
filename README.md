@@ -85,17 +85,28 @@ each cost is taken. Everything is read from the game, not hard-coded:
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
 sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
 makes an independent copy to change for another window. Each window is named, can be turned off, remembers its
-position, and is one of (chosen when you make the window, and switchable later; each type's own settings are kept
+position, and is one of three types (picked from a menu when you make the window, and changeable later; each type's own settings are kept
 for switching back, but only the current type's are used):
-- **Dynamic:** one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
+- **Switching** (called *Dynamic* before): one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
+- **Stacked:** every variation you include from its sequences (Primaries and sub-sequences alike), as one list of
+  the ones you can afford, anchored at the top and filling downwards. With *costliest at the top* (the default) a
+  newly affordable one takes the top row and the rest move down a row; without it they keep the window's order (each
+  sequence's Primary, then its sub-sequences) with the gaps closed up. *Show the next one up* adds the cheapest one
+  you can't afford yet, filling from grey (the top row, in cost order). Pick a sequence under the window to untick
+  *include in this window* on any of its rows, or *pin Primary to the top* to keep that sequence's Primary always at
+  the top, filling (one per window; its sub-sequences can still join the list). Nothing actually moves: each row of
+  the window holds every variation, each shown only over the band of mana where it belongs in that row (mana is
+  secret, but the needs aren't, so each band's contents are known in advance). Rows below the number of variations
+  that can show close up; blank rows above that stay, and let clicks through. Not clickable. Uses the same
+  show-when options as Switching windows.
 - **Fixed:** the Primary is always shown and, if the window's *click the Primary to cast* is ticked, can be clicked to cast (one icon per click; forms as `/cast !Form`, so
   they never shift you out; "best mana potion" uses the best one you have). Below it, smaller and indented, is the most
   complete sub-sequence you can afford (the cheapest if none), until you can afford the Primary. Nothing moves, since
   click-to-cast buttons can't move in combat, so that space is kept.
 - *Only show in combat* (any window) hides it out of combat.
-- Dynamic windows can also show only when you're low, and only for some targets:
+- Switching and stacked windows can also show only when you're low, and only for some targets:
   - *Mana*: below the costliest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
     affording it, and stays up for a few seconds (up to 10) after mana goes back above.
   - *Health*: below a percentage. With both ticked, the window shows when either is low.
@@ -148,8 +159,9 @@ a window selects it; they lock again when the options close.
 - Left, bottom: the Sequence Library (with how many windows use each; arrows to reorder). Drag a sequence onto a
   window to show it there.
   New (also added to the selected window), Copy, Delete (from the library and every window).
-- Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
-  options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence
+- Right: for a window, its name, type, *only show in combat*, and for switching and stacked windows the mana, health
+  and target options (stacked: also *show the next one up* and *costliest at the top*). For a sequence picked under a
+  window, a read-only view of it with *Edit in library* (under a stacked window, also the include and pin ticks). For a sequence
   picked in the library: its name, *hide when unusable* and which windows use it; the
   Primary and the sub-sequences (costliest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
   mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
@@ -179,10 +191,11 @@ a window selects it; they lock again when the options close.
 - If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5
   seconds, rather than repeating many times a second.
 
-Druids only. Older settings move into a dynamic "Main" window, plus a fixed "Clickable" window for sequences that had
+Druids only. Older settings move into a switching "Main" window, plus a fixed "Clickable" window for sequences that had
 *always show Primary*. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
 empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq noclick` (fixed windows use display-only
 icons instead of click-to-cast buttons; for testing), `/fseq defaults` (restore the
 starting windows), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
 instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule, mana update gaps,
-Clearcasting and the mana potions found).
+Clearcasting and the mana potions found; for stacked windows, each variation's need and the mana band it shows
+over in each row).

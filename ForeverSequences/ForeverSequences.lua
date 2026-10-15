@@ -137,6 +137,23 @@ local function CopyTable(t)
 end
 ns.CopyTable = CopyTable
 
+-- Each variation of a sequence (its Primary, held on the sequence itself, and each
+-- sub-sequence) has an id of its own, `vid`, unique within the sequence. It follows the
+-- variation when they're re-sorted, so stacked windows can remember which ones they include.
+local function EnsureVariationIds(def)
+    local function Ensure(variation)
+        if not variation.vid then
+            def.nextVid = (def.nextVid or 0) + 1
+            variation.vid = def.nextVid
+        end
+    end
+    Ensure(def)
+    for _, sub in ipairs(def.subs or {}) do
+        Ensure(sub)
+    end
+end
+ns.EnsureVariationIds = EnsureVariationIds
+
 -- The first prototype held spell names in `spells`.
 local function MigrateSequence(def)
     local function Convert(list)
@@ -154,6 +171,7 @@ local function MigrateSequence(def)
     for _, sub in ipairs(def.subs) do
         Convert(sub)
     end
+    EnsureVariationIds(def)
 end
 
 -- Settings a window gets when it doesn't have them yet. The thresholds and target filter
@@ -169,7 +187,16 @@ local WINDOW_DEFAULTS = {
     holdSeconds = 5,    -- and keep showing this long after mana goes back above
     clickable = true,   -- fixed windows: click the Primary to cast
     fight = "all",      -- with onlyInCombat: "pvp", "pve" or "all" (see fightKind)
+    showNext = false,   -- stacked windows: also show the next sequence up, filling
+    costOrder = true,   -- stacked windows: costliest at the top (else in the window's order)
 }
+
+-- What each window type is called on screen. "dynamic" is the original kind, which switches
+-- each row between its sequence's variations.
+local TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Fixed" }
+function ns.TypeLabel(windowType)
+    return TYPE_LABELS[windowType] or TYPE_LABELS.dynamic
+end
 
 local function NewId()
     db.nextId = (db.nextId or 0) + 1
@@ -1602,11 +1629,95 @@ local function BuildWindow(root, window)
     end
 end
 
+-- A stacked window: every included variation of its sequences, as one list. Each slot (row
+-- of the window) holds a banded row for every variation, so whichever belongs there at the
+-- current mana shows (see UpdateStack); nothing moves. A sequence can be pinned to the top,
+-- where its Primary is always shown.
+local function BuildStacked(root, window)
+    local stack = { cands = {}, lines = {} }
+    local variations = {}
+    local pinnedDef
+    for _, item in ipairs(window.items) do
+        local def = ns.FindSequence(item.id)
+        if def and item.enabled then
+            EnsureVariationIds(def)
+            local pinned = window.topId == def.id
+            if pinned and #def.entries > 0 and ns.AllLearned(def.entries) then
+                pinnedDef = def
+            end
+            local list = { def }
+            for _, sub in ipairs(def.subs) do
+                list[#list + 1] = sub
+            end
+            for i, variation in ipairs(list) do
+                local excluded = (pinned and i == 1) or (item.excluded and item.excluded[variation.vid])
+                if not excluded and #variation.entries > 0 and ns.AllLearned(variation.entries) then
+                    variations[#variations + 1] = { variation = variation, name = def.name or "?" }
+                end
+            end
+        end
+    end
+    local count = MostEntries(pinnedDef and { pinnedDef } or {})
+    for _, v in ipairs(variations) do
+        count = math.max(count, #v.variation.entries)
+    end
+    local width = LineWidth(count, ICON_SIZE)
+    local height = ICON_SIZE + GLOW_SIZE * 2
+    local group = { name = window.name or "?", root = root, stack = stack }
+    if pinnedDef then
+        stack.pinnedLine = NewLine(root, width, height)
+        stack.pinned = CreatePlainRow(group, stack.pinnedLine, pinnedDef, ICON_SIZE, "top", false)
+        stack.pinnedName = pinnedDef.name or "?"
+    end
+    for k = 1, #variations do
+        stack.lines[k] = NewLine(root, width, height)
+    end
+    for i, v in ipairs(variations) do
+        local cand = { order = i, name = v.name, rows = {} }
+        for k, line in ipairs(stack.lines) do
+            cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
+        end
+        stack.cands[i] = cand
+    end
+    stack.active = #variations
+    root.stack = stack
+end
+
 -- Stack each window's rows. Dynamic windows skip sequences with nothing to show, so the rows
 -- below move up; fixed windows keep every row (and their buttons) in place.
 local function LayoutWindows()
     for _, root in ipairs(roots) do
-        if root.window and not (root.fixed and InCombatLockdown()) then
+        local stack = root.stack
+        if root.window and stack then
+            -- Stacked: the pinned row, then a slot for each variation that may show. Slots
+            -- below that never hold anything, so they close up; the rest keep their place.
+            local key = tostring(stack.active)
+            if key ~= root.layoutKey then
+                root.layoutKey = key
+                local y = -PADDING
+                local width = 0
+                local lines = {}
+                if stack.pinnedLine then
+                    lines[1] = stack.pinnedLine
+                end
+                for k, line in ipairs(stack.lines) do
+                    line:SetShown(k <= stack.active)
+                    if k <= stack.active then
+                        lines[#lines + 1] = line
+                    end
+                end
+                for _, line in ipairs(lines) do
+                    line:ClearAllPoints()
+                    line:SetPoint("TOPLEFT", root, "TOPLEFT", PADDING - GLOW_SIZE, y + GLOW_SIZE)
+                    width = math.max(width, line:GetWidth())
+                    y = y - ICON_SIZE - ROW_GAP
+                end
+                root:SetSize(math.max(width + PADDING * 2 - GLOW_SIZE * 2, 60), math.max(-y - ROW_GAP + PADDING, 24))
+                for i = 2, #root.gates do
+                    root.gates[i]:SetWidth(root:GetWidth())
+                end
+            end
+        elseif root.window and not (root.fixed and InCombatLockdown()) then
             local key = {}
             for i, group in ipairs(root.groups) do
                 key[i] = (root.fixed or not group.collapsed) and "1" or "0"
@@ -1654,6 +1765,7 @@ local function BuildDisplay()
         wipe(root.groups)
         root.window = nil
         root.layoutKey = nil
+        root.stack = nil
     end
     wipe(groups)
     wipe(rows)
@@ -1662,10 +1774,14 @@ local function BuildDisplay()
         local root = GetRoot(index)
         root.window = window
         root.fixed = window.type == "fixed"
-        root.label:SetText((window.name or "?") .. (root.fixed and " (fixed)" or " (dynamic)") .. ": drag to move")
+        root.label:SetText((window.name or "?") .. " (" .. ns.TypeLabel(window.type):lower() .. "): drag to move")
         ApplyPosition(root, window, index)
         if window.enabled then
-            BuildWindow(root, window)
+            if window.type == "stacked" then
+                BuildStacked(root, window)
+            else
+                BuildWindow(root, window)
+            end
         end
     end
     LayoutWindows()
@@ -2076,9 +2192,11 @@ end
 -- on switching profile, so a sub-sequence that becomes costlier, or a Primary with a spell this
 -- character hasn't learned, swaps places. Returns whether anything moved.
 local function SortVariations(def)
-    local variations = { { entries = def.entries, hideOnCooldown = def.hideOnCooldown, index = 0 } }
+    EnsureVariationIds(def)
+    local variations = { { entries = def.entries, hideOnCooldown = def.hideOnCooldown, vid = def.vid, index = 0 } }
     for i, sub in ipairs(def.subs) do
-        variations[#variations + 1] = { entries = sub.entries, hideOnCooldown = sub.hideOnCooldown, index = i }
+        variations[#variations + 1] = { entries = sub.entries, hideOnCooldown = sub.hideOnCooldown, vid = sub.vid,
+            index = i }
     end
     for _, v in ipairs(variations) do
         v.learned = #v.entries > 0 and ns.AllLearned(v.entries)
@@ -2100,10 +2218,11 @@ local function SortVariations(def)
     if not moved then
         return false
     end
-    def.entries, def.hideOnCooldown = variations[1].entries, variations[1].hideOnCooldown
+    def.entries, def.hideOnCooldown, def.vid = variations[1].entries, variations[1].hideOnCooldown, variations[1].vid
     local subs = {}
     for i = 2, #variations do
-        subs[#subs + 1] = { entries = variations[i].entries, hideOnCooldown = variations[i].hideOnCooldown }
+        subs[#subs + 1] = { entries = variations[i].entries, hideOnCooldown = variations[i].hideOnCooldown,
+            vid = variations[i].vid }
     end
     def.subs = subs
     return true
@@ -2189,8 +2308,86 @@ local function Candidates(list)
     return result
 end
 
+-- A stacked window's slots, as mana bands. Lua can't compare mana, but it knows every
+-- variation's need: sorted, they split mana into bands, and within each band it's known which
+-- variations you can afford. So for each band, work out what each slot shows (the affordable
+-- ones, plus the next one up if the window shows it, in display order); each variation's row in
+-- a slot then shows over the bands where it belongs there. Those bands always run together, so
+-- one band per row is enough. Variations set to hide when unusable drop out while they are.
+local function UpdateStack(root)
+    local stack = root.stack
+    local window = root.window
+    local active = {}
+    for _, cand in ipairs(stack.cands) do
+        local first = cand.rows[1]
+        cand.total = first.total
+        cand.low, cand.high = {}, {}
+        if first.def.hideOnCooldown and first.onCooldown then
+            for _, row in ipairs(cand.rows) do
+                SetBand(row, NEVER, NEVER)
+            end
+        else
+            active[#active + 1] = cand
+        end
+    end
+    local costOrder = window.costOrder ~= false
+    local function Before(a, b)
+        if costOrder and a.total ~= b.total then
+            return a.total > b.total
+        end
+        return a.order < b.order
+    end
+    local function Cheaper(a, b)
+        if a.total ~= b.total then
+            return a.total < b.total
+        end
+        return a.order < b.order
+    end
+    local needs, seen = {}, {}
+    for _, cand in ipairs(active) do
+        if not seen[cand.total] then
+            seen[cand.total] = true
+            needs[#needs + 1] = cand.total
+        end
+    end
+    table.sort(needs)
+    for b = 0, #needs do
+        local low = b > 0 and needs[b] or -math.huge
+        local high = needs[b + 1] or math.huge
+        local shown, nextUp = {}, nil
+        for _, cand in ipairs(active) do
+            if cand.total <= low then
+                shown[#shown + 1] = cand
+            elseif window.showNext and (not nextUp or Cheaper(cand, nextUp)) then
+                nextUp = cand
+            end
+        end
+        shown[#shown + 1] = nextUp
+        table.sort(shown, Before)
+        for k, cand in ipairs(shown) do
+            cand.low[k] = cand.low[k] or low
+            cand.high[k] = high
+        end
+    end
+    for _, cand in ipairs(stack.cands) do
+        for k, row in ipairs(cand.rows) do
+            if cand.low[k] then
+                SetBand(row, cand.low[k], cand.high[k])
+            else
+                SetBand(row, NEVER, NEVER)
+            end
+        end
+    end
+    stack.active = #active
+end
+
 -- Decide which row of each sequence shows, as mana bands.
 local function UpdateBands()
+    for _, root in ipairs(roots) do
+        if root.window and root.stack then
+            UpdateStack(root)
+        end
+    end
     for _, group in ipairs(groups) do
         if group.fixed then
             -- Primary always shown. Below it: the most complete sub-sequence you can afford
@@ -2356,6 +2553,14 @@ local function UpdateGates(now, mana)
                         costliest = math.max(costliest, group.primary.total)
                         for _, row in ipairs(group.subs) do
                             costliest = math.max(costliest, row.total)
+                        end
+                    end
+                    if root.stack then
+                        if root.stack.pinned then
+                            costliest = math.max(costliest, root.stack.pinned.total)
+                        end
+                        for _, cand in ipairs(root.stack.cands) do
+                            costliest = math.max(costliest, cand.rows[1].total)
                         end
                     end
                     local threshold = math.ceil(costliest * (1 + (window.manaMargin or 0) / 100))
@@ -2896,6 +3101,29 @@ local function PrintDebug()
                     tostring(window.healthPercent), tostring(window.holdSeconds), tostring(root.gatesUsed),
                     tostring(window.fight), window.onlyInCombat and "" or " (off: not only-in-combat)",
                     tostring(root.content:IsShown())))
+            end
+            local stack = root.stack
+            if stack then
+                print(string.format("  stacked: next one up=%s, costliest at top=%s, slots in use=%d, pinned=%s",
+                    tostring(window.showNext and true or false), tostring(window.costOrder ~= false), stack.active,
+                    stack.pinned and (stack.pinnedName .. " (needs " .. tostring(stack.pinned.total) .. ")") or "none"))
+                for _, cand in ipairs(stack.cands) do
+                    local bands = {}
+                    for k, row in ipairs(cand.rows) do
+                        if row.bandLow and row.bandLow < NEVER then
+                            bands[#bands + 1] = string.format("row %d from %s to %s", k, Band(row.bandLow), Band(row.bandHigh))
+                        end
+                    end
+                    local first = cand.rows[1]
+                    local names = {}
+                    for _, cell in ipairs(first.cells) do
+                        names[#names + 1] = ns.EntryName(cell.entry)
+                    end
+                    print(string.format("    %s [%s]: needs %s, blocked=%s, hide on cooldown=%s: %s", cand.name,
+                        table.concat(names, ", "), tostring(first.total), tostring(first.onCooldown),
+                        tostring(first.def.hideOnCooldown and true or false),
+                        #bands > 0 and table.concat(bands, "; ") or "never shown"))
+                end
             end
             for _, group in ipairs(root.groups) do
                 print(string.format("  \"%s\"%s", group.name, group.collapsed and " (closed up: nothing to show)" or ""))

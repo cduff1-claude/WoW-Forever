@@ -594,23 +594,59 @@ local function AddWindow(windowType)
     Changed()
 end
 
-StaticPopupDialogs["FOREVERSEQUENCES_NEW_WINDOW"] = {
-    text = "New window. Which type?\n\nDynamic: one row per sequence, showing whichever of its sequences fits " ..
-        "your mana; can show only when mana or health is low, or for some targets.\n\nFixed: the Primary is " ..
-        "always shown and can be clicked to cast. Nothing moves.\n\nYou can switch it later.",
-    button1 = "Dynamic",
-    button2 = CANCEL or "Cancel",
-    button3 = "Fixed",
-    OnAccept = function() AddWindow("dynamic") end,
-    OnAlt = function() AddWindow("fixed") end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
+-- The window types, in menu order, with what each does.
+local WINDOW_TYPES = {
+    { key = "dynamic", text = "one row per sequence, switching between its variations to show the one you're " ..
+        "working towards; rows close up when a sequence has nothing to show. Can show only when mana or health " ..
+        "is low, or for some fights." },
+    { key = "stacked", text = "every variation you include from its sequences, as a list: the ones you can " ..
+        "afford, costliest at the top (or in your order), filling down from the top as mana rises. Optionally " ..
+        "the next one up too, and one sequence's Primary always at the top. Same show-when options as " ..
+        "Switching." },
+    { key = "fixed", text = "the Primary is always shown and can be clicked to cast, with the best " ..
+        "sub-sequence under it. Nothing moves." },
 }
 
-local function NewWindow()
-    StaticPopup_Show("FOREVERSEQUENCES_NEW_WINDOW")
+local function TypeHelp()
+    local lines = {}
+    for _, t in ipairs(WINDOW_TYPES) do
+        lines[#lines + 1] = ns.TypeLabel(t.key) .. ": " .. t.text
+    end
+    return table.concat(lines, "\n")
+end
+
+-- A menu of the window types at `owner`; `current` (a type key) is ticked.
+local function TypeMenu(owner, title, current, onPick)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then
+        -- No menu API: step through the types.
+        local index = 0
+        for i, t in ipairs(WINDOW_TYPES) do
+            if t.key == current then
+                index = i
+            end
+        end
+        onPick(WINDOW_TYPES[index % #WINDOW_TYPES + 1].key)
+        return
+    end
+    MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
+        rootDescription:CreateTitle(title)
+        for _, t in ipairs(WINDOW_TYPES) do
+            local key = t.key
+            local button = rootDescription:CreateRadio(ns.TypeLabel(key),
+                function() return key == current end,
+                function() onPick(key) end)
+            if button and button.SetTooltip then
+                button:SetTooltip(function(tooltip)
+                    GameTooltip_SetTitle(tooltip, ns.TypeLabel(key))
+                    GameTooltip_AddNormalLine(tooltip, t.text)
+                end)
+            end
+        end
+    end)
+end
+
+local function NewWindow(owner)
+    TypeMenu(owner, "New window", nil, AddWindow)
 end
 
 -- Show a library sequence in a window, before `beforeIndex` (default: at the end).
@@ -1182,6 +1218,7 @@ local function CreateEditor()
         windowRows[i] = CreateWindowRow(f, windowArea, i)
     end
     local newWindow = NewButton(f, "New window", 104, NewWindow)
+    Tooltip(newWindow, "New window", "Pick its type. You can change it later.\n\n" .. TypeHelp())
     newWindow:SetPoint("TOPLEFT", windowArea, "BOTTOMLEFT", 0, -6)
     f.windowDelete = NewButton(f, "Delete", 104, function()
         if selItem and selWindow then
@@ -1241,19 +1278,19 @@ local function CreateEditor()
     -- Switching type keeps the other type's settings (thresholds and targets for dynamic,
     -- click to cast for fixed) on the window for switching back; only the current type's
     -- settings are used.
-    f.windowType = NewButton(windowPanel, "", 190, function()
+    f.windowType = NewButton(windowPanel, "", 190, function(self)
         if selWindow then
-            selWindow.type = selWindow.type == "fixed" and "dynamic" or "fixed"
-            Changed()
+            local window = selWindow
+            TypeMenu(self, "Window type", window.type, function(key)
+                window.type = key
+                Changed()
+            end)
         end
     end)
     f.windowType:SetPoint("LEFT", f.windowName, "RIGHT", 10, 0)
     f.windowTypeText = f.windowType
-    Tooltip(f.windowType, "Window type (click to switch)",
-        "Dynamic: one row per sequence, showing whichever of its sequences fits your mana; rows close up " ..
-        "when a sequence has nothing to show. Can show only when mana or health is low, or for some targets.\n" ..
-        "Fixed: the Primary is always shown and can be clicked to cast, with the best sub-sequence under it. " ..
-        "Nothing moves.\nSwitching keeps each type's own settings for when you switch back.")
+    Tooltip(f.windowType, "Window type (click to change)",
+        TypeHelp() .. "\n\nChanging keeps each type's own settings for when you change back.")
     f.onlyInCombat = NewCheck(windowPanel, "Only show in combat", function(checked)
         if selWindow then
             selWindow.onlyInCombat = checked
@@ -1268,7 +1305,7 @@ local function CreateEditor()
     end)
     f.windowClick:SetPoint("LEFT", f.onlyInCombat.label, "RIGHT", 24, -1)
 
-    -- Dynamic windows only: what the fight is against, then the thresholds.
+    -- Switching and stacked windows only: what the fight is against, then the thresholds.
     local fightRow = CreateFrame("Frame", nil, windowPanel)
     fightRow:SetPoint("TOPLEFT", 24, -54)
     fightRow:SetSize(480, 22)
@@ -1348,6 +1385,29 @@ local function CreateEditor()
     local healthPercentLabel = NewLabel(gates, "%   (with both ticked, it shows when either is low)", "GameFontHighlightSmall")
     healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
 
+    -- Stacked windows only.
+    f.showNext = NewCheck(windowPanel, "Show the next one up", function(checked)
+        if selWindow then
+            selWindow.showNext = checked
+            Changed()
+        end
+    end)
+    f.showNext:SetPoint("TOPLEFT", 0, -154)
+    Tooltip(f.showNext, "Show the next one up",
+        "As well as the ones you can afford, show the cheapest one you can't yet, filling from grey as your " ..
+        "mana rises. With costliest at the top, it's the top row.")
+    f.costOrder = NewCheck(windowPanel, "Costliest at the top", function(checked)
+        if selWindow then
+            selWindow.costOrder = checked
+            Changed()
+        end
+    end)
+    f.costOrder:SetPoint("LEFT", f.showNext.label, "RIGHT", 24, -1)
+    Tooltip(f.costOrder, "Costliest at the top",
+        "Ticked: the costliest at the top, so a newly affordable one takes the top row and the rest move down. " ..
+        "Unticked: in the order they're listed in the window (each sequence's Primary, then its " ..
+        "sub-sequences), with the gaps closed up.")
+
     f.divider = f:CreateTexture(nil, "ARTWORK")
     f.divider:SetColorTexture(1, 0.82, 0, 0.25)
     f.divider:SetHeight(1)
@@ -1377,7 +1437,7 @@ local function CreateEditor()
     f.primaryHide:SetPoint("LEFT", f.nameBox, "RIGHT", 16, 0)
     Tooltip(f.primaryHide, "Hide when unusable",
         "While a spell or item in it is on cooldown, an item has run out, or the target is the wrong kind " ..
-        "(Hibernate: beasts and dragonkin only), the next sequence shows instead. In dynamic windows; fixed " ..
+        "(Hibernate: beasts and dragonkin only), the next sequence shows instead. In switching and stacked windows; fixed " ..
         "windows always show the Primary.")
     f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
     f.usedIn:SetPoint("TOPLEFT", 0, -26)
@@ -1390,6 +1450,34 @@ local function CreateEditor()
     f.primaryCost:SetPoint("LEFT", primaryLabel, "RIGHT", 10, 0)
     f.primaryRow = CreateSlotRow(detail, function() return selSeq and selSeq.entries end, true)
     f.primaryRow.frame:SetPoint("TOPLEFT", 0, -62)
+
+    -- A sequence picked under a stacked window: which of its rows that window includes, and
+    -- whether its Primary is pinned to the top.
+    local function SetIncluded(variation, included)
+        if selItem and variation then
+            ns.EnsureVariationIds(selSeq)
+            selItem.excluded = selItem.excluded or {}
+            selItem.excluded[variation.vid] = (not included) or nil
+            Changed()
+        end
+    end
+    f.SetIncluded = SetIncluded
+    f.primaryInclude = NewCheck(detail, "Include in this window", function(checked)
+        SetIncluded(selSeq, checked)
+    end)
+    f.primaryInclude:SetPoint("LEFT", f.primaryRow.frame, "LEFT", 6 * (SLOT_SIZE + SLOT_GAP) + 150, 0)
+    Tooltip(f.primaryInclude, "Include in this window",
+        "Stacked windows list every row you include from their sequences. This only changes this window.")
+    f.pinTop = NewCheck(detail, "Pin Primary to the top", function(checked)
+        if selWindow and selSeq then
+            selWindow.topId = checked and selSeq.id or nil
+            Changed()
+        end
+    end)
+    f.pinTop:SetPoint("TOPLEFT", f.primaryInclude, "BOTTOMLEFT", 0, -2)
+    Tooltip(f.pinTop, "Pin Primary to the top",
+        "This sequence's Primary is always shown at the top of the window, filling from grey as your mana " ..
+        "rises; the rest stack under it. One sequence per window.")
 
     local subsLabel = NewLabel(detail, "Sub-sequences")
     subsLabel:SetPoint("TOPLEFT", 0, -104)
@@ -1439,6 +1527,10 @@ local function CreateEditor()
             end
         end)
         block.hide:SetPoint("BOTTOMLEFT", block.remove, "TOPLEFT", 0, 0)
+        block.include = NewCheck(block, "Include in this window", function(checked)
+            f.SetIncluded(SubAt(block), checked)
+        end)
+        block.include:SetPoint("LEFT", block.remove, "LEFT", 0, 0)
         self.subBlocks[i] = block
         return block
     end
@@ -1540,7 +1632,7 @@ local function CreateEditor()
                 row.text:SetPoint("LEFT", row.enabled, "RIGHT", 2, 0)
                 row.text:SetFontObject(isWindow and "GameFontNormal" or "GameFontHighlight")
                 if isWindow then
-                    row.text:SetText((data.window.name or "?") .. (data.window.type == "fixed" and " (fixed)" or " (dynamic)"))
+                    row.text:SetText((data.window.name or "?") .. " (" .. ns.TypeLabel(data.window.type):lower() .. ")")
                 else
                     local learned = ns.AllLearned(data.def.entries)
                     row.text:SetText(learned and (data.def.name or "?") or
@@ -1590,7 +1682,12 @@ local function CreateEditor()
             if not self.windowName:HasFocus() then
                 self.windowName:SetText(selWindow.name or "")
             end
-            self.windowTypeText:SetText(selWindow.type == "fixed" and "Type: Fixed (switch)" or "Type: Dynamic (switch)")
+            self.windowTypeText:SetText("Type: " .. ns.TypeLabel(selWindow.type) .. " (change)")
+            local stacked = selWindow.type == "stacked"
+            self.showNext:SetShown(stacked)
+            self.costOrder:SetShown(stacked)
+            self.showNext:SetChecked(selWindow.showNext and true or false)
+            self.costOrder:SetChecked(selWindow.costOrder ~= false)
             self.windowClick:SetShown(selWindow.type == "fixed")
             self.windowClick:SetChecked(selWindow.clickable ~= false)
             self.onlyInCombat:SetChecked(selWindow.onlyInCombat and true or false)
@@ -1640,6 +1737,14 @@ local function CreateEditor()
             self.primaryHide:SetEnabled(not readOnly)
             self.primaryCost:SetText(CostText(def.entries))
             RefreshSlotRow(self.primaryRow)
+            local stacked = readOnly and selWindow and selWindow.type == "stacked"
+            local excluded = (stacked and selItem.excluded) or {}
+            local pinned = stacked and selWindow.topId == def.id
+            ns.EnsureVariationIds(def)
+            self.primaryInclude:SetShown(stacked and not pinned)
+            self.primaryInclude:SetChecked(not excluded[def.vid])
+            self.pinTop:SetShown(stacked)
+            self.pinTop:SetChecked(pinned)
             for i = 1, math.max(#def.subs, #self.subBlocks) do
                 local sub = def.subs[i]
                 if sub then
@@ -1648,6 +1753,8 @@ local function CreateEditor()
                     block.hide:SetChecked(sub.hideOnCooldown and true or false)
                     block.hide:SetEnabled(not readOnly)
                     block.remove:SetShown(Unlocked() and not IsEmpty(sub))
+                    block.include:SetShown(stacked and not IsEmpty(sub))
+                    block.include:SetChecked(not excluded[sub.vid])
                     block.cost:SetText(i .. ". " .. CostText(sub.entries))
                     RefreshSlotRow(block.row)
                     block:Show()
