@@ -39,8 +39,6 @@ local REFRESH = 1.0          -- how often spell data, cooldowns and auras are re
 local TEST_SWEEP_TIME = 15   -- seconds for /fseq test to sweep from no mana to full
 local FIVE_SECOND_RULE = 5.0 -- seconds of reduced regen after spending mana
 local GLOBAL_COOLDOWN = 1.5  -- used when the game won't say a spell's global cooldown
-local REGEN_TICK = 2.0       -- seconds between mana ticks in "ticks" regen mode
-local TICK_PHASE_STEPS = 20  -- tick timings tried when working out the worst case
 local INSTANT_LIMIT = 10     -- "instant cast" effects work on casts shorter than this
 local FAKE_COOLDOWN = 10     -- seconds, for /fseq cdtest
 local NEVER = 1e9            -- a mana value no one reaches
@@ -80,52 +78,40 @@ local function Spell(name, rank, spellID)
     return { kind = "spell", name = name, rank = rank, spellID = spellID }
 end
 
--- Starting windows and sequences, until you make your own in the editor. Dynamic windows
--- show one row per sequence and close up gaps; fixed windows always show the Primary (which
--- can be clicked to cast) with the best sub-sequence under it, and never move anything.
+-- Starting sequences and windows, for a character with no class default yet: a switching
+-- window (one row per sequence, gaps close up) and a fixed one (the Primary always shown,
+-- clickable, with the best sub-sequence under it).
+local DEFAULT_LIBRARY = {
+    {
+        id = 1,
+        name = "Bear out",
+        hideOnCooldown = false,
+        entries = { Spell("Regrowth"), Spell("Rejuvenation"), Spell("Bear Form") },
+        subs = {
+            { entries = { Spell("Regrowth"), Spell("Bear Form") }, hideOnCooldown = false },
+            { entries = { Spell("Rejuvenation"), Spell("Bear Form") }, hideOnCooldown = false },
+        },
+    },
+    {
+        id = 2,
+        name = "Root and run",
+        hideOnCooldown = false,
+        entries = { Spell("Entangling Roots"), Spell("Rejuvenation"), Spell("Travel Form") },
+        subs = {
+            { entries = { Spell("Entangling Roots"), Spell("Travel Form") }, hideOnCooldown = false },
+        },
+    },
+}
 local DEFAULT_WINDOWS = {
-    {
-        name = "Main",
-        type = "dynamic",
-        enabled = true,
-        onlyInCombat = false,
-        sequences = {
-            {
-                name = "Bear out",
-                enabled = true,
-                hideOnCooldown = false,
-                entries = { Spell("Regrowth"), Spell("Rejuvenation"), Spell("Bear Form") },
-                subs = {
-                    { entries = { Spell("Regrowth"), Spell("Bear Form") }, hideOnCooldown = false },
-                    { entries = { Spell("Rejuvenation"), Spell("Bear Form") }, hideOnCooldown = false },
-                },
-            },
-        },
-    },
-    {
-        name = "Clickable",
-        type = "fixed",
-        enabled = true,
-        onlyInCombat = false,
-        sequences = {
-            {
-                name = "Root and run",
-                enabled = true,
-                hideOnCooldown = false,
-                entries = { Spell("Entangling Roots"), Spell("Rejuvenation"), Spell("Travel Form") },
-                subs = {
-                    { entries = { Spell("Entangling Roots"), Spell("Travel Form") }, hideOnCooldown = false },
-                },
-            },
-        },
-    },
+    { name = "Main", type = "dynamic", items = { { id = 1, enabled = true } } },
+    { name = "Clickable", type = "fixed", items = { { id = 2, enabled = true } } },
 }
 
 ForeverSequencesDB = ForeverSequencesDB or {}
 local db = ForeverSequencesDB
 
 local DEFAULTS = {
-    regenMode = "smooth", -- "smooth" (Forever's regen), "ticks" (2-second ticks, worst timing) or "off"
+    regenMode = "smooth", -- "smooth" (Forever's regen, a steady flow) or "off"
 }
 
 local function CopyTable(t)
@@ -154,28 +140,8 @@ local function EnsureVariationIds(def)
 end
 ns.EnsureVariationIds = EnsureVariationIds
 
--- The first prototype held spell names in `spells`.
-local function MigrateSequence(def)
-    local function Convert(list)
-        if list.spells and not list.entries then
-            list.entries = {}
-            for _, name in ipairs(list.spells) do
-                list.entries[#list.entries + 1] = Spell(name)
-            end
-            list.spells = nil
-        end
-        list.entries = list.entries or {}
-    end
-    Convert(def)
-    def.subs = def.subs or {}
-    for _, sub in ipairs(def.subs) do
-        Convert(sub)
-    end
-    EnsureVariationIds(def)
-end
-
 -- Settings a window gets when it doesn't have them yet. The thresholds and target filter
--- only apply to dynamic windows.
+-- only apply to switching and stacked windows.
 local WINDOW_DEFAULTS = {
     type = "dynamic",
     enabled = true,
@@ -204,83 +170,48 @@ local function NewId()
 end
 ns.NewId = NewId
 
--- Sequences live in a library; each window lists the ones it shows ({ id, enabled }), so the
--- same sequence can appear in several windows. Windows saved before the library held their
--- own sequences; those move into the library.
-local function MoveSequencesToLibrary()
+-- Fill in what a profile is missing: the starting windows and sequences for a new one, ids,
+-- and window settings added since it was saved. Sequences live in a library; each window
+-- lists the ones it shows ({ id, enabled }), so the same sequence can be in several windows.
+local function PrepareProfile()
+    if type(db.windows) ~= "table" then
+        db.windows = CopyTable(DEFAULT_WINDOWS)
+        db.library = CopyTable(DEFAULT_LIBRARY)
+    end
     db.library = db.library or {}
     for _, window in ipairs(db.windows) do
         window.items = window.items or {}
-        if window.sequences then
-            for _, def in ipairs(window.sequences) do
-                MigrateSequence(def)
-                def.id = def.id or NewId()
-                window.items[#window.items + 1] = { id = def.id, enabled = def.enabled ~= false }
-                def.enabled = nil
-                db.library[#db.library + 1] = def
-            end
-            window.sequences = nil
-        end
         for key, value in pairs(WINDOW_DEFAULTS) do
             if window[key] == nil then
-                window[key] = type(value) == "table" and CopyTable(value) or value
+                window[key] = value
             end
-        end
-        if window.clickable == nil then
-            window.clickable = db.clickable ~= false
-        end
-        -- The per-kind target ticks became one choice of fight: PvP, PvE or all.
-        if window.targets then
-            local t = window.targets
-            local pvpFlag = t.pvp
-            if pvpFlag == nil then
-                pvpFlag = t.players
-            end
-            local pvp = pvpFlag ~= false
-            local pve = t.npcs ~= false
-            window.fight = (pvp and not pve) and "pvp" or (pve and not pvp) and "pve" or "all"
-            window.targets = nil
         end
     end
+    local highest = 0
     for _, def in ipairs(db.library) do
-        MigrateSequence(def)
-        def.id = def.id or NewId()
-    end
-end
-
--- Older versions kept one list of sequences, each with its own "always show Primary". Those
--- become a dynamic window and (for the always-shown ones) a fixed window.
-local function MigrateSettings()
-    if type(db.windows) ~= "table" then
-        if type(db.sequences) == "table" then
-            local dynamic = { name = "Main", type = "dynamic", enabled = true, onlyInCombat = false, sequences = {} }
-            local fixed = { name = "Clickable", type = "fixed", enabled = true, onlyInCombat = false, sequences = {} }
-            for _, def in ipairs(db.sequences) do
-                local list = def.alwaysPrimary and fixed.sequences or dynamic.sequences
-                def.alwaysPrimary = nil
-                list[#list + 1] = def
+        def.entries = def.entries or {}
+        def.subs = def.subs or {}
+        -- Empty sub-sequences are only kept while the editor has a sequence unlocked.
+        for i = #def.subs, 1, -1 do
+            if #(def.subs[i].entries or {}) == 0 then
+                table.remove(def.subs, i)
             end
-            db.windows = { dynamic }
-            if #fixed.sequences > 0 then
-                db.windows[2] = fixed
-            end
-        else
-            db.windows = CopyTable(DEFAULT_WINDOWS)
         end
+        def.id = def.id or NewId()
+        highest = math.max(highest, def.id)
+        EnsureVariationIds(def)
     end
-    db.sequences, db.point, db.relativePoint, db.x, db.y, db.locked = nil, nil, nil, nil, nil, nil
-    MoveSequencesToLibrary()
-    -- Forever's regen is smooth; earlier versions defaulted to ticks.
-    if not db.smoothRegenDefault then
+    db.nextId = math.max(db.nextId or 0, highest)
+    -- Settings of features since removed.
+    if db.regenMode ~= "off" then
         db.regenMode = "smooth"
-        db.smoothRegenDefault = true
     end
+    db.smoothRegenDefault, db.clickLog, db.clickable, db.noClickButtons = nil, nil, nil, nil
 end
 
 function ns.ResetToDefaults()
-    db.windows = CopyTable(DEFAULT_WINDOWS)
-    db.library = {}
-    MoveSequencesToLibrary()
+    db.windows, db.library = nil, nil
+    PrepareProfile()
 end
 
 function ns.NewWindow(name)
@@ -1607,9 +1538,7 @@ local function BuildWindow(root, window)
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
-                -- /fseq noclick builds fixed windows with display-only icons.
-                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary",
-                    not db.noClickButtons)
+                group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
                 local subCount = MostEntries(subs)
                 if subCount > 0 then
                     -- Its space is always kept: Lua can't tell when the Primary is affordable,
@@ -2037,8 +1966,7 @@ local function IsInside(windows, t)
     return false
 end
 
--- Mana regained between now (0) and time T (seconds from now). Smooth: a constant flow.
--- Ticks: REGEN_TICK-second ticks that land at `phase`, phase + REGEN_TICK, ..., before T.
+-- Mana regained between now (0) and time T (seconds from now): a steady flow, as Forever regens.
 -- `extras` are restores spread over time ({ start, finish, perSecond }), counted smoothly.
 local function RegenAt(t, windows, boosts, base, casting)
     local inside = IsInside(windows, t)
@@ -2054,26 +1982,20 @@ end
 -- from Innervate and the like; with any, smooth regen is added up in small steps.
 local REGEN_STEP = 0.1
 
-local function Gain(T, windows, extras, base, casting, phase, boosts)
+local function Gain(T, windows, extras, base, casting, boosts)
     if T <= 0 then
         return 0
     end
     local gained = 0
-    if phase == nil and (not boosts or #boosts == 0) then
+    if #boosts == 0 then
         local inside = TimeInside(windows, T)
         gained = base * (T - inside) + casting * inside
-    elseif phase == nil then
+    else
         local t = 0
         while t < T do
             local dt = math.min(REGEN_STEP, T - t)
             gained = gained + dt * RegenAt(t + dt / 2, windows, boosts, base, casting)
             t = t + REGEN_STEP
-        end
-    else
-        local t = phase
-        while t < T do
-            gained = gained + REGEN_TICK * RegenAt(t, windows, boosts or {}, base, casting)
-            t = t + REGEN_TICK
         end
     end
     for _, e in ipairs(extras) do
@@ -2085,12 +2007,12 @@ local function Gain(T, windows, extras, base, casting, phase, boosts)
     return gained
 end
 
--- Mana thresholds for one row, given the regen model and tick phase: threshold[i] is how much
+-- Mana thresholds for one row: threshold[i] is how much
 -- mana you need now to start the sequence and still have the mana for entry i when it's due.
 -- Each cost is taken (and each restore given) when the cast ends (instants: at once). The next
 -- entry starts once the cast and any channel are done and the global cooldown has passed.
 -- Mana can't go above max, so a restore or regen while full is lost.
-local function RowThresholds(row, ctx, phase)
+local function RowThresholds(row, ctx)
     local windows, extras, boosts = {}, {}, {}
     if ctx.fsrRemaining > 0 then
         windows[1] = { -math.huge, ctx.fsrRemaining }
@@ -2114,7 +2036,7 @@ local function RowThresholds(row, ctx, phase)
         end
         local due = startTime + castTime
 
-        local regained = Gain(due, windows, extras, ctx.base, ctx.casting, phase, boosts)
+        local regained = Gain(due, windows, extras, ctx.base, ctx.casting, boosts)
         lastRegained = regained
         peak = math.max(peak, regained - spent)
         spent = spent + cost - (cell.gain or 0)
@@ -2150,12 +2072,11 @@ local fsrEndTime = 0
 
 -- What the maths needs to know right now.
 local function Context(now)
-    local ctx = { base = 0, casting = 0, ticks = false, clearcasting = clearcasting }
+    local ctx = { base = 0, casting = 0, clearcasting = clearcasting }
     if db.regenMode ~= "off" then
         local base, casting = ReadRegen()
         if base then
             ctx.base, ctx.casting = base, casting
-            ctx.ticks = db.regenMode == "ticks"
         end
     end
     local maxMana = UnitPowerMax("player", MANA_POWER_TYPE)
@@ -2164,27 +2085,15 @@ local function Context(now)
     return ctx
 end
 
--- Whole-mana thresholds for a row. Tick mode takes the worst case over every tick timing.
+-- Whole-mana thresholds for a row.
 local function RowNeeds(row, ctx)
-    local thresholds
-    if ctx.ticks then
-        thresholds = {}
-        for step = 0, TICK_PHASE_STEPS - 1 do
-            local phase = REGEN_TICK * step / TICK_PHASE_STEPS
-            for i, need in ipairs(RowThresholds(row, ctx, phase)) do
-                thresholds[i] = math.max(thresholds[i] or -math.huge, need)
-            end
-        end
-    else
-        thresholds = RowThresholds(row, ctx, nil)
-    end
+    local thresholds = RowThresholds(row, ctx)
     for i, need in ipairs(thresholds) do
         thresholds[i] = math.ceil(need) -- mana is an integer
     end
     return thresholds
 end
 
--- For the editor: the mana needed now to start these entries, and what they cost in all.
 -- For the editor: what the entries cost in all, and the mana gained before the last one is
 -- cast (regen, plus potions and other restores in the sequence).
 function ns.CostSummary(entries)
@@ -2197,17 +2106,7 @@ function ns.CostSummary(entries)
         cost = cost + (cell.cost or 0)
         restored = restored + (cell.gain or 0)
     end
-    local ctx = Context(GetTime())
-    local regained
-    if ctx.ticks then
-        for step = 0, TICK_PHASE_STEPS - 1 do
-            local _, r = RowThresholds(row, ctx, REGEN_TICK * step / TICK_PHASE_STEPS)
-            regained = math.min(regained or math.huge, r)
-        end
-    else
-        local _, r = RowThresholds(row, ctx, nil)
-        regained = r
-    end
+    local _, regained = RowThresholds(row, Context(GetTime()))
     return cost, math.floor((regained or 0) + restored)
 end
 
@@ -2908,7 +2807,7 @@ local function UseProfileTable(name)
             db[key] = value
         end
     end
-    MigrateSettings()
+    PrepareProfile()
 end
 
 LoadProfile = function()
@@ -2918,29 +2817,6 @@ LoadProfile = function()
     root.profiles = root.profiles or {}
     root.classDefaults = root.classDefaults or {}
     className, playerClass = UnitClass("player")
-
-    -- Settings from before profiles were shared by every character: they become a profile
-    -- for whoever logs in first, and a copy becomes the class default.
-    if root.windows or root.sequences or root.library then
-        local old = {}
-        for key, value in pairs(root) do
-            if key ~= "profiles" and key ~= "classDefaults" then
-                old[key] = value
-            end
-        end
-        for key in pairs(old) do
-            root[key] = nil
-        end
-        old.class = playerClass
-        local name = ProfileName("Default")
-        root.profiles[name] = old
-        charDB.profile = charDB.profile or name
-        if not root.classDefaults[playerClass] then
-            local defaultName = ProfileName(className .. " class default")
-            root.profiles[defaultName] = CopyTable(old)
-            root.classDefaults[playerClass] = defaultName
-        end
-    end
 
     local current = charDB.profile and root.profiles[charDB.profile]
     if not (current and current.class == playerClass) then
@@ -3216,11 +3092,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
             UpdateCooldowns()
             UpdateMana()
         end
-    elseif cmd == "noclick" then
-        db.noClickButtons = not db.noClickButtons
-        Print(db.noClickButtons and "fixed windows now use display-only icons (no click to cast)." or
-            "fixed windows use click-to-cast buttons again.")
-        Rebuild()
     elseif cmd == "defaults" then
         ns.ResetToDefaults()
         Print("windows and sequences reset to the defaults.")
@@ -3229,6 +3100,6 @@ SlashCmdList["FOREVERSEQUENCES"] = function(msg)
     elseif cmd == "debug" then
         PrintDebug()
     else
-        Print("/fseq (options) | reset | test | cdtest [spell] | noclick | defaults | debug")
+        Print("/fseq (options) | reset | test | cdtest [spell] | defaults | debug")
     end
 end

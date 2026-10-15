@@ -80,7 +80,7 @@ each cost is taken. Everything is read from the game, not hard-coded:
   items and Wrath don't use it.
 - Anything whose description says it raises "Mana regeneration by N%" for a time (Innervate, on yourself) raises the
   regen counted for everything after it in the sequence, including while casting if it says so.
-- Regen modes: *smooth* (default, as Forever regens), *2s ticks* (worst tick timing), *off*.
+- Regen modes: *smooth* (default, as Forever regens) or *off*.
 
 **Library and windows.** Every sequence lives once in the library; windows (PvP, tanking, healing...) list the
 sequences they show, so the same sequence can be in several windows and changing it changes it everywhere. *Copy*
@@ -149,8 +149,7 @@ tagged with its class. Each character uses one of its class's profiles (the butt
 switch, make a copy, rename, delete, or *save this profile as the class default*. A character without a profile (a
 new one, say) starts with its own copy of the class default, window positions included, so a level 1 alt needs no
 setup, and editing it never changes the class default. To tidy up the class default itself (take out bag items,
-say), switch to it, edit, and switch back. Settings from before profiles become a "Default" profile for the first
-character to log in, with a copy as the class default.
+say), switch to it, edit, and switch back.
 
 **Options** (`/fseq`, right-click an icon, or Esc > Options > AddOns > Forever Sequences). Right-clicking an icon opens
 them with its window selected. While they're open, every window is shown and can be dragged to move it, and clicking
@@ -193,11 +192,10 @@ a window selects it; they lock again when the options close.
 - If something goes wrong while the windows update, the error is printed once in chat and updates pause for 5
   seconds, rather than repeating many times a second.
 
-Druids only. Older settings move into a switching "Main" window, plus a fixed "Clickable" window for sequences that had
-*always show Primary*. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
-empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq noclick` (fixed windows use display-only
-icons instead of click-to-cast buttons; for testing), `/fseq defaults` (restore the
-starting windows), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
+Druids only. A character with no class default yet starts with a switching "Main" window and a fixed "Clickable"
+one. Other commands: `/fseq reset` (default window positions), `/fseq test` (fake mana sweeping from
+empty to full), `/fseq cdtest [spell]` (a fake 10s cooldown on that spell's icons), `/fseq defaults` (restore the starting
+windows and sequences), and `/fseq debug` (per window and icon: spell ID, rank, cost, cast/GCD/channel time, mana restored,
 instant-cast and Clearcasting flags, thresholds and cooldown state; plus regen rates, 5-second rule, mana update gaps,
 Clearcasting and the mana potions found; for stacked windows, each variation's need and the mana band it shows
 over in each row).

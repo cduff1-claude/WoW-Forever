@@ -30,8 +30,8 @@ local LEFT = 20
 local RIGHT_X = 250
 local PICKER_WIDTH = 300
 local PICKER_ROW_HEIGHT = 30
-local REGEN_MODES = { "smooth", "ticks", "off" }
-local REGEN_LABELS = { smooth = "Regen: smooth", ticks = "Regen: 2s ticks", off = "Regen: off" }
+local REGEN_MODES = { "smooth", "off" }
+local REGEN_LABELS = { smooth = "Regen: smooth", off = "Regen: off" }
 
 local editor
 local selWindow -- the selected window (nil when a library sequence is picked on its own)
@@ -1590,7 +1590,7 @@ local function CreateEditor()
     end)
     f.regen:SetPoint("BOTTOMLEFT", LEFT, 22)
     Tooltip(f.regen, "Mana regen during a sequence",
-        "Smooth: a steady flow (Forever's regen). 2s ticks: mana in 2-second ticks with the worst timing. " ..
+        "Smooth: a steady flow (Forever's regen). " ..
         "Off: ignore regen.")
     local moveHint = NewLabel(f, "While this is open, every window is shown and can be dragged.", "GameFontDisableSmall")
     moveHint:SetPoint("LEFT", f.regen, "RIGHT", 16, 0)
