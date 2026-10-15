@@ -788,6 +788,7 @@ end
 -- Items with a use that never belongs in a sequence: hearthstones and anything you have to
 -- sit down for (food, drink, bandage-style channels).
 local QUEST_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Questitem) or 12
+local RECIPE_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Recipe) or 9
 
 -- Whether the item's tooltip has a "Use:" line (true when the tooltip can't be read).
 local function HasUseLine(itemID)
@@ -807,14 +808,14 @@ local function HasUseLine(itemID)
     return false
 end
 
--- Items that never belong in a sequence: quest items, items with no "Use:", hearthstones and
--- anything you have to sit down for (food, drink).
+-- Items that never belong in a sequence: quest items, recipes, items with no "Use:",
+-- hearthstones and anything you have to sit down for (food, drink).
 local function IsOutOfCombatItem(itemID, description)
     if itemID == 6948 then -- Hearthstone
         return true
     end
     local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, itemID)
-    if ok and classID == QUEST_CLASS then
+    if ok and (classID == QUEST_CLASS or classID == RECIPE_CLASS) then
         return true
     end
     if not HasUseLine(itemID) then
@@ -905,8 +906,8 @@ local function IsListed(name, spellID, tab, description)
 end
 
 -- Everything that can go in a sequence, for the editor's list, in sections: the
--- best-mana-potion entry, your spells in spellbook order (by spellbook tab), then usable
--- items (equipped trinkets and bags). `filter` is a lower-case piece of the name, or nil.
+-- best-mana-potion entry, your spells in spellbook order (by spellbook tab), then (with
+-- "Show all" only) usable items (equipped trinkets and bags). `filter` is a lower-case piece of the name, or nil.
 -- Returns { { title, items = { { entry, icon, name, summary } } } }.
 function ns.PickerEntries(filter, showAll)
     local sections = {}
@@ -954,7 +955,7 @@ function ns.PickerEntries(filter, showAll)
     local items = Section("Items")
     local seen = {}
     local itemIDs = {}
-    if GetInventoryItemID then
+    if showAll and GetInventoryItemID then
         for _, slot in ipairs({ 13, 14 }) do
             local itemID = GetInventoryItemID("player", slot)
             if IsReadableNumber(itemID) and not seen[itemID] then
@@ -964,7 +965,7 @@ function ns.PickerEntries(filter, showAll)
         end
     end
     local bagIDs = {}
-    for itemID in pairs(bagCounts) do
+    for itemID in pairs(showAll and bagCounts or {}) do
         if not seen[itemID] then
             bagIDs[#bagIDs + 1] = itemID
         end

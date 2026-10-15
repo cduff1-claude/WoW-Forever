@@ -155,12 +155,13 @@ a window selects it; they lock again when the options close.
   mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
   cost), in a scrolling list.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
-  section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), then usable
-  items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
+  section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), and, with
+  *Show all* only, usable items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
   cooldown of their own, plus War Stomp, Shadowmeld, Bash, Feral Charge, Frenzied Regeneration and Innervate; not
   buffs and utility (Mark/Gift of the Wild, Thorns, Omen of Clarity, Teleport: Moonglade, Soothe Animal, tracking),
-  anything that can't be cast in combat (Revive), or the rest of General and Feral. *Show all* lists every spell.
-  Never listed, even then: passives, internal spells ("(DND)", "Shapeshift"), quest items, items with no "Use:",
+  anything that can't be cast in combat (Revive), or the rest of General and Feral. *Show all* lists every spell,
+  plus the items section. Never listed, even then: passives, internal spells ("(DND)", "Shapeshift"), quest items,
+  recipes, items with no "Use:",
   hearthstones and anything you must remain seated for. Drag into a row, or click to add to the end of the Primary.
   The spellbook and bags work too. Escape closes the options, and the mouse wheel over them never reaches your
   key bindings.

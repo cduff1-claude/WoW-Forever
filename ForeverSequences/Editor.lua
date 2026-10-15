@@ -828,8 +828,8 @@ local function CreatePicker(f)
     showAll:SetPoint("LEFT", search, "RIGHT", 8, 0)
     Tooltip(showAll, "Show all",
         "Off: spells you'd spend mana on in combat, forms, and a few in-form abilities that buy time to regen " ..
-        "(War Stomp, Bash, Feral Charge, Frenzied Regeneration, Innervate). On: every spell and usable item. " ..
-        "Quest items, items with no Use, and internal spells are never listed.")
+        "(War Stomp, Bash, Feral Charge, Frenzied Regeneration, Innervate). On: every spell, plus your usable items. " ..
+        "Quest items, recipes, items with no Use, and internal spells are never listed.")
 
     local scroll = CreateFrame("ScrollFrame", nil, picker, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 18, -86)
