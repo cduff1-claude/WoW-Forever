@@ -498,6 +498,28 @@ local function ParseManaGain(description)
     return amount, over
 end
 
+-- How much a description says it heals at once (the low end of "X to Y"), or nil. Heals over
+-- time ("for 32 over 12 sec", bandages) don't count; Regrowth's direct part does. For the
+-- "skip if it would overheal" option.
+local function ParseHeal(description)
+    if not description then
+        return nil
+    end
+    local text = description:gsub("\r?\n", " ")
+    for _, pattern in ipairs({ "[Hh]eals [^%.]-for ([%d,]+)()", "[Rr]estores ([%d,]+)() to [%d,]+ health",
+        "[Rr]estores ([%d,]+)() health" }) do
+        local amount, after = text:match(pattern)
+        if amount then
+            local rest = text:sub(after, after + 30):gsub("^ to [%d,]+", "")
+            if not (rest:find("^ over") or rest:find("^ health over")) then
+                return Number(amount)
+            end
+        end
+    end
+    return nil
+end
+ns.ParseHeal = ParseHeal
+
 local function ChannelTime(spellID, description)
     if not (description and IsChanneled(spellID)) then
         return 0
@@ -745,6 +767,23 @@ function ns.HasCooldown(entry)
         local ok, cooldownMS = pcall(fn, spellID)
         if ok and IsReadableNumber(cooldownMS) then
             return cooldownMS > GLOBAL_COOLDOWN * 1000
+        end
+    end
+    return false
+end
+
+-- Whether any of a sequence's variations heals at once (for "skip if it would overheal").
+function ns.AnyHeal(def)
+    local lists = { def.entries }
+    for _, sub in ipairs(def.subs or {}) do
+        lists[#lists + 1] = sub.entries
+    end
+    for _, list in ipairs(lists) do
+        for _, entry in ipairs(list) do
+            local info = ResolveEntry(entry)
+            if info.spellID and (ns.ParseHeal(GetDescription(info.spellID)) or 0) > 0 then
+                return true
+            end
         end
     end
     return false
@@ -1478,15 +1517,19 @@ local function AcquireShell(line)
         shell.aboveLow:SetClipsChildren(true)
         shell.belowHigh = NewFrame("Frame", shell.aboveLow)
         shell.belowHigh:SetClipsChildren(true)
-        shell.rowFrame = NewFrame("Frame", shell.belowHigh)
+        shell.heal = NewSwitch(line, line)
+        shell.noOverheal = NewFrame("Frame", shell.belowHigh)
+        shell.noOverheal:SetClipsChildren(true)
+        shell.rowFrame = NewFrame("Frame", shell.noOverheal)
     end
-    for _, frame in ipairs({ shell.low, shell.high, shell.aboveLow }) do
+    for _, frame in ipairs({ shell.low, shell.high, shell.heal, shell.aboveLow }) do
         frame:SetParent(line)
         SetLevelAbove(frame, line)
         frame:Show()
     end
     SetLevelAbove(shell.belowHigh, shell.aboveLow)
-    SetLevelAbove(shell.rowFrame, shell.belowHigh)
+    SetLevelAbove(shell.noOverheal, shell.belowHigh)
+    SetLevelAbove(shell.rowFrame, shell.noOverheal)
     shell.low:ClearAllPoints()
     shell.low:SetAllPoints(line)
     shell.high:ClearAllPoints()
@@ -1499,6 +1542,15 @@ local function AcquireShell(line)
     shell.belowHigh:ClearAllPoints()
     shell.belowHigh:SetPoint("TOPLEFT", shell.high:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     shell.belowHigh:SetPoint("BOTTOMRIGHT", shell.high, "BOTTOMRIGHT", 0, 0)
+    -- And while health < (max health - its heals + 1), for sequences set to skip overheals
+    -- (see UpdateMana); otherwise the heal switch is kept empty, so this is always open.
+    shell.heal:ClearAllPoints()
+    shell.heal:SetAllPoints(line)
+    shell.heal:SetMinMaxValues(NEVER - 1, NEVER)
+    shell.heal:SetValue(0)
+    shell.noOverheal:ClearAllPoints()
+    shell.noOverheal:SetPoint("TOPLEFT", shell.heal:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    shell.noOverheal:SetPoint("BOTTOMRIGHT", shell.heal, "BOTTOMRIGHT", 0, 0)
     return shell
 end
 
@@ -1543,6 +1595,7 @@ local function CreateBandedRow(group, line, def, size, label)
     local shell = AcquireShell(line)
     local row = CreateRow(group, shell.rowFrame, line, def, size, label, false)
     row.low, row.high, row.shell = shell.low, shell.high, shell
+    row.skipOverheal = group.skipOverheal
     return row
 end
 
@@ -1581,6 +1634,7 @@ local function ReleaseAll()
         if row.shell then
             row.shell.low:Hide()
             row.shell.high:Hide()
+            row.shell.heal:Hide()
             row.shell.aboveLow:Hide()
             shellPool[#shellPool + 1] = row.shell
         elseif row.plainFrame then
@@ -1618,7 +1672,8 @@ local function BuildWindow(root, window)
             end
         end
         if def and item.enabled and #def.entries > 0 and ns.AllLearned(def.entries) then
-            local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed }
+            local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed,
+                skipOverheal = def.skipOverheal and not root.fixed }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
                 group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
@@ -1693,7 +1748,8 @@ local function BuildStacked(root, window)
                 local key = ns.EntriesKey(variation.entries)
                 if not excluded and not listed[key] and #variation.entries > 0 and ns.AllLearned(variation.entries) then
                     listed[key] = true
-                    variations[#variations + 1] = { variation = variation, name = def.name or "?" }
+                    variations[#variations + 1] = { variation = variation, name = def.name or "?",
+                        skipOverheal = def.skipOverheal }
                 end
             end
         end
@@ -1717,6 +1773,7 @@ local function BuildStacked(root, window)
         local cand = { order = i, name = v.name, rows = {} }
         for k, line in ipairs(stack.lines) do
             cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
+            cand.rows[k].skipOverheal = v.skipOverheal
             -- Every copy needs what the first one needs: work it out once.
             cand.rows[k].twin = k > 1 and cand.rows[1] or nil
         end
@@ -1873,6 +1930,7 @@ local function EntryData(entry, info, target)
     target.gain = (gain and not over) and gain or 0
     target.gainOver = (gain and over and over > 0) and { amount = gain, duration = over } or nil
     target.instantNext = MakesNextInstant(description)
+    target.heal = ParseHeal(description) or 0
     target.regenBoost = ParseRegenBoost(description)
     target.creatureTypes = ParseCreatureTypes(description)
     target.usesClearcasting = info.kind == "spell" and not IsForm(entry.name, spellID)
@@ -2830,11 +2888,31 @@ local function UpdateMana()
     work.lastMana = mana
     local previous = ManaAgo(now, FLASH_HOLD)
     UpdateGates(now, mana)
+    -- "Skip if it would overheal": health is secret, but the line isn't.
+    local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
+    if not IsReadableNumber(maxHealth) then
+        maxHealth = nil
+    end
     for _, row in ipairs(rows) do
       if Visible(row) then
         if row.low then
             row.low:SetValue(mana)
             row.high:SetValue(mana)
+            local heal = 0
+            if row.skipOverheal and maxHealth then
+                for _, cell in ipairs(row.cells) do
+                    heal = heal + (cell.heal or 0)
+                end
+            end
+            row.healTotal = heal
+            if heal > 0 then
+                local line = maxHealth - heal + 1
+                row.shell.heal:SetMinMaxValues(line - 1, line)
+                row.shell.heal:SetValue(health or 0)
+            else
+                row.shell.heal:SetMinMaxValues(NEVER - 1, NEVER)
+                row.shell.heal:SetValue(0)
+            end
         end
         for _, cell in ipairs(row.cells) do
             cell.fill:SetValue(mana)
@@ -3385,14 +3463,16 @@ local function PrintDebug()
                     list[#list + 1] = row
                 end
                 for _, row in ipairs(list) do
-                    print(string.format("    %s%s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s",
+                    print(string.format("    %s%s: needs %s, shows from %s to %s, blocked=%s, hide on cooldown=%s%s",
                         row.label, row.progressive and string.format(" (cast %d of %d%s%s)", row.step or 0, #row.cells,
                             row.deadline and string.format(", next due within %.1fs", row.deadline - GetTime()) or "",
                             (row.step or 0) > 0 and string.format(", counts if you had %s mana when it started",
                                 tostring(row.startNeed)) or "") or "",
                         tostring(row.total),
                         row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
-                        tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false)))
+                        tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false),
+                        row.skipOverheal and string.format(", skips above %s health (heals %s)",
+                            tostring(UnitHealthMax("player") - (row.healTotal or 0)), tostring(row.healTotal)) or ""))
                     for _, cell in ipairs(row.cells) do
                         local info = cell.info or {}
                         print(string.format("       %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s%s",
@@ -3402,7 +3482,7 @@ local function PrintDebug()
                             cell.gainOver and string.format(" (+%s over %ss)", cell.gainOver.amount, cell.gainOver.duration) or "",
                             tostring(cell.instantNext), tostring(cell.usesClearcasting),
                             tostring(cell.start), tostring(cell.total), tostring(cell.cooldownNote),
-                            cell.bandage and ", bandage" or ""))
+                            (cell.bandage and ", bandage" or "") .. ((cell.heal or 0) > 0 and (", heals " .. cell.heal) or "")))
                     end
                 end
             end
