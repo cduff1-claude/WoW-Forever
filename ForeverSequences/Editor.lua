@@ -671,13 +671,13 @@ local function NewSequence()
         subs = {},
     }
     library[#library + 1] = def
-    selSeq = def
-    selItem = selWindow and Place(def, selWindow) or nil
-    -- Placed in a window it's shown read-only there; from the library, ready to fill.
-    if not selItem then
-        Lock()
-        ns.unsortedSequence = def
+    -- Also shown in the selected window, but picked in the library, unlocked, ready to fill.
+    if selWindow then
+        Place(def, selWindow)
     end
+    Lock()
+    selWindow, selItem, selSeq = nil, nil, def
+    ns.unsortedSequence = def
     Changed()
 end
 

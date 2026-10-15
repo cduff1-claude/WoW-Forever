@@ -168,7 +168,8 @@ a window selects it; they lock again when the options close.
   a window (it stays in the library); *Delete* deletes a window.
 - Left, bottom: the Sequence Library (with how many windows use each; arrows to reorder). Drag a sequence onto a
   window to show it there.
-  New (also added to the selected window), Copy, Delete (from the library and every window).
+  New (also added to the selected window, and opened unlocked for editing), Copy, Delete (from the library and every
+  window).
 - Right: for a window, its name, type, *only show in combat*, and for switching and stacked windows the mana, health
   and target options (stacked: also *show the next one up* and *costliest at the top*). For a sequence picked under a
   window, a read-only view of it with *Edit in library* (under a stacked window, also the include and pin ticks). For a sequence
