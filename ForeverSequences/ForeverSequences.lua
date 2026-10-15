@@ -162,7 +162,7 @@ local WINDOW_DEFAULTS = {
     type = "dynamic",
     enabled = true,
     onlyInCombat = false,
-    manaGate = false,   -- show only when mana is below the dearest sequence's need + manaMargin %
+    manaGate = false,   -- show only when mana is below the costliest sequence's need + manaMargin %
     manaMargin = 20,
     healthGate = false, -- show only when health is below healthPercent %
     healthPercent = 50,
@@ -2071,9 +2071,9 @@ end
 
 -- A sequence's variations (its Primary and sub-sequences) are kept sorted, so the Primary is
 -- always the one you can cast that costs the most mana: variations with every spell learned
--- first, then by total mana cost, dearest first; ties keep their order. Each variation keeps
+-- first, then by total mana cost, costliest first; ties keep their order. Each variation keeps
 -- its own "hide when unusable". Re-sorted after edits, when spells or ranks are learned, and
--- on switching profile, so a sub-sequence that becomes dearer, or a Primary with a spell this
+-- on switching profile, so a sub-sequence that becomes costlier, or a Primary with a spell this
 -- character hasn't learned, swaps places. Returns whether anything moved.
 local function SortVariations(def)
     local variations = { { entries = def.entries, hideOnCooldown = def.hideOnCooldown, index = 0 } }
@@ -2239,7 +2239,7 @@ local function GetHighestTotal()
     return highest
 end
 
--- /fseq test: a readable fake mana value sweeping from 0 to a bit past the dearest sequence.
+-- /fseq test: a readable fake mana value sweeping from 0 to a bit past the costliest sequence.
 local testStartTime = nil
 
 local function ReadMana()
@@ -2351,14 +2351,14 @@ local function UpdateGates(now, mana)
                     end
                 end
                 if window.manaGate then
-                    local dearest = 0
+                    local costliest = 0
                     for _, group in ipairs(root.groups) do
-                        dearest = math.max(dearest, group.primary.total)
+                        costliest = math.max(costliest, group.primary.total)
                         for _, row in ipairs(group.subs) do
-                            dearest = math.max(dearest, row.total)
+                            costliest = math.max(costliest, row.total)
                         end
                     end
-                    local threshold = math.ceil(dearest * (1 + (window.manaMargin or 0) / 100))
+                    local threshold = math.ceil(costliest * (1 + (window.manaMargin or 0) / 100))
                     root.manaThreshold = threshold
                     local hold = math.max(0, math.min(MAX_HOLD, math.floor(window.holdSeconds or 0)))
                     for t = 0, hold do
@@ -2621,7 +2621,7 @@ local function OnEvent(_, event, unit, arg2, arg3)
         UpdateMana()
     elseif event == "SPELLS_CHANGED" or event == "UPDATE_SHAPESHIFT_FORMS" then
         ScanSpellbook()
-        -- A spell or rank learned can change which variation is the dearest one you can cast.
+        -- A spell or rank learned can change which variation is the costliest one you can cast.
         local moved = ns.SortAllVariations()
         if moved or LearnedSignature() ~= learnedSignature then
             Rebuild()

@@ -96,7 +96,7 @@ for switching back, but only the current type's are used):
   click-to-cast buttons can't move in combat, so that space is kept.
 - *Only show in combat* (any window) hides it out of combat.
 - Dynamic windows can also show only when you're low, and only for some targets:
-  - *Mana*: below the dearest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
+  - *Mana*: below the costliest sequence's need plus a margin (e.g. +20%), so it appears as you get close to not
     affording it, and stays up for a few seconds (up to 10) after mana goes back above.
   - *Health*: below a percentage. With both ticked, the window shows when either is low.
   - *Fight against* (with *only show in combat*; greyed out without it): *PvP*, *PvE* or *All*. A fight starts
@@ -114,9 +114,9 @@ for switching back, but only the current type's are used):
 
 **Sequences.** Each has a Primary and any number of sub-sequences (any spells or items, up to 8 each). The Primary is
 always the variation you can cast that costs the most mana: variations with every spell learned come first, then the
-dearest. They're re-sorted when you lock the sequence after editing it, when you learn a spell or rank, and when you switch profile, so adding a
-spell to a sub-sequence (or learning a dearer rank) can make it the Primary, and on a character that hasn't learned
-one of the Primary's spells the dearest variation it can cast takes its place until it does. Each variation keeps
+costliest. They're re-sorted when you lock the sequence after editing it, when you learn a spell or rank, and when you switch profile, so adding a
+spell to a sub-sequence (or learning a costlier rank) can make it the Primary, and on a character that hasn't learned
+one of the Primary's spells the costliest variation it can cast takes its place until it does. Each variation keeps
 its own *hide when unusable*.
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
@@ -151,7 +151,7 @@ a window selects it; they lock again when the options close.
 - Right: for a window, its name, type, *only show in combat*, and for dynamic windows the mana, health and target
   options. For a sequence picked under a window, a read-only view of it with *Edit in library*. For a sequence
   picked in the library: its name, *hide when unusable* and which windows use it; the
-  Primary and the sub-sequences (dearest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
+  Primary and the sub-sequences (costliest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
   mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
   cost), in a scrolling list.
 - Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
@@ -169,7 +169,7 @@ a window selects it; they lock again when the options close.
   sub-sequence waits at the bottom (another appears once you add to it; *Remove* shows only on rows with icons), and
   rows keep their places, so nothing jumps while you add to it. *Lock*, or picking another sequence or window, or
   closing the options, drops the empty rows and puts the variations back in order. A new library sequence starts
-  unlocked.
+  unlocked, and so does one opened with *Edit in library*.
 - Drag icons within a row to reorder them, onto another row to copy them (from the Primary onto a sub-sequence's "+"
   slot they go in Primary order), or off the window to remove them. Right-click also removes. Shift-right-click a
   spell to pin it one rank lower (stopping at rank 1), ctrl-click to go one rank higher; back at your highest rank the

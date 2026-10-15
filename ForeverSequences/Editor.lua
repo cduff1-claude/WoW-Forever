@@ -80,7 +80,7 @@ local function Library()
 end
 
 local function Changed()
-    -- An edit can make a sub-sequence the dearest; the Primary is always the dearest.
+    -- An edit can make a sub-sequence the costliest; the Primary is always the costliest.
     KeepEmptyRow()
     ns.SortAllVariations()
     ns.RequestRebuild()
@@ -1301,7 +1301,7 @@ local function CreateEditor()
     gates:SetSize(520, 70)
     f.gates = gates
 
-    f.manaGate = NewCheck(gates, "Only show when mana is below the dearest sequence's need, plus", function(checked)
+    f.manaGate = NewCheck(gates, "Only show when mana is below the costliest sequence's need, plus", function(checked)
         if selWindow then
             selWindow.manaGate = checked
             Changed()
@@ -1456,13 +1456,18 @@ local function CreateEditor()
     Tooltip(f.lockButton, "Unlock / Lock",
         "Unlock to change the Primary and sub-sequences: an empty row waits at the bottom, and rows keep " ..
         "their places while you work. Lock (or pick something else) to drop empty rows and put them back in " ..
-        "order, dearest first.")
+        "order, costliest first.")
 
     -- A sequence picked under a window is shown read-only, with a way into the library.
     f.nameText = NewLabel(detail, "", "GameFontHighlight")
     f.nameText:SetPoint("LEFT", nameLabel, "RIGHT", 12, 0)
     f.editButton = NewButton(detail, "Edit in library", 120, function()
         selWindow, selItem = nil, nil
+        -- You pressed it to change the sequence, so it opens unlocked.
+        if selSeq then
+            ns.unsortedSequence = selSeq
+            KeepEmptyRow()
+        end
         f:Refresh()
     end)
     f.editButton:SetPoint("TOPRIGHT", 0, -22)
