@@ -299,7 +299,7 @@ local function FinishDrag()
     local targetRow, targetIndex = SlotUnderMouse()
     if not targetRow then
         -- Dropped off the window: remove it from its row.
-        if source.row and not editor:IsMouseOver() and not editor.picker:IsMouseOver() then
+        if source.row and not editor:IsMouseOver() and not (editor.picker:IsShown() and editor.picker:IsMouseOver()) then
             table.remove(source.row.list(), source.index)
             Changed()
         end
@@ -1771,7 +1771,11 @@ local function CreateEditor()
 
         self.profileButton:SetText(ProfileLabel(ns.CurrentProfile() or "?"))
         self.regen:SetText(REGEN_LABELS[ns.db.regenMode] or ns.db.regenMode)
-        self.picker:Refresh()
+        -- The list of spells and items is only for adding to a sequence: open while one is unlocked.
+        self.picker:SetShown(Unlocked())
+        if Unlocked() then
+            self.picker:Refresh()
+        end
     end
 
     -- The mana figures change with regen and the 5-second rule; keep them current.

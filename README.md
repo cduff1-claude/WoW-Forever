@@ -177,7 +177,7 @@ a window selects it; they lock again when the options close.
   Primary and the sub-sequences (costliest first), each labelled "Mana cost: X (-Y gained)": X is its total cost, Y the
   mana regained before its last icon plus any potions or other restores in it (shown negative, as it comes off the
   cost), in a scrolling list.
-- Beside it: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
+- Beside it, while a sequence is unlocked: a scrolling list with a search box, in sections: *best mana potion*, your spells in spellbook order (one
   section per spellbook tab, with rank, cost and cast time; forms in their own section above Feral), and, with
   *Show all* only, usable items (trinkets, then bags). It lists what you'd spend mana on in combat: spells that cost mana or have a
   cooldown of their own, plus War Stomp, Shadowmeld, Bash, Feral Charge, Frenzied Regeneration and Innervate; not
