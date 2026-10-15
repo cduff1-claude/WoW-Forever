@@ -193,9 +193,9 @@ local WINDOW_DEFAULTS = {
 
 -- What each window type is called on screen. "dynamic" is the original kind, which switches
 -- each row between its sequence's variations.
-local TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Fixed" }
+ns.TYPE_LABELS = { dynamic = "Switching", stacked = "Stacked", fixed = "Fixed" }
 function ns.TypeLabel(windowType)
-    return TYPE_LABELS[windowType] or TYPE_LABELS.dynamic
+    return ns.TYPE_LABELS[windowType] or ns.TYPE_LABELS.dynamic
 end
 
 local function NewId()
@@ -812,6 +812,9 @@ function ns.AnyCooldown(entries)
     return false
 end
 
+-- The editor's list of spells and items. Its helpers sit in a block of their own, since the
+-- file is near Lua's limit of 200 locals at the top level.
+do
 -- Items with a use that never belongs in a sequence: hearthstones and anything you have to
 -- sit down for (food, drink, bandage-style channels).
 local QUEST_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Questitem) or 12
@@ -1017,6 +1020,7 @@ function ns.PickerEntries(filter, showAll)
         end
     end
     return result
+end
 end
 
 ----------------------------------------------------------------------------------------------
@@ -1633,25 +1637,47 @@ end
 -- of the window) holds a banded row for every variation, so whichever belongs there at the
 -- current mana shows (see UpdateStack); nothing moves. A sequence can be pinned to the top,
 -- where its Primary is always shown.
+--
+-- The same icons in the same order (say, a sub-sequence two sequences share) only go in once,
+-- the first one listed; the same icons in a different order are a different row.
+function ns.EntriesKey(entries)
+    local parts = {}
+    for i, entry in ipairs(entries) do
+        parts[i] = table.concat({ tostring(entry.kind), tostring(entry.name), tostring(entry.rank),
+            tostring(entry.itemID) }, ":")
+    end
+    return table.concat(parts, ">")
+end
+
 local function BuildStacked(root, window)
     local stack = { cands = {}, lines = {} }
     local variations = {}
     local pinnedDef
     for _, item in ipairs(window.items) do
         local def = ns.FindSequence(item.id)
+        if def and item.enabled and window.topId == def.id and #def.entries > 0 and ns.AllLearned(def.entries) then
+            pinnedDef = def
+        end
+    end
+    -- The pinned Primary counts as already listed.
+    local listed = {}
+    if pinnedDef then
+        listed[ns.EntriesKey(pinnedDef.entries)] = true
+    end
+    for _, item in ipairs(window.items) do
+        local def = ns.FindSequence(item.id)
         if def and item.enabled then
             EnsureVariationIds(def)
             local pinned = window.topId == def.id
-            if pinned and #def.entries > 0 and ns.AllLearned(def.entries) then
-                pinnedDef = def
-            end
             local list = { def }
             for _, sub in ipairs(def.subs) do
                 list[#list + 1] = sub
             end
             for i, variation in ipairs(list) do
                 local excluded = (pinned and i == 1) or (item.excluded and item.excluded[variation.vid])
-                if not excluded and #variation.entries > 0 and ns.AllLearned(variation.entries) then
+                local key = ns.EntriesKey(variation.entries)
+                if not excluded and not listed[key] and #variation.entries > 0 and ns.AllLearned(variation.entries) then
+                    listed[key] = true
                     variations[#variations + 1] = { variation = variation, name = def.name or "?" }
                 end
             end

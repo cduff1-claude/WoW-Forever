@@ -96,7 +96,9 @@ for switching back, but only the current type's are used):
   sequence's Primary, then its sub-sequences) with the gaps closed up. *Show the next one up* adds the cheapest one
   you can't afford yet, filling from grey (the top row, in cost order). Pick a sequence under the window to untick
   *include in this window* on any of its rows, or *pin Primary to the top* to keep that sequence's Primary always at
-  the top, filling (one per window; its sub-sequences can still join the list). Nothing actually moves: each row of
+  the top, filling (one per window; its sub-sequences can still join the list). The same icons in the same order (a sub-sequence
+  two sequences share, say) only go in once, the first one listed, even if both are ticked; the same icons in a
+  different order are a separate row. Nothing actually moves: each row of
   the window holds every variation, each shown only over the band of mana where it belongs in that row (mana is
   secret, but the needs aren't, so each band's contents are known in advance). Rows below the number of variations
   that can show close up; blank rows above that stay, and let clicks through. Not clickable. Uses the same
