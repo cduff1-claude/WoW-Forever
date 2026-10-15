@@ -90,6 +90,12 @@ for switching back, but only the current type's are used):
 - **Switching** (called *Dynamic* before): one row per sequence, showing the cheapest of its sequences you can't afford yet (the one you're
   working towards), and the Primary once you can afford everything. A sequence with nothing left to show (everything
   hidden on cooldown) closes up, and the rows below move up.
+  *Skip sequences that would overheal* (switching windows only): a row (Primary or sub-sequence) is passed over
+  while your health plus all its direct heals, at the low end, would go over your maximum, and the next one shows
+  instead (as if it weren't there). Heals over time (Rejuvenation, Regrowth's over-time part, bandages) don't
+  count; healing potions do. It follows your health as it changes, so rows come back as you take damage. With
+  every row of a sequence overhealing, nothing shows for it. Health is secret, so each row is clipped by a chain
+  of hidden status bars, one "mana or health" condition each: a few frames per row, none per icon.
 - **Stacked:** every variation you include from its sequences (Primaries and sub-sequences alike), as one list of
   the ones you can afford, anchored at the top and filling downwards. With *costliest at the top* (the default) a
   newly affordable one takes the top row and the rest move down a row; without it they keep the window's order (each
@@ -140,12 +146,6 @@ costliest. They're re-sorted when you lock the sequence after editing it, when y
 spell to a sub-sequence (or learning a costlier rank) can make it the Primary, and on a character that hasn't learned
 one of the Primary's spells the costliest variation it can cast takes its place until it does. Each variation keeps
 its own *hide when unusable*.
-- **Skip if it would overheal** (per sequence, offered when one of its rows heals; switching and stacked windows):
-  each of its rows (Primary and sub-sequences) is hidden while your health plus all its direct heals, at the low
-  end, would go over your maximum. Heals over time (Rejuvenation, Regrowth's over-time part, bandages) don't count;
-  healing potions do. It's checked against your health as it changes, so rows come back as you take damage. A
-  skipped row is left blank rather than another taking its place. Health is secret, so this is one more hidden
-  status bar per row.
 - **Unusable icons:** an icon on cooldown (not just the global cooldown), an item you have none of, or a spell that
   only works on some creature types ("Only works on Beasts and Dragonkin": Hibernate) when your target isn't one of
   them (or you have no enemy target), or a bandage while you're Recently Bandaged, is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following

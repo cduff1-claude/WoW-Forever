@@ -171,6 +171,7 @@ local WINDOW_DEFAULTS = {
     fight = "all",      -- with onlyInCombat: "pvp", "pve" or "all" (see fightKind)
     showNext = false,   -- stacked windows: also show the next sequence up, filling
     costOrder = true,   -- stacked windows: costliest at the top (else in the window's order)
+    skipOverheal = false, -- switching windows: skip rows that would overheal (see UpdateTermBands)
 }
 
 -- What each window type is called on screen. "dynamic" is the original kind, which switches
@@ -214,6 +215,7 @@ local function PrepareProfile()
             end
         end
         def.id = def.id or NewId()
+        def.skipOverheal = nil -- was a sequence option for a while; now a window one
         highest = math.max(highest, def.id)
         EnsureVariationIds(def)
     end
@@ -767,23 +769,6 @@ function ns.HasCooldown(entry)
         local ok, cooldownMS = pcall(fn, spellID)
         if ok and IsReadableNumber(cooldownMS) then
             return cooldownMS > GLOBAL_COOLDOWN * 1000
-        end
-    end
-    return false
-end
-
--- Whether any of a sequence's variations heals at once (for "skip if it would overheal").
-function ns.AnyHeal(def)
-    local lists = { def.entries }
-    for _, sub in ipairs(def.subs or {}) do
-        lists[#lists + 1] = sub.entries
-    end
-    for _, list in ipairs(lists) do
-        for _, entry in ipairs(list) do
-            local info = ResolveEntry(entry)
-            if info.spellID and (ns.ParseHeal(GetDescription(info.spellID)) or 0) > 0 then
-                return true
-            end
         end
     end
     return false
@@ -1469,7 +1454,8 @@ end
 
 local cellPool = { [true] = {}, [false] = {} } -- by secure
 local shellPool = {}    -- banded rows' switches and clips
-local rowFramePool = {} -- fixed Primaries' row frames
+local rowFramePool = {} -- fixed Primaries' (and term rows') row frames
+local termPool = {}     -- term rows' conditions (see AcquireTerm)
 
 local function SetLevelAbove(frame, parent, offset)
     frame:SetFrameLevel(parent:GetFrameLevel() + (offset or 1))
@@ -1517,19 +1503,15 @@ local function AcquireShell(line)
         shell.aboveLow:SetClipsChildren(true)
         shell.belowHigh = NewFrame("Frame", shell.aboveLow)
         shell.belowHigh:SetClipsChildren(true)
-        shell.heal = NewSwitch(line, line)
-        shell.noOverheal = NewFrame("Frame", shell.belowHigh)
-        shell.noOverheal:SetClipsChildren(true)
-        shell.rowFrame = NewFrame("Frame", shell.noOverheal)
+        shell.rowFrame = NewFrame("Frame", shell.belowHigh)
     end
-    for _, frame in ipairs({ shell.low, shell.high, shell.heal, shell.aboveLow }) do
+    for _, frame in ipairs({ shell.low, shell.high, shell.aboveLow }) do
         frame:SetParent(line)
         SetLevelAbove(frame, line)
         frame:Show()
     end
     SetLevelAbove(shell.belowHigh, shell.aboveLow)
-    SetLevelAbove(shell.noOverheal, shell.belowHigh)
-    SetLevelAbove(shell.rowFrame, shell.noOverheal)
+    SetLevelAbove(shell.rowFrame, shell.belowHigh)
     shell.low:ClearAllPoints()
     shell.low:SetAllPoints(line)
     shell.high:ClearAllPoints()
@@ -1542,15 +1524,6 @@ local function AcquireShell(line)
     shell.belowHigh:ClearAllPoints()
     shell.belowHigh:SetPoint("TOPLEFT", shell.high:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     shell.belowHigh:SetPoint("BOTTOMRIGHT", shell.high, "BOTTOMRIGHT", 0, 0)
-    -- And while health < (max health - its heals + 1), for sequences set to skip overheals
-    -- (see UpdateMana); otherwise the heal switch is kept empty, so this is always open.
-    shell.heal:ClearAllPoints()
-    shell.heal:SetAllPoints(line)
-    shell.heal:SetMinMaxValues(NEVER - 1, NEVER)
-    shell.heal:SetValue(0)
-    shell.noOverheal:ClearAllPoints()
-    shell.noOverheal:SetPoint("TOPLEFT", shell.heal:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-    shell.noOverheal:SetPoint("BOTTOMRIGHT", shell.heal, "BOTTOMRIGHT", 0, 0)
     return shell
 end
 
@@ -1564,6 +1537,61 @@ local function AcquireRowFrame(parent)
     SetLevelAbove(frame, parent)
     frame:Show()
     return frame
+end
+
+-- One condition, or "A or B", on mana or health, as a clip over `line` inside `parent`
+-- (nested terms intersect: "and"). A condition is a hidden switch whose fill edge sits at the
+-- line's left exactly while it holds: "value >= X" fills from the right (its texture's left
+-- edge), "value < X" fills from the left as usual (its texture's right edge). For "A or B",
+-- B's switch is as wide as the line, its right side on A's edge: while A holds it's off to the
+-- left, so the clip (from B's edge to the line's right) is open; otherwise B decides. (The
+-- windows' mana/health "show when" options work the same way.)
+local function AcquireTerm(line, parent, ge1, ge2)
+    local term = table.remove(termPool)
+    if not term then
+        term = { s1 = NewSwitch(line, line), s2 = NewSwitch(line, line), clip = NewFrame("Frame", parent) }
+        term.clip:SetClipsChildren(true)
+    end
+    for _, switch in ipairs({ term.s1, term.s2 }) do
+        switch:SetParent(line)
+        SetLevelAbove(switch, line)
+        switch:Show()
+    end
+    term.clip:SetParent(parent)
+    SetLevelAbove(term.clip, parent)
+    term.clip:Show()
+    term.s1:SetReverseFill(ge1)
+    term.s1:ClearAllPoints()
+    term.s1:SetAllPoints(line)
+    local edge, side = term.s1:GetStatusBarTexture(), ge1 and "LEFT" or "RIGHT"
+    term.ge1, term.ge2, term.or2 = ge1, ge2, ge2 ~= nil
+    term.s2:ClearAllPoints()
+    if term.or2 then
+        term.s2:SetReverseFill(ge2)
+        term.s2:SetPoint("TOPRIGHT", edge, "TOP" .. side, 0, 0)
+        term.s2:SetPoint("BOTTOMRIGHT", edge, "BOTTOM" .. side, 0, 0)
+        term.s2:SetWidth(line:GetWidth())
+        edge, side = term.s2:GetStatusBarTexture(), ge2 and "LEFT" or "RIGHT"
+    else
+        term.s2:Hide()
+    end
+    term.clip:ClearAllPoints()
+    term.clip:SetPoint("TOPLEFT", edge, "TOP" .. side, 0, 0)
+    term.clip:SetPoint("BOTTOMRIGHT", line, "BOTTOMRIGHT", 0, 0)
+    return term
+end
+
+-- Point a term's conditions at X1 (and X2): "value >= X" or "value < X" as built. Without X2,
+-- B never holds.
+local function SetTerm(term, x1, x2)
+    SetSwitchAt(term.s1, x1)
+    if term.or2 then
+        SetSwitchAt(term.s2, x2 or (term.ge2 and NEVER or -math.huge))
+    end
+end
+
+local function TermAlways(term)
+    SetTerm(term, term.ge1 and -math.huge or NEVER)
 end
 
 local groups = {}
@@ -1595,7 +1623,31 @@ local function CreateBandedRow(group, line, def, size, label)
     local shell = AcquireShell(line)
     local row = CreateRow(group, shell.rowFrame, line, def, size, label, false)
     row.low, row.high, row.shell = shell.low, shell.high, shell
-    row.skipOverheal = group.skipOverheal
+    return row
+end
+
+-- A switching window's row when it skips overheals: shown while all of these hold (see
+-- UpdateTermBands): health < its overheal line; mana >= the costliest cheaper row that can't
+-- be skipped; for each cheaper row that can: mana >= its need or health >= its line; and
+-- mana < its own need or health >= every later row's line. `extra` is how many "cheaper row
+-- that can be skipped" terms it may need.
+local function CreateTermRow(group, line, def, size, label, extra)
+    local parent, terms = line, {}
+    local function Add(v1, ge1, v2, ge2)
+        local term = AcquireTerm(line, parent, ge1, ge2)
+        term.v1, term.v2 = v1, v2
+        terms[#terms + 1] = term
+        parent = term.clip
+    end
+    Add("health", false)
+    Add("mana", true)
+    for _ = 1, extra do
+        Add("mana", true, "health", true)
+    end
+    Add("mana", false, "health", true)
+    local frame = AcquireRowFrame(parent)
+    local row = CreateRow(group, frame, line, def, size, label, false)
+    row.terms, row.termFrame = terms, frame
     return row
 end
 
@@ -1634,12 +1686,20 @@ local function ReleaseAll()
         if row.shell then
             row.shell.low:Hide()
             row.shell.high:Hide()
-            row.shell.heal:Hide()
             row.shell.aboveLow:Hide()
             shellPool[#shellPool + 1] = row.shell
         elseif row.plainFrame then
             row.plainFrame:Hide()
             rowFramePool[#rowFramePool + 1] = row.plainFrame
+        elseif row.terms then
+            for _, term in ipairs(row.terms) do
+                term.s1:Hide()
+                term.s2:Hide()
+                term.clip:Hide()
+                termPool[#termPool + 1] = term
+            end
+            row.termFrame:Hide()
+            rowFramePool[#rowFramePool + 1] = row.termFrame
         end
     end
     for _, root in ipairs(roots) do
@@ -1673,7 +1733,7 @@ local function BuildWindow(root, window)
         end
         if def and item.enabled and #def.entries > 0 and ns.AllLearned(def.entries) then
             local group = { name = def.name or "?", def = def, subs = {}, root = root, fixed = root.fixed,
-                skipOverheal = def.skipOverheal and not root.fixed }
+                skipOverheal = window.skipOverheal and not root.fixed or nil }
             if root.fixed then
                 group.mainLine = NewLine(root, LineWidth(#def.entries, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
                 group.primary = CreatePlainRow(group, group.mainLine, def, ICON_SIZE, "primary", true)
@@ -1692,9 +1752,16 @@ local function BuildWindow(root, window)
             else
                 local count = math.max(#def.entries, MostEntries(subs))
                 group.mainLine = NewLine(root, LineWidth(count, ICON_SIZE), ICON_SIZE + GLOW_SIZE * 2)
-                group.primary = CreateBandedRow(group, group.mainLine, def, ICON_SIZE, "primary")
-                for i, sub in ipairs(subs) do
-                    group.subs[i] = CreateBandedRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i)
+                if group.skipOverheal then
+                    group.primary = CreateTermRow(group, group.mainLine, def, ICON_SIZE, "primary", #subs)
+                    for i, sub in ipairs(subs) do
+                        group.subs[i] = CreateTermRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i, #subs)
+                    end
+                else
+                    group.primary = CreateBandedRow(group, group.mainLine, def, ICON_SIZE, "primary")
+                    for i, sub in ipairs(subs) do
+                        group.subs[i] = CreateBandedRow(group, group.mainLine, sub, ICON_SIZE, "sub " .. i)
+                    end
                 end
             end
             root.groups[#root.groups + 1] = group
@@ -1748,8 +1815,7 @@ local function BuildStacked(root, window)
                 local key = ns.EntriesKey(variation.entries)
                 if not excluded and not listed[key] and #variation.entries > 0 and ns.AllLearned(variation.entries) then
                     listed[key] = true
-                    variations[#variations + 1] = { variation = variation, name = def.name or "?",
-                        skipOverheal = def.skipOverheal }
+                    variations[#variations + 1] = { variation = variation, name = def.name or "?" }
                 end
             end
         end
@@ -1773,7 +1839,6 @@ local function BuildStacked(root, window)
         local cand = { order = i, name = v.name, rows = {} }
         for k, line in ipairs(stack.lines) do
             cand.rows[k] = CreateBandedRow(group, line, v.variation, ICON_SIZE, string.format("%03d", i))
-            cand.rows[k].skipOverheal = v.skipOverheal
             -- Every copy needs what the first one needs: work it out once.
             cand.rows[k].twin = k > 1 and cand.rows[1] or nil
         end
@@ -2562,13 +2627,23 @@ local function SetBand(row, low, high)
     SetSwitchAt(row.high, high)
 end
 
+local UpdateTermBands -- below
+
 -- Rows that may show, cheapest first. Rows set to hide on cooldown drop out while one of
 -- their entries is on cooldown (or an item isn't in your bags).
 local function Candidates(list)
     local result = {}
     for _, row in ipairs(list) do
         if row.def.hideOnCooldown and row.onCooldown then
-            SetBand(row, NEVER, NEVER)
+            if row.terms then
+                for _, term in ipairs(row.terms) do
+                    TermAlways(term)
+                end
+                SetTerm(row.terms[1], -math.huge) -- health < nothing: never
+                row.bandLow, row.bandHigh = NEVER, NEVER
+            else
+                SetBand(row, NEVER, NEVER)
+            end
         else
             result[#result + 1] = row
         end
@@ -2655,6 +2730,57 @@ local function UpdateStack(root)
     stack.active = #active
 end
 
+-- A switching row skipping overheals, in order (cheapest first, the Primary last): shown
+-- while it's the first you can't afford among those that wouldn't overheal (or the last of
+-- them, once you can afford them all). A row would overheal while health >= max health minus
+-- its direct heals (low end) plus 1; rows without heals never do. With every row overhealing,
+-- nothing shows.
+UpdateTermBands = function(list)
+    local maxHealth = UnitHealthMax("player")
+    for _, row in ipairs(list) do
+        local heal = 0
+        for _, cell in ipairs(row.cells) do
+            heal = heal + (cell.heal or 0)
+        end
+        row.healTotal = heal
+        row.overhealLine = (heal > 0 and IsReadableNumber(maxHealth)) and (maxHealth - heal + 1) or math.huge
+    end
+    for k, row in ipairs(list) do
+        local terms = row.terms
+        local line = row.overhealLine
+        SetTerm(terms[1], line == math.huge and NEVER or line)
+        local low = -math.huge
+        for j = 1, k - 1 do
+            if list[j].overhealLine == math.huge then
+                low = math.max(low, list[j].total)
+            end
+        end
+        SetTerm(terms[2], low)
+        local slot = 3
+        for j = 1, k - 1 do
+            local other = list[j]
+            if other.overhealLine ~= math.huge and other.total > low then
+                SetTerm(terms[slot], other.total, other.overhealLine)
+                slot = slot + 1
+            end
+        end
+        for i = slot, #terms - 1 do
+            TermAlways(terms[i])
+        end
+        local last = terms[#terms]
+        if k == #list then
+            TermAlways(last)
+        else
+            local later = -math.huge
+            for j = k + 1, #list do
+                later = math.max(later, list[j].overhealLine)
+            end
+            SetTerm(last, row.total, later == math.huge and NEVER or later)
+        end
+        row.bandLow, row.bandHigh = low, (k < #list) and row.total or math.huge
+    end
+end
+
 -- Decide which row of each sequence shows, as mana bands.
 local function UpdateBands()
     for _, root in ipairs(roots) do
@@ -2690,11 +2816,15 @@ local function UpdateBands()
                     break
                 end
             end
-            for k, row in ipairs(list) do
-                local previous = list[k - 1]
-                local low = previous and previous.total or -math.huge
-                local high = (k < #list) and row.total or math.huge
-                SetBand(row, low, high)
+            if group.skipOverheal then
+                UpdateTermBands(list)
+            else
+                for k, row in ipairs(list) do
+                    local previous = list[k - 1]
+                    local low = previous and previous.total or -math.huge
+                    local high = (k < #list) and row.total or math.huge
+                    SetBand(row, low, high)
+                end
             end
             group.collapsed = #list == 0
         end
@@ -2888,30 +3018,18 @@ local function UpdateMana()
     work.lastMana = mana
     local previous = ManaAgo(now, FLASH_HOLD)
     UpdateGates(now, mana)
-    -- "Skip if it would overheal": health is secret, but the line isn't.
-    local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
-    if not IsReadableNumber(maxHealth) then
-        maxHealth = nil
-    end
+    local health = UnitHealth("player") or 0
     for _, row in ipairs(rows) do
       if Visible(row) then
         if row.low then
             row.low:SetValue(mana)
             row.high:SetValue(mana)
-            local heal = 0
-            if row.skipOverheal and maxHealth then
-                for _, cell in ipairs(row.cells) do
-                    heal = heal + (cell.heal or 0)
+        elseif row.terms then
+            for _, term in ipairs(row.terms) do
+                term.s1:SetValue(term.v1 == "health" and health or mana)
+                if term.or2 then
+                    term.s2:SetValue(term.v2 == "health" and health or mana)
                 end
-            end
-            row.healTotal = heal
-            if heal > 0 then
-                local line = maxHealth - heal + 1
-                row.shell.heal:SetMinMaxValues(line - 1, line)
-                row.shell.heal:SetValue(health or 0)
-            else
-                row.shell.heal:SetMinMaxValues(NEVER - 1, NEVER)
-                row.shell.heal:SetValue(0)
             end
         end
         for _, cell in ipairs(row.cells) do
@@ -3168,8 +3286,11 @@ local function OnEvent(_, event, unit, arg2, arg3)
         ReadTarget()
         UpdateCooldowns()
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
-        -- For the health threshold: picked up by the next tick.
+        -- For the health threshold and overheal skipping: picked up by the next tick.
         work.dirty = true
+        if event == "UNIT_MAXHEALTH" then
+            work.thresholdsDirty = true
+        end
     elseif event == "UNIT_AURA" then
         UpdateClearcasting()
         work.dirty = true
@@ -3471,8 +3592,8 @@ local function PrintDebug()
                         tostring(row.total),
                         row.low and Band(row.bandLow) or "always", row.low and Band(row.bandHigh) or "always",
                         tostring(row.onCooldown), tostring(row.def.hideOnCooldown and true or false),
-                        row.skipOverheal and string.format(", skips above %s health (heals %s)",
-                            tostring(UnitHealthMax("player") - (row.healTotal or 0)), tostring(row.healTotal)) or ""))
+                        row.terms and string.format(", heals %s, overheals from %s health", tostring(row.healTotal),
+                            Band(row.overhealLine or math.huge)) or ""))
                     for _, cell in ipairs(row.cells) do
                         local info = cell.info or {}
                         print(string.format("       %s: id=%s rank=%s/%s known=%s cost=%s cast=%ss gcd=%ss channel=%ss gain=%s%s instantNext=%s clearcasting=%s, needs %s-%s, cooldown: %s%s",

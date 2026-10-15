@@ -1385,6 +1385,21 @@ local function CreateEditor()
     local healthPercentLabel = NewLabel(gates, "%   (with both ticked, it shows when either is low)", "GameFontHighlightSmall")
     healthPercentLabel:SetPoint("LEFT", f.healthPercent, "RIGHT", 2, 0)
 
+    -- Switching windows only.
+    f.skipOverheal = NewCheck(windowPanel, "Skip sequences that would overheal", function(checked)
+        if selWindow then
+            selWindow.skipOverheal = checked
+            Changed()
+        end
+    end)
+    f.skipOverheal:SetPoint("TOPLEFT", 0, -154)
+    Tooltip(f.skipOverheal, "Skip sequences that would overheal",
+        "A row (a Primary or sub-sequence) is skipped while your health plus all its direct heals, at the low " ..
+        "end, would go over your maximum, and the next one shows instead. Heals over time (Rejuvenation, " ..
+        "Regrowth's over-time part, bandages) don't count; healing potions do. Health is checked as it " ..
+        "changes, so skipped rows come back as you take damage. With every row of a sequence overhealing, " ..
+        "nothing shows for it.")
+
     -- Stacked windows only.
     f.showNext = NewCheck(windowPanel, "Show the next one up", function(checked)
         if selWindow then
@@ -1439,19 +1454,6 @@ local function CreateEditor()
         "While a spell or item in it is on cooldown, an item has run out, or the target is the wrong kind " ..
         "(Hibernate: beasts and dragonkin only), the next sequence shows instead. In switching and stacked windows; fixed " ..
         "windows always show the Primary.")
-    f.skipOverheal = NewCheck(detail, "Skip if it would overheal", function(checked)
-        if selSeq then
-            selSeq.skipOverheal = checked or nil
-            Changed()
-        end
-    end)
-    f.skipOverheal:SetPoint("TOPLEFT", 350, -46)
-    Tooltip(f.skipOverheal, "Skip if it would overheal",
-        "In switching and stacked windows, this sequence's rows (the Primary and its sub-sequences) don't " ..
-        "show while your health is too high for their heals: your health plus all their direct heals, at the " ..
-        "low end, would go over your maximum. Heals over time don't count. Health is checked as it changes, " ..
-        "so they come back as you take damage. A row that's skipped is left blank rather than another " ..
-        "taking its place.")
     f.usedIn = NewLabel(detail, "", "GameFontDisableSmall")
     f.usedIn:SetPoint("TOPLEFT", 0, -26)
     f.usedIn:SetPoint("RIGHT", detail, "RIGHT", -130, 0)
@@ -1697,6 +1699,8 @@ local function CreateEditor()
             end
             self.windowTypeText:SetText("Type: " .. ns.TypeLabel(selWindow.type) .. " (change)")
             local stacked = selWindow.type == "stacked"
+            self.skipOverheal:SetShown(selWindow.type == "dynamic")
+            self.skipOverheal:SetChecked(selWindow.skipOverheal and true or false)
             self.showNext:SetShown(stacked)
             self.costOrder:SetShown(stacked)
             self.showNext:SetChecked(selWindow.showNext and true or false)
@@ -1748,9 +1752,6 @@ local function CreateEditor()
             self.primaryHide:SetShown(ns.AnyCooldown(def.entries))
             self.primaryHide:SetChecked(def.hideOnCooldown and true or false)
             self.primaryHide:SetEnabled(not readOnly)
-            self.skipOverheal:SetShown(def.skipOverheal or ns.AnyHeal(def))
-            self.skipOverheal:SetChecked(def.skipOverheal and true or false)
-            self.skipOverheal:SetEnabled(not readOnly)
             self.primaryCost:SetText(CostText(def.entries))
             RefreshSlotRow(self.primaryRow)
             local stacked = readOnly and selWindow and selWindow.type == "stacked"
