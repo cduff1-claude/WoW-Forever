@@ -156,7 +156,14 @@ is set per sequence, and applies to each of its rows.
   them (or you have no enemy target), or a bandage while you're Recently Bandaged, is greyed out; cooldowns get Blizzard's swipe, with countdown numbers following
   your "show numbers for cooldowns" setting. *Hide when unusable* (offered only where something can be unusable,
   and not for a static window's Primary) drops a row (Primary or sub-sequence) out while that's true, and the next
-  one shows. Midnight makes cooldowns secret in combat, so in combat they aren't seen (the swipe still shows).
+  one shows. An icon whose cooldown will be over by the time the sequence gets to it (if started now) counts as
+  usable: it fills as normal, with the swipe still on it.
+- **Cooldowns in combat:** Midnight makes cooldowns secret in combat, so the addon times your own: each cast of a
+  spell from your spellbook starts a timer of its base cooldown, and each use of an item (bags or equipped
+  trinket) one of its cooldown as last seen; potions share one, 2 minutes until seen. Whenever the game's own
+  answer is readable (out of combat) it's used instead and corrects the timers. Anything that shortens or resets a
+  cooldown mid-fight isn't seen. `/fseq debug` lists the running timers, and each icon's cooldown line says
+  "secret, timed: Ns left" when one is in use.
 - **Ranks:** a spell follows your highest rank, including ranks learned later. A pinned lower rank (dragged in, or set
   with shift-right-click / ctrl-click) shows "R3" on its icon.
 - **Spells not learned yet** (on an alt, say): a sequence whose Primary has one is left out of its windows, and a

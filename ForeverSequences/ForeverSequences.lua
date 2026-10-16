@@ -2220,6 +2220,79 @@ end
 
 -- Whether an entry is on a real cooldown (not just the global one): true / false / nil when
 -- the game won't say. Also draws Blizzard's swipe and countdown on the cell.
+-- Cooldowns the addon times itself. Midnight makes cooldowns secret in combat, so the game's
+-- own answer can't be used then; instead each cast of yours starts a timer of the spell's base
+-- cooldown (readable), or for an item, its cooldown as last seen (potions share one, 2 minutes
+-- until seen). Whenever the game's answer is readable (out of combat) it's used instead, and
+-- corrects the timers. Anything that shortens or resets a cooldown mid-fight isn't seen.
+local Cooldowns = { ready = {}, length = {} }
+C.POTION_COOLDOWN = 120
+
+function Cooldowns.IsPotion(itemID)
+    local ok, _, _, _, _, _, classID, subclassID = pcall(C_Item.GetItemInfoInstant, itemID)
+    return ok and classID == C.POTION_CLASS and subclassID == C.POTION_SUBCLASS
+end
+
+-- The key a cooldown is kept under: a spell's name (its ranks share it), "potion" for
+-- potions, or the item's ID.
+function Cooldowns.Key(info)
+    if info.kind == "spell" then
+        local name = SpellNameOf(info.spellID)
+        return name and ("spell:" .. name) or nil
+    end
+    if info.itemID then
+        return Cooldowns.IsPotion(info.itemID) and "potion" or ("item:" .. info.itemID)
+    end
+    return nil
+end
+
+function Cooldowns.Base(spellID)
+    local fn = (C_Spell and C_Spell.GetSpellBaseCooldown) or GetSpellBaseCooldown
+    if not (spellID and fn) then
+        return nil
+    end
+    local ok, cooldownMS = pcall(fn, spellID)
+    if ok and IsReadableNumber(cooldownMS) and cooldownMS > 0 then
+        return cooldownMS / 1000
+    end
+    return nil
+end
+
+-- A spell of yours finished casting (spellID readable): start its timer.
+function Cooldowns.OnCast(spellID)
+    local now = GetTime()
+    local name = SpellNameOf(spellID)
+    if name and BookEntry(name) then
+        local length = Cooldowns.Base(spellID)
+        if length and length > C.GLOBAL_COOLDOWN then
+            Cooldowns.ready["spell:" .. name] = now + length
+        end
+        return
+    end
+    -- An item's use spell: the item in your bags (or an equipped trinket) that has it.
+    local itemIDs = {}
+    for itemID in pairs(bagCounts) do
+        itemIDs[#itemIDs + 1] = itemID
+    end
+    for _, slot in ipairs({ 13, 14 }) do
+        local itemID = GetInventoryItemID and GetInventoryItemID("player", slot)
+        if IsReadableNumber(itemID) then
+            itemIDs[#itemIDs + 1] = itemID
+        end
+    end
+    for _, itemID in ipairs(itemIDs) do
+        if GetItemUseSpell(itemID) == spellID then
+            local key = Cooldowns.IsPotion(itemID) and "potion" or ("item:" .. itemID)
+            local length = Cooldowns.length[key] or Cooldowns.Base(spellID)
+                or (key == "potion" and C.POTION_COOLDOWN or nil)
+            if length and length > C.GLOBAL_COOLDOWN then
+                Cooldowns.ready[key] = now + length
+            end
+            return
+        end
+    end
+end
+
 local function UpdateCellCooldown(cell, now)
     local cooldown = cell.cooldown
     if cell.fakeCooldownEnd and cell.fakeCooldownEnd > now then
@@ -2234,14 +2307,9 @@ local function UpdateCellCooldown(cell, now)
         cooldown:Clear()
     end
 
+    local key = Cooldowns.Key(cell.info)
+    cell.readyIn = nil
     local start, duration, modRate, onGCD = ReadCooldown(cell.info)
-    if start == nil and duration == nil then
-        cell.onCooldown = nil
-        cell.cooldownNote = "no answer"
-        cooldown:Clear()
-        return
-    end
-
     if IsReadableNumber(start) and IsReadableNumber(duration) then
         local isGCD = (onGCD ~= nil and not IsSecret(onGCD) and onGCD) or duration <= C.GLOBAL_COOLDOWN
         if start > 0 and duration > 0 and not isGCD then
@@ -2250,20 +2318,50 @@ local function UpdateCellCooldown(cell, now)
                 cell.shownStart, cell.shownDuration = start, duration
             end
             cell.onCooldown = true
+            cell.readyIn = start + duration - now
+            -- The game's answer corrects the timer (and gives an item's length).
+            if key then
+                Cooldowns.ready[key] = start + duration
+                if key == "potion" or key:find("^item:") then
+                    Cooldowns.length[key] = duration
+                end
+            end
         else
             if cell.shownStart then
                 cooldown:Clear()
                 cell.shownStart, cell.shownDuration = nil, nil
             end
             cell.onCooldown = false
+            if key and Cooldowns.ready[key] and Cooldowns.ready[key] > now + C.GLOBAL_COOLDOWN then
+                Cooldowns.ready[key] = nil -- reset early
+            end
         end
         cell.cooldownNote = string.format("start=%.1f duration=%.1f", start, duration)
         return
     end
 
-    -- Secret: Lua can't tell, but Blizzard's widget may still draw it.
-    cell.onCooldown = nil
-    cell.cooldownNote = "secret"
+    -- Secret (or no answer): Lua can't read it, so the addon's own timer decides; Blizzard's
+    -- widget may still draw the game's.
+    local readyAt = key and Cooldowns.ready[key]
+    if readyAt and readyAt > now then
+        cell.onCooldown = true
+        cell.readyIn = readyAt - now
+    else
+        cell.onCooldown = false
+    end
+    cell.cooldownNote = (start == nil and duration == nil and "no answer" or "secret") ..
+        (cell.readyIn and string.format(", timed: %.1fs left", cell.readyIn) or ", timed: ready")
+    if start == nil and duration == nil then
+        if cell.readyIn and cell.shownStart ~= readyAt then
+            local length = Cooldowns.length[key] or cell.readyIn
+            cooldown:SetCooldown(readyAt - length, length)
+            cell.shownStart = readyAt
+        elseif not cell.readyIn and cell.shownStart then
+            cooldown:Clear()
+            cell.shownStart = nil
+        end
+        return
+    end
     local drawn = false
     if cell.info.kind == "spell" and C_Spell.GetSpellCooldownDuration and cooldown.SetCooldownFromDurationObject then
         local ok, durationObject = pcall(C_Spell.GetSpellCooldownDuration, cell.info.spellID)
@@ -2309,7 +2407,10 @@ local function UpdateCooldowns()
             UpdateCellCooldown(cell, now)
             -- Greyed out while on cooldown or not in your bags: no colour, no highlight.
             cell.wrongTarget = TargetDoesNotFit(cell.creatureTypes)
-            local unusable = cell.onCooldown == true or not cell.info.available or cell.wrongTarget
+            -- On cooldown, unless it'll be ready by the time the sequence gets to it.
+            local waiting = cell.onCooldown == true
+                and not (cell.readyIn and cell.startsIn and cell.readyIn <= cell.startsIn)
+            local unusable = waiting or not cell.info.available or cell.wrongTarget
                 or (cell.bandage and work.recentlyBandaged)
             local alpha = unusable and 0 or 1
             cell.colorClip:SetAlpha(alpha)
@@ -2456,6 +2557,9 @@ local function RowThresholds(row, ctx)
             freeNext = false
         end
         local due = startTime + castTime
+        if row.frame then
+            cell.startsIn = startTime -- seconds from now until this icon's turn, if started now
+        end
 
         local regained = Gain(due, windows, extras, ctx.base, ctx.casting, boosts)
         lastRegained = regained
@@ -2760,6 +2864,9 @@ local function UpdateThresholds(ctx)
         local prefix, suffix
         if row.twin then
             prefix, suffix = row.twin.prefix, row.twin.suffix
+            for i, cell in ipairs(row.cells) do
+                cell.startsIn = row.twin.cells[i] and row.twin.cells[i].startsIn
+            end
         else
             if row.progressive or mode ~= "right" then
                 prefix = RowNeeds(row, ctx)
@@ -3471,6 +3578,8 @@ local function OnEvent(_, event, unit, arg2, arg3)
                 fsrEndTime = GetTime() + C.FIVE_SECOND_RULE
             end
             work.ProgressCast(spellID)
+            Cooldowns.OnCast(spellID)
+            UpdateCooldowns()
         end
         work.dirty = true
     elseif event == "PLAYER_TARGET_CHANGED" then
@@ -3736,6 +3845,15 @@ local function PrintDebug()
             tostring(TargetKind())))
     end
     Print("mana potions in bags, best first: " .. (#potions > 0 and table.concat(potions, ", ") or "none"))
+    local timed = {}
+    for key, readyAt in pairs(Cooldowns.ready) do
+        if readyAt > GetTime() then
+            timed[#timed + 1] = string.format("%s %.1fs%s", key, readyAt - GetTime(),
+                Cooldowns.length[key] and string.format(" (of %.0fs)", Cooldowns.length[key]) or "")
+        end
+    end
+    Print("cooldowns timed by the addon (used while the game's are secret): " ..
+        (#timed > 0 and table.concat(timed, ", ") or "none running"))
     for _, root in ipairs(roots) do
         local window = root.window
         if window then
