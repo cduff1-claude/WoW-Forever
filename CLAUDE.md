@@ -1,7 +1,9 @@
 # WoW Forever addons
 
 Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its own top-level folder
-(`<Name>/<Name>.toc` + `<Name>.lua`) and has a section in `README.md`.
+(`<Name>/<Name>.toc` + `<Name>.lua`) with its own `README.md`. The top-level `README.md` is just an index.
+Work on one addon at a time: only read the folder you're working on. Addon-specific notes live in a
+`CLAUDE.md` inside that addon's folder, where one exists.
 
 ## What WoW Forever is
 
@@ -90,9 +92,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   runs. Skip hidden windows too. Confirmed in game: idle CPU fell to under 10% of the constant-timer version.
 - **Lua's limit of 200 local variables per function** includes a file's top level. A big addon file can hit it
   ("too many local variables" when it loads, and the whole file fails). Keep self-contained helpers in a
-  `do ... end` block, or on `ns`, rather than adding top-level locals. ForeverSequences keeps its constants in a
-  `C` table, spell-description parsers in `Parse`, run-time state in `work`, and the overheal row helpers in `Terms`;
-  add new things to those (or a new table) rather than as top-level locals. To check how many slots are left, load
+  `do ... end` block, or on `ns`, rather than adding top-level locals. To check how many slots are left, load
   the file with N extra `local` lines appended and find the largest N that still loads.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
@@ -104,14 +104,11 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
 - The user tests in game and reports back. Give every addon a `/<command> debug` that prints the raw values
   the logic depends on (range answers, form ID, secret/readable flags). That makes unknown Forever
   behaviour quick to confirm.
-- Hand the user the finished addon as a zip of its folder, and update `README.md` alongside code changes.
+- Hand the user the finished addon as a zip of its folder, and update that addon's `README.md` alongside code changes
+  (and the index line in the top-level `README.md` if its summary changes).
 - Hand the zip over from the scratchpad, not the repo folder. A zip left in the repo trips the
   "untracked files" stop hook.
 - The dev container has no Lua interpreter preinstalled. Syntax-check with either:
   - `apt-get install -y lua5.1` then `luac -p X.lua`. This is a real Lua 5.1 parser, the same version
     WoW uses.
   - `pip install luaparser` then `python3 -c "from luaparser import ast; ast.parse(open('X.lua').read())"`.
-
-## Before publishing
-
-- ForeverSequences: add a help button in the top right of the options window. (The user asked to be reminded.)
