@@ -10,17 +10,20 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
 - **The addon API is Retail's, including the Midnight expansion's restrictions.** Write against Retail/Midnight
   behaviour. Don't rely on Classic-client addon behaviour or APIs where Retail is known to differ.
 - Abilities, ranges and levels mostly match Classic values. Forever's own changes found so far:
-  - Faerie Fire is a single ability; the Feral version is not a separate talent.
-  - Druids get a Cat Form charge as well as the Bear Feral Charge.
-  - Druids have an out-of-combat resurrection called **Revive**, with the same range as heals.
+  - Faerie Fire is a single ability (no separate Feral talent), 30 yd in and out of forms.
+  - Druids get a Cat Form charge as well as the Bear one; both are called **Feral Charge** (8-25 yd).
+  - Druids have an out-of-combat resurrection called **Revive**, 30 yd.
   - Growl has the same range as Bash (melee).
   
   Check with the user before relying on any other Classic value that matters.
 
 ## Addon behaviour learned on Forever
 
-- **TOC:** always `## Interface: 16001`.
-  Give each addon its own `SavedVariables`.
+- **TOC:** use the client's real interface number, currently `## Interface: 16001`. A beta update started
+  marking addons with the old "always newer" `99999` as *Incompatible* (which can't be overridden).
+  - If addons show as incompatible after a patch, ask the user to run `/dump select(4, GetBuildInfo())` in
+    game and use that number.
+  - Give each addon its own `SavedVariables`.
 - **Secret values (Midnight):** some values come back "secret" and can't be compared or used in maths in Lua.
   - Always guard with `issecretvalue and issecretvalue(v)` before comparing, and have a fallback.
   - Player mana (`UnitPower`) is secret, but `UnitPowerMax` and `UnitPowerType("player")` are readable.
