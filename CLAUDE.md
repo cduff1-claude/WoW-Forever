@@ -42,6 +42,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
       show through.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
+- **Mana regen** on Forever is smooth (a steady flow), not Classic's 2-second ticks.
 - **Range checks** (`C_Spell.IsSpellInRange`) return `true` / `false` / `nil`:
   - `nil` means no answer. Treat it as "unknown", never as "in range".
   - Spells the character **hasn't learned return `nil`**, even if they'd be in range. Spells from other
@@ -77,6 +78,22 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   on change. The default action bar suffers the same bug. The user runs the FormBars addon for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
+- **"Script ran too long"** comes from creating too many frames in one go. Frames can't be deleted, so
+  hiding old ones and making new ones on every rebuild piles them up and slows every later `CreateFrame`.
+  Pool and reuse frames instead; after `SetParent`, set frame levels explicitly.
+- **Spell descriptions** can be empty until loaded. `C_Spell.RequestLoadSpellData` may answer at once
+  with `SPELL_DATA_LOAD_RESULT`, and many spells' descriptions are always empty. Request each spell only
+  once, and in the event handler only set a flag for later. Refreshing from the event, which reads
+  descriptions and requests again, loops and froze or crashed the client.
+- **Idle cost:** don't redraw on a constant timer. `UNIT_POWER_FREQUENT` only fires when mana changes, so drive
+  mana work from it, with a short tail after the last event for anything time-based. At full mana, nothing then
+  runs. Skip hidden windows too. Confirmed in game: idle CPU fell to under 10% of the constant-timer version.
+- **Lua's limit of 200 local variables per function** includes a file's top level. A big addon file can hit it
+  ("too many local variables" when it loads, and the whole file fails). Keep self-contained helpers in a
+  `do ... end` block, or on `ns`, rather than adding top-level locals. ForeverSequences keeps its constants in a
+  `C` table, spell-description parsers in `Parse`, run-time state in `work`, and the overheal row helpers in `Terms`;
+  add new things to those (or a new table) rather than as top-level locals. To check how many slots are left, load
+  the file with N extra `local` lines appended and find the largest N that still loads.
 - **Options panels:**
   - Register with `Settings.RegisterCanvasLayoutCategory(panel, name)` + `Settings.RegisterAddOnCategory`.
   - Open from a slash command with `pcall(Settings.OpenToCategory, category:GetID())`. See the existing addons.
@@ -94,3 +111,7 @@ Personal World of Warcraft addons for **WoW Forever**. Each addon lives in its o
   - `apt-get install -y lua5.1` then `luac -p X.lua`. This is a real Lua 5.1 parser, the same version
     WoW uses.
   - `pip install luaparser` then `python3 -c "from luaparser import ast; ast.parse(open('X.lua').read())"`.
+
+## Before publishing
+
+- ForeverSequences: add a help button in the top right of the options window. (The user asked to be reminded.)
