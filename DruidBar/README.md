@@ -33,6 +33,20 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   a paler yellow (the colour the old Claw wash gave), rage red (an estimate: only seen at 10%), and mana blue (the power bar in caster form, the in-form mana
   bar in Cat/Bear). `/druidbar colours` prints each bar's texture and colour. Turning the option off
   puts Blizzard's colours back.
+- **Resource display** (`Resource.lua`; settings under Esc > Options > AddOns > DruidBar > Resource display, or
+  `/druidbar resource`): DruidBar's own replacement for Blizzard's Personal Resource Display. Turn Blizzard's off so
+  there aren't two.
+  - Rows, all the same width: health, mana (in every form), then energy or rage in Cat/Bear, then combo points in
+    Cat. The frame hangs from its top edge, so health and mana never move when you shift.
+  - In caster form, an optional cast bar takes the energy/rage row while you're casting.
+  - Text: current amount on the left and max on the right for health and mana; energy and rage show just the
+    current amount. Other choices: current only, percent, current and percent, or none.
+  - Visibility: always, in combat, in combat or with a target, or hidden.
+  - Size, bar width, health and power bar heights, padding and opacity sliders.
+  - "Keep centred": dragging only moves it up and down, with a red line down the middle of the screen while you
+    drag (like Edit Mode's snap). Unlock it to drag with the tick box or `/druidbar unlock` (`/druidbar lock`
+    when done). "Reset to default position" puts it back.
+  - The PRD colours, the Claw orange, the 5-second-rule marker and the shift-cost shading all show on its bars.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
 - **Settings (`/druidbar`, or right-click the druid bar):** "Enable for player frame" (druid bar + Player Frame shading),

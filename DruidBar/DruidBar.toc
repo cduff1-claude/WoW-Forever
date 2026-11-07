@@ -6,3 +6,4 @@
 ## SavedVariables: DruidForeverManabarPlusDB
 
 DruidBar.lua
+Resource.lua

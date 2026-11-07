@@ -284,6 +284,7 @@ function Frame:GetTexture() return self._texture end
 function Frame:SetAtlas(a) self._atlas, self._texture = a, nil end
 function Frame:GetAtlas() return self._atlas end
 function Frame:SetText(t) self._text = t end
+function Frame:SetFormattedText(fmt, ...) self._text = string.format(fmt, ...) end
 function Frame:GetText() return self._text end
 function Frame:GetStringWidth() return #(tostring(self._text or "")) * 6 end
 function Frame:GetFont() return "Fonts\\ARIALN.TTF", 10, "" end
@@ -377,7 +378,14 @@ function UnitPowerType() return W.powerType, ({ [0] = "MANA", [1] = "RAGE", [3] 
 function UnitPower(_, t) return W.power[t or W.powerType] end
 function UnitPowerMax(_, t) return W.powerMax[t or W.powerType] end
 function UnitIsUnit(a, b) return a == b end
-function UnitExists() return true end
+W.health, W.healthMax = 989, 989
+W.target = false
+W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
+function UnitExists(unit) if unit == "target" then return W.target end return true end
+function UnitHealth() return W.health end
+function UnitHealthMax() return W.healthMax end
+function UnitCastingInfo() local c = W.casting if c then return c.name, c.name, 136085, c.startMS, c.endMS end end
+function UnitChannelInfo() local c = W.channel if c then return c.name, c.name, 136085, c.startMS, c.endMS end end
 function GetShapeshiftFormID() return W.formID end
 function GetShapeshiftForm() return 0 end
 function GetNumShapeshiftForms() return 0 end
@@ -418,6 +426,7 @@ C_AddOns = { GetAddOnMetadata = function() return nil end }
 Settings = {
     RegisterCanvasLayoutCategory = function(_, name) return { GetID = function() return name end } end,
     RegisterAddOnCategory = noop,
+    RegisterCanvasLayoutSubcategory = function(_, _, name) return { GetID = function() return name end } end,
     OpenToCategory = noop,
 }
 

@@ -1,3 +1,5 @@
+-- Shared with Resource.lua (the resource display) through the addon namespace.
+local _, ns = ...
 local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
 local FIVE_SECOND_RULE = 5.0
 local FSR_UPDATE_INTERVAL = 0.05
@@ -40,6 +42,7 @@ local DEFAULTS = {
     fsrText = true,                 -- countdown number beside the marker
     fsrWidth = 2,                   -- marker width in pixels (1-6)
     prdMatchColours = true,         -- tint the PRD's bars to the Player Frame bars' colours
+    resource = {},                  -- the resource display's own settings (Resource.lua fills them in)
 }
 
 -- Fixed look of the druid bar.
@@ -278,6 +281,9 @@ local Look = { original = {}, hooked = {}, busy = false,
         ENERGY = { 1.00, 1.00, 0.50 },
         RAGE = { 0.75, 0.00, 0.00 },
     } }
+ns.COLOURS = Look.COLOURS
+-- Called by Resource.lua when its bars are shown or hidden; filled in below UpdateFormState.
+ns.OverlaysChanged = nil
 
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
@@ -321,6 +327,7 @@ end
 ApplyShiftShadeColor()
 
 local isDruid = false
+ns.IsDruid = function() return isDruid end
 local fsrEndTime = 0
 local pendingManaCasts = {}
 local lastManaSpellID = nil
@@ -832,6 +839,12 @@ RefreshBlizzardOverlays = function(reanchor)
         end
     end
 
+    -- The resource display's mana bar (Resource.lua), while it's shown.
+    local ownMana = isDruid and ns.Resource and ns.Resource.ManaBar()
+    if ownMana then
+        wanted[ownMana] = true
+    end
+
     for bar in pairs(wanted) do
         local overlay = EnsureBarOverlay(bar)
         if reanchor or not overlay.active then
@@ -963,6 +976,10 @@ function Claw.RefreshOverlays(reanchor)
                 wanted[bar] = true
             end
         end
+        local ownEnergy = ns.Resource and ns.Resource.EnergyBar()
+        if ownEnergy then
+            wanted[ownEnergy] = true
+        end
     end
 
     for bar in pairs(wanted) do
@@ -1057,6 +1074,10 @@ function FSR.WantedBars()
         if bar and bar.GetObjectType then
             bars[#bars + 1] = bar
         end
+    end
+    local ownMana = ns.Resource and ns.Resource.ManaBar()
+    if ownMana then
+        bars[#bars + 1] = ownMana
     end
     return bars
 end
@@ -1433,6 +1454,10 @@ local function PrimaryPowerIsNotMana()
 end
 
 local function UpdateFormState()
+    -- The resource display first, so its bars are laid out before the overlays look for them.
+    if ns.Resource then
+        ns.Resource.Refresh()
+    end
     local formID = GetShapeshiftFormID()
     local tracked = isDruid and (IsTrackedForm(formID) or PrimaryPowerIsNotMana())
     local shouldShow = isDruid and db.enablePlayerFrame and tracked
@@ -1459,6 +1484,12 @@ local function UpdateFormState()
     end
     FSR.Refresh()
     Look.Later()
+end
+
+ns.OverlaysChanged = function()
+    RefreshBlizzardOverlays(true)
+    UpdateManaBar()
+    FSR.Refresh()
 end
 
 -- Form watcher.
@@ -1817,6 +1848,7 @@ end)
 if Settings and Settings.RegisterCanvasLayoutCategory then
     settingsCategory = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
     Settings.RegisterAddOnCategory(settingsCategory)
+    ns.settingsCategory = settingsCategory
 elseif InterfaceOptions_AddCategory then
     InterfaceOptions_AddCategory(panel)
 end
@@ -1883,6 +1915,16 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
+    elseif msg == "unlock" or msg == "lock" then
+        if ns.Resource then
+            ns.Resource.SetUnlocked(msg == "unlock")
+            print("|cff55ff55DruidBar:|r resource display " .. (msg == "unlock" and "unlocked: drag it to move." or "locked."))
+        end
+    elseif msg == "resource" then
+        if ns.Resource then
+            ns.Resource.Debug()
+            ns.Resource.OpenOptions()
+        end
     elseif msg == "colours" or msg == "colors" then
         local prd = GetPersonalResourceFrame()
         local container = prd and prd.HealthBarsContainer
