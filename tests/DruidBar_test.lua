@@ -165,12 +165,12 @@ prdPower:SetStatusBarColor(1, 1, 0, 1)
 W.Advance(0.2)
 Near3(prdPower, ENERGY, "energy tint reapplied after Blizzard's repaint")
 
-print("Bear Form: rage has no measured colour, so Blizzard's stays")
+print("Bear Form: rage tinted to the Player Frame red")
 W.powerType, W.formID = 1, 5
 prdPower:SetStatusBarColor(1, 0, 0, 1) -- Blizzard paints the rage bar
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-Near3(prdPower, { 1, 0, 0 }, "rage bar keeps Blizzard's red")
+Near3(prdPower, { 0.75, 0, 0 }, "rage bar tinted darker red")
 W.powerType, W.formID = 3, 1
 prdPower:SetStatusBarColor(1, 1, 0, 1)
 W.Fire("UPDATE_SHAPESHIFT_FORM")

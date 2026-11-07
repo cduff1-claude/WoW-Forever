@@ -265,13 +265,16 @@ local blizzardOverlays = {}
 local FSR = { targets = {}, elapsed = 0 }
 
 -- Personal Resource Display colours matched to the Player Frame; filled in further down.
--- Colours measured from the Player Frame's bars in game (the brightest, right-hand part of
--- each). Rage has no measurement yet, so the PRD's rage bar keeps Blizzard's colour.
+-- Colours measured from the Player Frame's bars in game. Its bar art darkens towards the
+-- left, so these come from the brighter right-hand part. Rage was only seen at 10% (the
+-- dark left end, 153/255 red), so its value is an estimate between that and Blizzard's 252.
+-- A power with no entry here keeps Blizzard's colour.
 local Look = { original = {}, hooked = {}, busy = false,
     COLOURS = {
         HEALTH = { 0.40, 0.73, 0.17 },
         MANA = { 0.00, 0.34, 0.73 },
         ENERGY = { 1.00, 1.00, 0.23 },
+        RAGE = { 0.75, 0.00, 0.00 },
     } }
 
 local Claw = {

@@ -29,8 +29,8 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
 - **Personal Resource Display colours** (option "Match the Personal Resource Display's colours to the Player
   Frame", on by default): Blizzard draws the PRD's bars in flat, bright colours. With this on, the PRD's bars keep
   their own full-size texture but are tinted to the Player Frame's colours, measured in game: health green, energy
-  yellow, and mana blue (the power bar in caster form, the in-form mana bar in Cat/Bear). Rage hasn't been measured,
-  so it keeps Blizzard's colour. `/druidbar colours` prints each bar's texture and colour. Turning the option off
+  yellow, rage red (an estimate: only seen at 10%), and mana blue (the power bar in caster form, the in-form mana
+  bar in Cat/Bear). `/druidbar colours` prints each bar's texture and colour. Turning the option off
   puts Blizzard's colours back.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
