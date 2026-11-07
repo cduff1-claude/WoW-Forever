@@ -113,6 +113,11 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   otherwise hand over a zip. Check the installed copy against the repo before changing an addon: it may differ.
 - Hand the zip over from the scratchpad, not the repo folder. A zip left in the repo trips the
   "untracked files" stop hook.
+- **Simulation tests** live in `tests/`: `tests/wow.lua` is a small fake of the client (frames with real
+  geometry, events, time, the API the addons use), and `tests/<Addon>_test.lua` runs an addon's real code
+  against it. Run them all with `sh tests/run.sh` (installs Lua 5.1 if needed). After changing an addon, run
+  its test and extend it to cover the change; add to `wow.lua` when an addon needs more of the client. They
+  catch runtime errors and logic/layout mistakes, not drawing, taint or Forever's quirks.
 - The dev container has no Lua interpreter preinstalled. Syntax-check with either:
   - `apt-get install -y lua5.1` then `luac -p X.lua`. This is a real Lua 5.1 parser, the same version
     WoW uses.
