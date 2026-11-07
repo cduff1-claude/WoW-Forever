@@ -28,6 +28,13 @@ local f = R.frame
 local function Top(bar) return bar:GetTop() end
 local function Shown(bar) return bar:IsShown() end
 
+print("Defaults: flat style and the PRD's spacing")
+W.Check(s.style == "flat", "flat style by default")
+W.Near(s.padding, 4, "PRD-like gap between bars")
+W.Check(R.health:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8X8", "flat: plain fill texture")
+W.Check(R.health.gloss:IsShown(), "flat: lighter top half shown")
+W.Near(R.health.gloss:GetBottom(), (R.health:GetTop() + R.health:GetBottom()) / 2, "gloss covers the top half")
+
 print("Caster form")
 W.Check(f:IsShown(), "frame shown")
 W.Near(Top(R.health), f:GetTop(), "health at the top")
@@ -107,7 +114,9 @@ W.Fire("UNIT_SPELLCAST_START", "player", "cast-1", HEALING_TOUCH)
 W.Check(Shown(R.cast), "cast bar shown while casting")
 W.Near(Top(R.cast), manaTop - s.powerHeight - s.padding, "cast bar where energy/rage go")
 W.Near(R.cast:GetWidth(), s.width, "cast bar is the full width")
-W.Check(R.cast.left._text == "Healing Touch", "spell name on the cast bar")
+W.Check(R.cast.centre._text == "Healing Touch (55)", "spell name and mana cost, centred (got " .. tostring(R.cast.centre._text) .. ")")
+W.Check(select(1, R.cast.centre:GetPoint()) == "CENTER", "cast text anchored in the centre")
+W.Check(R.cast.left._text == "" and R.cast.right._text == "", "nothing at the sides")
 W.Advance(1.0)
 W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "half full after 1 of 2 seconds", 1)
 W.casting = nil
@@ -223,6 +232,35 @@ W.Near(f:GetTop(), dy, "reset puts it back at the default height")
 s.keepCentred = true
 R.SetUnlocked(false)
 W.Check(not R.unlockTint:IsShown(), "locked again")
+
+print("Shaded style, and the Claw orange still lines up after the switch")
+s.style = "shaded"
+_G.DruidBarResourceStyle:GetScript("OnShow")
+R.Refresh()
+if ns.OverlaysChanged then ns.OverlaysChanged() end
+W.Check(R.health:GetStatusBarTexture():GetTexture() == "Interface\\TargetingFrame\\UI-StatusBar", "shaded: Blizzard's bar texture")
+W.Check(not R.health.gloss:IsShown(), "shaded: no gloss")
+W.powerType, W.formID = 3, 1
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.power[3] = 30
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+local orange2 = Orange(R.power)
+W.Near(orange2 and W.VisibleWidth(orange2) or -1, 0.30 * s.width, "Claw orange still matches the fill", 0.01)
+_G.DruidBarResourceStyle:Click()
+W.Check(s.style == "flat", "style button switches back to flat")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+
+print("Upgrading old settings")
+DruidForeverManabarPlusDB.resource = { padding = 1, style = "shaded" }
+local up = R.Settings()
+W.Near(up.padding, 4, "old 1-pixel padding moves to the PRD's gap")
+W.Check(up.style == "flat" and up.version == 2, "switched to flat once")
+up.style = "shaded"
+W.Check(R.Settings().style == "shaded", "after that, your choice sticks")
+DruidForeverManabarPlusDB.resource = s
 
 print("Options page")
 local okShow = pcall(R.panel:GetScript("OnShow"), R.panel)

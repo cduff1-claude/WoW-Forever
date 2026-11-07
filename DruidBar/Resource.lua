@@ -21,7 +21,13 @@ local POWER = {
     MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0,
     COMBO = (Enum and Enum.PowerType and Enum.PowerType.ComboPoints) or 4,
 }
-local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+-- Bar styles: "flat" copies Blizzard's Personal Resource Display (a plain fill with a lighter
+-- top half, measured as about 15% white); "shaded" is Blizzard's classic bar texture.
+local STYLE_TEXTURE = {
+    flat = "Interface\\Buttons\\WHITE8X8",
+    shaded = "Interface\\TargetingFrame\\UI-StatusBar",
+}
+local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidBar\\"
 local CAST_COLOUR = { 1.0, 0.7, 0.0 }
@@ -33,6 +39,10 @@ R.VISIBILITY = {
     { key = "combatOrTarget", label = "In combat or with a target" },
     { key = "hidden", label = "Hidden" },
 }
+R.STYLE = {
+    { key = "flat", label = "Flat (like the Personal Resource Display)" },
+    { key = "shaded", label = "Shaded" },
+}
 R.TEXT = {
     { key = "values", label = "Current and max" },
     { key = "current", label = "Current" },
@@ -43,13 +53,14 @@ R.TEXT = {
 
 R.DEFAULTS = {
     enabled = true,
+    style = "flat",
     visibility = "always",
     text = "values",
     scale = 1.0,
     width = 210,
     healthHeight = 14,
     powerHeight = 12,
-    padding = 1,
+    padding = 4, -- the PRD's gap: about 3 clear pixels between the bars' borders
     opacity = 1.0,
     keepCentred = true,
     unlocked = false,
@@ -76,6 +87,14 @@ function R.Settings()
             s[key] = value
         end
     end
+    -- Version 2: the PRD's spacing and the flat style became the defaults.
+    if (s.version or 1) < 2 then
+        s.version = 2
+        if s.padding == 1 then
+            s.padding = R.DEFAULTS.padding
+        end
+        s.style = "flat"
+    end
     return s
 end
 
@@ -96,7 +115,7 @@ end
 
 local function NewBar()
     local bar = CreateFrame("StatusBar", nil, R.frame)
-    bar:SetStatusBarTexture(BAR_TEXTURE)
+    bar:SetStatusBarTexture(STYLE_TEXTURE.flat)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(0)
 
@@ -118,7 +137,14 @@ local function NewBar()
     end
     bar.left = Text("LEFT", 4)
     bar.right = Text("RIGHT", -4)
+    bar.centre = Text("CENTER", 0)
     bar.textFrame = textFrame
+
+    -- Flat style's lighter top half: over the fill only (anchored to the fill's right edge),
+    -- below DruidBar's overlays, which are child frames.
+    local gloss = bar:CreateTexture(nil, "OVERLAY")
+    gloss:SetColorTexture(1, 1, 1, GLOSS_ALPHA)
+    bar.gloss = gloss
     return bar
 end
 
@@ -236,6 +262,19 @@ local function PlaceBar(bar, y, height)
     bar.right:SetFont(FONT, size, "OUTLINE")
     bar:Show()
     return y + height + s.padding
+end
+
+function R.ApplyStyle()
+    local s = R.Settings()
+    local texture = STYLE_TEXTURE[s.style] or STYLE_TEXTURE.flat
+    for _, bar in ipairs({ R.health, R.mana, R.power, R.cast }) do
+        bar:SetStatusBarTexture(texture)
+        local fill = bar:GetStatusBarTexture()
+        bar.gloss:ClearAllPoints()
+        bar.gloss:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+        bar.gloss:SetPoint("BOTTOMRIGHT", fill, "RIGHT", 0, 0)
+        bar.gloss:SetShown(s.style == "flat")
+    end
 end
 
 function R.Layout()
@@ -502,7 +541,25 @@ function R.CastValue()
     return now
 end
 
-function R.StartCast(channel)
+-- A spell's mana cost, if it has a readable one.
+local function ManaCost(spellID)
+    if spellID == nil or IsSecret(spellID) or not (C_Spell and C_Spell.GetSpellPowerCost) then
+        return nil
+    end
+    local ok, costs = pcall(C_Spell.GetSpellPowerCost, spellID)
+    if not ok or type(costs) ~= "table" then
+        return nil
+    end
+    for _, info in ipairs(costs) do
+        local isMana = (info.type == POWER.MANA) or (info.name == "MANA")
+        if not IsSecret(info.type) and isMana and type(info.cost) == "number" and not IsSecret(info.cost)
+            and info.cost > 0 then
+            return info.cost
+        end
+    end
+end
+
+function R.StartCast(channel, spellID)
     local name, text, texture, startMS, endMS
     if channel then
         name, text, texture, startMS, endMS = UnitChannelInfo("player")
@@ -516,8 +573,15 @@ function R.StartCast(channel)
     R.casting = { channel = channel, startMS = startMS, endMS = endMS }
     R.cast:SetMinMaxValues(startMS, endMS)
     R.cast:SetValue(R.CastValue())
-    R.cast.left:SetFormattedText("%s", name)
+    -- Centred: the spell's name, with its mana cost in brackets.
+    R.cast.left:SetText("")
     R.cast.right:SetText("")
+    local cost = ManaCost(spellID)
+    if cost then
+        R.cast.centre:SetFormattedText("%s (%d)", name, cost)
+    else
+        R.cast.centre:SetFormattedText("%s", name)
+    end
     R.Layout()
 end
 
@@ -585,6 +649,7 @@ function R.Refresh()
         return
     end
     R.Build()
+    R.ApplyStyle()
     R.Layout()
     R.ApplyPosition()
     R.ApplyColours()
@@ -603,7 +668,7 @@ for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "UNIT_HEALTH",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP" }) do
     pcall(events.RegisterEvent, events, event)
 end
-events:SetScript("OnEvent", function(_, event, unit, powerToken)
+events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         R.Refresh()
         return
@@ -634,9 +699,9 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken)
     elseif event == "UNIT_DISPLAYPOWER" then
         R.Refresh()
     elseif event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_DELAYED" then
-        R.StartCast(false)
+        R.StartCast(false, spellID) -- (unit, castGUID, spellID): powerToken holds the castGUID here
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
-        R.StartCast(true)
+        R.StartCast(true, spellID)
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
         or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         R.StopCast()
@@ -672,8 +737,8 @@ local function Changed()
     if R.frame then
         R.Refresh()
     end
-    if ns.RefreshOverlays then
-        ns.RefreshOverlays()
+    if ns.OverlaysChanged then
+        ns.OverlaysChanged()
     end
 end
 
@@ -759,9 +824,11 @@ end
 local enabledBox = Checkbox("DruidBarResourceEnabled", subtitle, "Show the resource display", "enabled")
 local visibilityButton = Cycle("DruidBarResourceVisibility", enabledBox, "Visibility", "visibility", R.VISIBILITY)
 local textButton = Cycle("DruidBarResourceText", visibilityButton, "Text", "text", R.TEXT)
-local centredBox = Checkbox("DruidBarResourceCentred", textButton, "Keep centred (dragging only moves it up and down)",
+local styleButton = Cycle("DruidBarResourceStyle", textButton, "Bar style", "style", R.STYLE)
+styleButton:SetPoint("TOPLEFT", textButton, "BOTTOMLEFT", 0, -10)
+local centredBox = Checkbox("DruidBarResourceCentred", styleButton, "Keep centred (dragging only moves it up and down)",
     "keepCentred")
-centredBox:SetPoint("TOPLEFT", textButton, "BOTTOMLEFT", -4, -8)
+centredBox:SetPoint("TOPLEFT", styleButton, "BOTTOMLEFT", -4, -8)
 local unlockBox = Checkbox("DruidBarResourceUnlocked", centredBox, "Unlock to move (drag it)", "unlocked")
 local castBox = Checkbox("DruidBarResourceCast", unlockBox, "Cast bar below mana in caster form, while casting", "castBar")
 local comboBox = Checkbox("DruidBarResourceCombo", castBox, "Combo points in Cat Form", "comboPoints")
