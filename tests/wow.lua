@@ -164,6 +164,13 @@ local function Edge(f, axis, side)
     f._busy = nil
     if not a or not next(a) then return nil end
     local size = axis == "x" and f._w or f._h
+    if f._fillOf and axis == "x" then
+        -- A status bar's fill texture: as wide as the bar times how full it is.
+        local bar = f._fillOf
+        local lo, hi, v = bar._min or 0, bar._max or 1, bar._value or 0
+        local fraction = hi > lo and (v - lo) / (hi - lo) or 0
+        size = math.max(0, math.min(1, fraction)) * bar:GetWidth()
+    end
     local minName = axis == "x" and "LEFT" or "BOTTOM"
     local maxName = axis == "x" and "RIGHT" or "TOP"
     local lo, hi, mid
@@ -239,12 +246,23 @@ function Frame:GetValue() return self._value end
 function Frame:GetStatusBarTexture()
     if not self._barTexture then
         self._barTexture = self:CreateTexture()
+        self._barTexture._fillOf = self
         self._barTexture:SetPoint("TOPLEFT", self, "TOPLEFT")
         self._barTexture:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT")
     end
     return self._barTexture
 end
-function Frame:SetStatusBarTexture() return self:GetStatusBarTexture() end
+function Frame:SetStatusBarTexture(t)
+    local tex = self:GetStatusBarTexture()
+    if type(t) == "string" or type(t) == "number" then tex:SetTexture(t) end
+    return tex
+end
+function Frame:SetStatusBarColor(r, g, b, a) self:GetStatusBarTexture()._color = { r, g, b, a or 1 } end
+function Frame:GetStatusBarColor()
+    local c = self:GetStatusBarTexture()._color or { 1, 1, 1, 1 }
+    return c[1], c[2], c[3], c[4]
+end
+function Frame:SetClipsChildren(v) self._clips = v and true or false end
 
 -- Regions (textures, font strings) share the frame methods.
 function Frame:CreateTexture(name)
@@ -261,8 +279,10 @@ function Frame:CreateFontString(name)
 end
 function Frame:SetColorTexture(r, g, b, a) self._color = { r, g, b, a } end
 function Frame:SetVertexColor(r, g, b, a) self._color = { r, g, b, a } end
-function Frame:SetTexture(t) self._texture = t end
+function Frame:SetTexture(t) self._texture, self._atlas = t, nil end
 function Frame:GetTexture() return self._texture end
+function Frame:SetAtlas(a) self._atlas, self._texture = a, nil end
+function Frame:GetAtlas() return self._atlas end
 function Frame:SetText(t) self._text = t end
 function Frame:GetText() return self._text end
 function Frame:GetStringWidth() return #(tostring(self._text or "")) * 6 end
@@ -309,7 +329,26 @@ function W.Fire(event, ...)
     end
 end
 
--- Move time on, running OnUpdate scripts in small steps as the client would.
+W.timers = {}
+C_Timer = {
+    After = function(delay, fn) table.insert(W.timers, { due = W.time + delay, fn = fn }) end,
+}
+C_Texture = { GetAtlasInfo = function(name) return { file = name } end }
+
+local function RunTimers()
+    local i = 1
+    while i <= #W.timers do
+        local t = W.timers[i]
+        if t.due <= W.time + 1e-9 then
+            table.remove(W.timers, i)
+            t.fn()
+        else
+            i = i + 1
+        end
+    end
+end
+
+-- Move time on, running OnUpdate scripts and C_Timer callbacks in small steps as the client would.
 function W.Advance(seconds, step)
     step = step or 0.05
     local done = 0
@@ -321,6 +360,7 @@ function W.Advance(seconds, step)
             local fn = f._scripts.OnUpdate
             if fn then fn(f, dt) end
         end
+        RunTimers()
     end
 end
 
@@ -450,6 +490,32 @@ end
 ----------------------------------------------------------------------------------------------
 -- Checks
 ----------------------------------------------------------------------------------------------
+
+-- Width of a region that is actually drawn: its own span, cut down by every ancestor
+-- that clips its children. 0 if it or an ancestor is hidden, or fully transparent.
+function W.VisibleWidth(region)
+    local l, r = region:GetLeft(), region:GetRight()
+    if not (l and r) or not region:IsVisible() then return 0 end
+    if region._color and region._color[4] == 0 then return 0 end
+    local p = region._parent
+    while p do
+        if p._clips then
+            local pl, pr = p:GetLeft(), p:GetRight()
+            if not (pl and pr) then return 0 end
+            l, r = math.max(l, pl), math.min(r, pr)
+        end
+        p = p._parent
+    end
+    return math.max(0, r - l)
+end
+
+-- Every texture under a frame, however deep.
+function W.Textures(frame, out)
+    out = out or {}
+    for _, r in ipairs(frame._regions) do table.insert(out, r) end
+    for _, c in ipairs(frame._children) do W.Textures(c, out) end
+    return out
+end
 
 W.passed, W.failed = 0, 0
 

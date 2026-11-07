@@ -39,6 +39,7 @@ local DEFAULTS = {
     fsrPersonalResource = true,     -- the Personal Resource Display's mana bar
     fsrText = true,                 -- countdown number beside the marker
     fsrWidth = 2,                   -- marker width in pixels (1-6)
+    prdMatchColours = true,         -- give the PRD's bars the Player Frame bars' textures and colours
 }
 
 -- Fixed look of the druid bar.
@@ -263,6 +264,10 @@ local blizzardOverlays = {}
 -- 5-second-rule markers on Blizzard's mana bars; filled in further down.
 local FSR = { targets = {}, elapsed = 0 }
 
+-- Personal Resource Display colours matched to the Player Frame; filled in further down.
+local Look = { cache = {}, original = {}, hooked = {}, busy = false,
+    MANA_ATLAS = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana" }
+
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
     SPELLS = { 9850, 9849, 5201, 3029, 1082 }, -- Claw ranks, highest first
@@ -273,7 +278,7 @@ local Claw = {
     -- Claw, "short" = you don't yet (the whole fill is then inside the Claw section).
     COLORS = {
         enough = { 1.0, 1.0, 1.0, 0.35 },
-        short = { 0.85, 0.3, 0.0, 0.85 },
+        short = { 1.0, 0.5, 0.0, 0.9 },
     },
 }
 
@@ -775,6 +780,9 @@ local function HookPersonalResourceFrame()
         if not isDruid then
             return
         end
+        if Look.ApplyAll then
+            Look.ApplyAll()
+        end
         RefreshBlizzardOverlays(true)
         UpdateManaBarLater()
     end
@@ -1098,6 +1106,189 @@ function FSR.Refresh()
     end
 end
 
+-- Personal Resource Display colours. Blizzard draws the PRD's bars in flat, bright colours,
+-- while the Player Frame's bars use shaded textures. With "Match the Player Frame's colours"
+-- on, each PRD bar gets the texture and colour of the Player Frame bar showing the same
+-- thing: health from the Player Frame's health bar, the primary power (mana, energy, rage)
+-- from its power bar. The PRD's in-form mana bar has no Player Frame twin in Cat/Bear, so
+-- it uses the mana look remembered from caster form, or Blizzard's mana bar art until then.
+function Look.PlayerHealthBar()
+    local content = PlayerFrame and PlayerFrame.PlayerFrameContent
+    local main = content and content.PlayerFrameContentMain
+    local container = main and main.HealthBarsContainer
+    local bar = (container and (container.HealthBar or container.healthBar)) or _G.PlayerFrameHealthBar
+    if bar and bar.GetStatusBarTexture then
+        return bar
+    end
+end
+
+function Look.Read(bar)
+    local texture = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+    if not texture then
+        return nil
+    end
+    local look = {}
+    local atlas = texture.GetAtlas and texture:GetAtlas()
+    if type(atlas) == "string" and atlas ~= "" and not IsSecretValue(atlas) then
+        look.atlas = atlas
+    else
+        local file = texture.GetTexture and texture:GetTexture()
+        if file ~= nil and not IsSecretValue(file) then
+            look.file = file
+        end
+    end
+    if not (look.atlas or look.file) then
+        return nil
+    end
+    local r, g, b, a = bar:GetStatusBarColor()
+    if type(r) ~= "number" or IsSecretValue(r) then
+        r, g, b, a = 1, 1, 1, 1
+    end
+    look.color = { r, g, b, a or 1 }
+    return look
+end
+
+-- Blizzard's power bar art names say which power they're for. Right after a shift the
+-- Player Frame bar may still show the old power's art, so don't remember that under the new one.
+function Look.Fits(look, token)
+    if look.atlas then
+        local name = look.atlas:lower()
+        for _, word in ipairs({ "mana", "energy", "rage", "focus" }) do
+            if name:find(word, 1, true) then
+                return name:find(token:lower(), 1, true) ~= nil
+            end
+        end
+    end
+    return true
+end
+
+function Look.PowerToken()
+    local _, token = UnitPowerType("player")
+    if type(token) == "string" and not IsSecretValue(token) then
+        return token
+    end
+end
+
+function Look.Remember()
+    local health = Look.Read(Look.PlayerHealthBar())
+    if health then
+        Look.cache.HEALTH = health
+    end
+    local token = Look.PowerToken()
+    local power = token and Look.Read(GetPlayerResourceBar())
+    if power and Look.Fits(power, token) then
+        Look.cache[token] = power
+    end
+end
+
+function Look.For(key)
+    local look = Look.cache[key]
+    if not look and key == "MANA" and C_Texture and C_Texture.GetAtlasInfo
+        and C_Texture.GetAtlasInfo(Look.MANA_ATLAS) then
+        look = { atlas = Look.MANA_ATLAS, color = { 1, 1, 1, 1 } }
+    end
+    return look
+end
+
+function Look.Apply(bar, look)
+    if not (bar and look and bar.GetStatusBarTexture) then
+        return
+    end
+    if not Look.original[bar] then
+        Look.original[bar] = Look.Read(bar)
+    end
+    Look.busy = true
+    if look.atlas then
+        pcall(bar.SetStatusBarTexture, bar, look.atlas)
+        local texture = bar:GetStatusBarTexture()
+        if texture and texture.SetAtlas and texture.GetAtlas and texture:GetAtlas() ~= look.atlas then
+            pcall(texture.SetAtlas, texture, look.atlas)
+        end
+    else
+        pcall(bar.SetStatusBarTexture, bar, look.file)
+    end
+    bar:SetStatusBarColor(look.color[1], look.color[2], look.color[3], look.color[4])
+    Look.busy = false
+end
+
+-- Put back what Blizzard had (when the option is turned off).
+function Look.Restore()
+    for bar, look in pairs(Look.original) do
+        Look.Apply(bar, look)
+    end
+    wipe(Look.original)
+end
+
+-- When Blizzard repaints a bar (ours or the Player Frame's), apply again just after.
+function Look.Later()
+    if Look.pending then
+        return
+    end
+    Look.pending = true
+    local function run()
+        Look.pending = false
+        Look.ApplyAll()
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.05, run)
+    else
+        run()
+    end
+end
+
+function Look.Hook(bar)
+    if not bar or Look.hooked[bar] or type(bar.SetStatusBarColor) ~= "function" then
+        return
+    end
+    Look.hooked[bar] = true
+    local function changed()
+        if not Look.busy then
+            Look.Later()
+        end
+    end
+    hooksecurefunc(bar, "SetStatusBarColor", changed)
+    hooksecurefunc(bar, "SetStatusBarTexture", changed)
+end
+
+function Look.ApplyAll()
+    if not (isDruid and db.prdMatchColours) then
+        if next(Look.original) then
+            Look.Restore()
+        end
+        return
+    end
+    local prd = GetPersonalResourceFrame()
+    if not prd then
+        return
+    end
+    Look.Hook(Look.PlayerHealthBar())
+    Look.Hook(GetPlayerResourceBar())
+    Look.Remember()
+
+    local container = prd.HealthBarsContainer
+    local health = container and container.healthBar
+    Look.Hook(health)
+    Look.Apply(health, Look.For("HEALTH"))
+
+    local token = Look.PowerToken()
+    if token then
+        Look.Hook(prd.PowerBar)
+        Look.Apply(prd.PowerBar, Look.For(token))
+    end
+    Look.Hook(prd.AlternatePowerBar)
+    Look.Apply(prd.AlternatePowerBar, Look.For("MANA"))
+end
+
+function Look.Describe(label, bar)
+    local look = Look.Read(bar)
+    if not look then
+        print("  " .. label .. ":", bar and "no texture" or "not found")
+        return
+    end
+    print(string.format("  %s: %s %s  colour %.2f %.2f %.2f %.2f", label, look.atlas and "atlas" or "file",
+        tostring(look.atlas or look.file), look.color[1], look.color[2], look.color[3], look.color[4]))
+end
+
 -- Mana cost of the spell currently being cast, like the darker "cost prediction" section
 -- Blizzard draws on the Player Frame bar while casting.
 local pendingCastCost = 0
@@ -1293,6 +1484,7 @@ local function UpdateFormState()
         manaText:ClearText()
     end
     FSR.Refresh()
+    Look.Later()
 end
 
 -- Form watcher.
@@ -1557,7 +1749,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "DruidBar"
-panel:SetSize(460, 460)
+panel:SetSize(460, 490)
 
 local settingsCategory
 
@@ -1605,7 +1797,9 @@ local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
     "Shade the energy Claw costs in Cat Form (on the bars enabled above)", "clawShade")
 
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -16)
+local colourCheckbox = CreateCheckbox("DFMPColourCheckbox", clawCheckbox,
+    "Match the Personal Resource Display's colours to the Player Frame", "prdMatchColours")
+fsrHeader:SetPoint("TOPLEFT", colourCheckbox, "BOTTOMLEFT", 0, -16)
 fsrHeader:SetText("5-second rule on Blizzard's mana bars")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
     "Show on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
@@ -1639,6 +1833,7 @@ panel:SetScript("OnShow", function()
     personalResourceCheckbox:SetChecked(db.enablePersonalResource)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
+    colourCheckbox:SetChecked(db.prdMatchColours)
     fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
     fsrPrdCheckbox:SetChecked(db.fsrPersonalResource)
     fsrTextCheckbox:SetChecked(db.fsrText)
@@ -1714,6 +1909,18 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
+    elseif msg == "colours" or msg == "colors" then
+        local prd = GetPersonalResourceFrame()
+        local container = prd and prd.HealthBarsContainer
+        print("|cff55ff55DruidBar|r bar textures and colours (match option: " .. tostring(db.prdMatchColours) .. ")")
+        Look.Describe("Player Frame health", Look.PlayerHealthBar())
+        Look.Describe("Player Frame power", GetPlayerResourceBar())
+        Look.Describe("PRD health", container and container.healthBar)
+        Look.Describe("PRD power", prd and prd.PowerBar)
+        Look.Describe("PRD in-form mana", prd and prd.AlternatePowerBar)
+        for key in pairs(Look.cache) do
+            print("  remembered look for", key)
+        end
     elseif msg == "prd" then
         local prd = GetPersonalResourceFrame()
         local bar, info = GetPersonalResourceManaBar()

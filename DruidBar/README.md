@@ -20,12 +20,17 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   The Travel section only exists once Travel Form is learned, or Aquatic Form if "Use Aquatic Form's cost" is ticked
   (default on). Without it, the whole shade is blue / pale orange / bold orange.
 - **Claw shading (Cat Form):** the energy bar is shaded from the left up to Claw's energy cost (read live, so
-  Ferocity is included): a light wash once you have the energy for Claw, deep orange while you don't. Shown on the
+  Ferocity is included): a light wash once you have the energy for Claw, orange while you don't. Shown on the
   Player Frame's energy bar and the Personal Resource Display's `PowerBar`, each only if that bar is enabled below.
 - **5-second rule on Blizzard's bars** (this used to be the separate ForeverFiveSecondRule addon): a marker
   that sweeps along the Player Frame mana bar (caster form) and the Personal Resource Display's mana bar (any form)
   for 5 seconds after you spend mana, with an optional countdown number. Settings: the two "Show on…" ticks,
   "Show the countdown number", and a marker width slider (1-6).
+- **Personal Resource Display colours** (option "Match the Personal Resource Display's colours to the Player
+  Frame", on by default): Blizzard draws the PRD's bars in flat, bright colours. With this on, each PRD bar copies
+  the texture and colour of the matching Player Frame bar: health from health, the current power (mana, energy,
+  rage) from the Player Frame's power bar. The in-form mana bar uses the mana look remembered from caster form.
+  `/druidbar colours` prints what each bar is using. Turning the option off puts Blizzard's look back.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
 - **Settings (`/druidbar`, or right-click the druid bar):** "Enable for player frame" (druid bar + Player Frame shading),

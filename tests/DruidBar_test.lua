@@ -27,6 +27,30 @@ prdAlt:SetPoint("TOPLEFT", prdPower, "BOTTOMLEFT")
 PersonalResourceDisplayFrame.PowerBar = prdPower
 PersonalResourceDisplayFrame.AlternatePowerBar = prdAlt
 PersonalResourceDisplayFrame.UpdatePowerBar = function() end
+local prdHealth = CreateFrame("StatusBar", nil, PersonalResourceDisplayFrame)
+prdHealth:SetSize(200, 10)
+prdHealth:SetPoint("BOTTOMLEFT", prdPower, "TOPLEFT")
+PersonalResourceDisplayFrame.HealthBarsContainer = { healthBar = prdHealth }
+
+-- Bar art: the Player Frame's shaded atlases, and the PRD's flat bright colours.
+local ATLAS = {
+    HEALTH = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health",
+    MANA = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana",
+    ENERGY = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Energy",
+}
+local FLAT = "Interface\\TargetingFrame\\UI-StatusBar"
+local pfHealth = CreateFrame("StatusBar", nil, PlayerFrame)
+pfHealth:SetSize(124, 20)
+pfHealth:SetPoint("BOTTOMLEFT", pfBar, "TOPLEFT")
+PlayerFrame.PlayerFrameContent.PlayerFrameContentMain.HealthBarsContainer = { HealthBar = pfHealth }
+pfHealth:GetStatusBarTexture():SetAtlas(ATLAS.HEALTH)
+pfHealth:SetStatusBarColor(0.9, 0.9, 0.9, 1)
+pfBar:GetStatusBarTexture():SetAtlas(ATLAS.MANA)
+pfBar:SetStatusBarColor(1, 1, 1, 1)
+for bar, colour in pairs({ [prdHealth] = { 0, 1, 0 }, [prdPower] = { 0, 0, 1 }, [prdAlt] = { 0, 0, 1 } }) do
+    bar:SetStatusBarTexture(FLAT)
+    bar:SetStatusBarColor(colour[1], colour[2], colour[3], 1)
+end
 PersonalResourceDisplayFrame.UpdateAlternatePowerBar = function() end
 
 -- Spells: Healing Touch costs mana, Claw costs energy, the forms cost mana.
@@ -39,6 +63,7 @@ W.spellCosts["Claw"] = W.spellCosts[1082]
 
 W.Load("DruidBar/DruidBar.lua", "DruidBar", {})
 
+local ok
 print("Login")
 W.class, W.powerType, W.formID = "DRUID", 0, nil
 W.Fire("PLAYER_LOGIN")
@@ -111,8 +136,94 @@ DruidForeverManabarPlusDB.fsrWidth = 5
 W.Advance(0.1)
 W.Near(Marker(prdPower):GetWidth(), 5, "marker width follows the slider setting")
 
+local function Art(bar) return bar:GetStatusBarTexture():GetAtlas() or bar:GetStatusBarTexture():GetTexture() end
+local function Colour(bar) return table.concat({ bar:GetStatusBarColor() }, ",") end
+
+print("Personal Resource Display colours match the Player Frame")
+DruidForeverManabarPlusDB.fsrPlayerFrame = true
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Art(prdHealth) == ATLAS.HEALTH, "PRD health uses the Player Frame health art (" .. tostring(Art(prdHealth)) .. ")")
+W.Check(Colour(prdHealth) == Colour(pfHealth), "PRD health uses the Player Frame health colour")
+W.Check(Art(prdPower) == ATLAS.MANA, "PRD mana uses the Player Frame mana art in caster form")
+
+print("Shift to Cat: power bar follows, in-form mana bar keeps the mana look")
+W.powerType, W.formID = 3, 1
+pfBar:GetStatusBarTexture():SetAtlas(ATLAS.ENERGY) -- Blizzard repaints the Player Frame bar
+pfBar:SetStatusBarColor(1, 1, 1, 1)
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Art(prdPower) == ATLAS.ENERGY, "PRD energy bar uses the Player Frame energy art")
+W.Check(Art(prdAlt) == ATLAS.MANA, "PRD in-form mana bar uses the remembered mana art")
+
+print("Blizzard repaints a PRD bar: the match is put back")
+prdPower:SetStatusBarTexture(FLAT)
+prdPower:SetStatusBarColor(1, 1, 0, 1)
+W.Advance(0.2)
+W.Check(Art(prdPower) == ATLAS.ENERGY, "energy art reapplied after Blizzard's repaint")
+W.Check(Colour(prdPower) == "1,1,1,1", "energy colour reapplied after Blizzard's repaint")
+
+print("Shift lag: Player Frame still shows mana art after the shift")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.powerType, W.formID = 3, 1 -- now in Cat, but the Player Frame hasn't caught up
+pfBar:GetStatusBarTexture():SetAtlas(ATLAS.MANA)
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Art(prdPower) ~= ATLAS.MANA, "mana art not put on the energy bar while the Player Frame lags")
+pfBar:GetStatusBarTexture():SetAtlas(ATLAS.ENERGY)
+pfBar:SetStatusBarColor(1, 1, 1, 1)
+W.Advance(0.2)
+W.Check(Art(prdPower) == ATLAS.ENERGY, "energy art applied once the Player Frame catches up")
+
+print("Claw shading: light wash with enough energy, orange without")
+-- The Player Frame bar shows energy in Cat Form; Claw costs 45 of 100.
+local function ClawLayers(bar)
+    local enough, short
+    for _, t in ipairs(W.Textures(bar)) do
+        local c = t._color
+        if c and c[1] == 1 and c[2] == 1 and c[3] == 1 and c[4] == 0.35 then enough = t end
+        if c and c[1] == 1 and c[2] == 0.5 and c[3] == 0 and c[4] == 0.9 then short = t end
+    end
+    return enough, short
+end
+local function SetEnergy(value)
+    W.power[3] = value
+    pfBar:SetMinMaxValues(0, 100)
+    pfBar:SetValue(value) -- Blizzard's own fill
+    prdPower:SetMinMaxValues(0, 100)
+    prdPower:SetValue(value)
+    W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+end
+W.Fire("SPELLS_CHANGED")
+W.Advance(1.1)
+SetEnergy(80)
+local enough, short = ClawLayers(pfBar)
+W.Check(enough and short, "both Claw layers exist on the Player Frame energy bar")
+W.Near(W.VisibleWidth(enough), 0.45 * 124, "80 energy: wash covers Claw's 45 energy", 0.01)
+W.Near(W.VisibleWidth(short), 0, "80 energy: no orange")
+SetEnergy(30)
+W.Near(W.VisibleWidth(enough), 0, "30 energy: no wash")
+W.Near(W.VisibleWidth(short), 0.30 * 124, "30 energy: the whole fill is orange", 0.01)
+SetEnergy(45)
+W.Near(W.VisibleWidth(enough), 0.45 * 124, "exactly 45 energy counts as enough", 0.01)
+W.Near(W.VisibleWidth(short), 0, "exactly 45 energy: no orange")
+local prdEnough, prdShort = ClawLayers(prdPower)
+SetEnergy(20)
+W.Near(W.VisibleWidth(prdShort), 0.20 * 200, "PRD energy bar turns orange too", 0.01)
+
+print("Turning the colour match off puts Blizzard's look back")
+DruidForeverManabarPlusDB.prdMatchColours = false
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Art(prdHealth) == FLAT and Colour(prdHealth) == "0,1,0,1", "PRD health back to Blizzard's flat green")
+
 print("Slash commands run")
-local ok = pcall(W.Slash, "/druidbar debug")
+ok = pcall(W.Slash, "/druidbar colours")
+W.Check(ok, "/druidbar colours runs without errors")
+ok = pcall(W.Slash, "/druidbar debug")
 W.Check(ok, "/druidbar debug runs without errors")
 ok = pcall(W.Slash, "/druidbar test")
 W.Check(ok, "/druidbar test runs without errors")
