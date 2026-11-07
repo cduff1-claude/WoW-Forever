@@ -106,6 +106,9 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   behaviour quick to confirm.
 - Hand the user the finished addon as a zip of its folder, and update that addon's `README.md` alongside code changes
   (and the index line in the top-level `README.md` if its summary changes).
+- The user's installed addons are in `C:/Games/Blizzard/World of Warcraft/_forever_/Interface/AddOns` on their
+  Windows PC. When the session is linked to it, install updates there directly (and still commit to the repo);
+  otherwise hand over a zip. Check the installed copy against the repo before changing an addon: it may differ.
 - Hand the zip over from the scratchpad, not the repo folder. A zip left in the repo trips the
   "untracked files" stop hook.
 - The dev container has no Lua interpreter preinstalled. Syntax-check with either:
