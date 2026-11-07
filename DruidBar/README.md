@@ -27,10 +27,11 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   for 5 seconds after you spend mana, with an optional countdown number. Settings: the two "Show on…" ticks,
   "Show the countdown number", and a marker width slider (1-6).
 - **Personal Resource Display colours** (option "Match the Personal Resource Display's colours to the Player
-  Frame", on by default): Blizzard draws the PRD's bars in flat, bright colours. With this on, each PRD bar copies
-  the texture and colour of the matching Player Frame bar: health from health, the current power (mana, energy,
-  rage) from the Player Frame's power bar. The in-form mana bar uses the mana look remembered from caster form.
-  `/druidbar colours` prints what each bar is using. Turning the option off puts Blizzard's look back.
+  Frame", on by default): Blizzard draws the PRD's bars in flat, bright colours. With this on, the PRD's bars keep
+  their own full-size texture but are tinted to the Player Frame's colours, measured in game: health green, energy
+  yellow, and mana blue (the power bar in caster form, the in-form mana bar in Cat/Bear). Rage hasn't been measured,
+  so it keeps Blizzard's colour. `/druidbar colours` prints each bar's texture and colour. Turning the option off
+  puts Blizzard's colours back.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).
 - **Settings (`/druidbar`, or right-click the druid bar):** "Enable for player frame" (druid bar + Player Frame shading),

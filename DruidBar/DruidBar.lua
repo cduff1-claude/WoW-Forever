@@ -265,8 +265,14 @@ local blizzardOverlays = {}
 local FSR = { targets = {}, elapsed = 0 }
 
 -- Personal Resource Display colours matched to the Player Frame; filled in further down.
-local Look = { cache = {}, original = {}, hooked = {}, busy = false,
-    MANA_ATLAS = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana" }
+-- Colours measured from the Player Frame's bars in game (the brightest, right-hand part of
+-- each). Rage has no measurement yet, so the PRD's rage bar keeps Blizzard's colour.
+local Look = { original = {}, hooked = {}, busy = false,
+    COLOURS = {
+        HEALTH = { 0.40, 0.73, 0.17 },
+        MANA = { 0.00, 0.34, 0.73 },
+        ENERGY = { 1.00, 1.00, 0.23 },
+    } }
 
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
@@ -1106,12 +1112,12 @@ function FSR.Refresh()
     end
 end
 
--- Personal Resource Display colours. Blizzard draws the PRD's bars in flat, bright colours,
--- while the Player Frame's bars use shaded textures. With "Match the Player Frame's colours"
--- on, each PRD bar gets the texture and colour of the Player Frame bar showing the same
--- thing: health from the Player Frame's health bar, the primary power (mana, energy, rage)
--- from its power bar. The PRD's in-form mana bar has no Player Frame twin in Cat/Bear, so
--- it uses the mana look remembered from caster form, or Blizzard's mana bar art until then.
+-- Personal Resource Display colours. Blizzard draws the PRD's bars in flat, bright colours;
+-- the Player Frame's are softer. With "Match the Player Frame's colours" on, each PRD bar
+-- keeps its own full-size texture but is tinted to the Player Frame's colour for the same
+-- thing: health, the current power (energy in Cat), and mana for the in-form mana bar.
+-- (Copying the Player Frame's bar art instead doesn't work: that art has its own border
+-- built in, so on the PRD the fill shrank inside a thick black frame.)
 function Look.PlayerHealthBar()
     local content = PlayerFrame and PlayerFrame.PlayerFrameContent
     local main = content and content.PlayerFrameContentMain
@@ -1122,6 +1128,7 @@ function Look.PlayerHealthBar()
     end
 end
 
+-- A bar's texture and colour, for /druidbar colours.
 function Look.Read(bar)
     local texture = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
     if not texture then
@@ -1137,29 +1144,12 @@ function Look.Read(bar)
             look.file = file
         end
     end
-    if not (look.atlas or look.file) then
-        return nil
-    end
     local r, g, b, a = bar:GetStatusBarColor()
     if type(r) ~= "number" or IsSecretValue(r) then
         r, g, b, a = 1, 1, 1, 1
     end
     look.color = { r, g, b, a or 1 }
     return look
-end
-
--- Blizzard's power bar art names say which power they're for. Right after a shift the
--- Player Frame bar may still show the old power's art, so don't remember that under the new one.
-function Look.Fits(look, token)
-    if look.atlas then
-        local name = look.atlas:lower()
-        for _, word in ipairs({ "mana", "energy", "rage", "focus" }) do
-            if name:find(word, 1, true) then
-                return name:find(token:lower(), 1, true) ~= nil
-            end
-        end
-    end
-    return true
 end
 
 function Look.PowerToken()
@@ -1169,49 +1159,21 @@ function Look.PowerToken()
     end
 end
 
-function Look.Remember()
-    local health = Look.Read(Look.PlayerHealthBar())
-    if health then
-        Look.cache.HEALTH = health
-    end
-    local token = Look.PowerToken()
-    local power = token and Look.Read(GetPlayerResourceBar())
-    if power and Look.Fits(power, token) then
-        Look.cache[token] = power
-    end
-end
-
-function Look.For(key)
-    local look = Look.cache[key]
-    if not look and key == "MANA" and C_Texture and C_Texture.GetAtlasInfo
-        and C_Texture.GetAtlasInfo(Look.MANA_ATLAS) then
-        look = { atlas = Look.MANA_ATLAS, color = { 1, 1, 1, 1 } }
-    end
-    return look
-end
-
-function Look.Apply(bar, look)
-    if not (bar and look and bar.GetStatusBarTexture) then
+function Look.Apply(bar, colour)
+    if not (bar and colour and bar.SetStatusBarColor) then
         return
     end
     if not Look.original[bar] then
-        Look.original[bar] = Look.Read(bar)
+        local r, g, b, a = bar:GetStatusBarColor()
+        if type(r) == "number" and not IsSecretValue(r) then
+            Look.original[bar] = { r, g, b, a or 1 }
+        end
     end
     Look.busy = true
-    if look.atlas then
-        pcall(bar.SetStatusBarTexture, bar, look.atlas)
-        local texture = bar:GetStatusBarTexture()
-        if texture and texture.SetAtlas and texture.GetAtlas and texture:GetAtlas() ~= look.atlas then
-            pcall(texture.SetAtlas, texture, look.atlas)
-        end
-    else
-        pcall(bar.SetStatusBarTexture, bar, look.file)
-    end
-    bar:SetStatusBarColor(look.color[1], look.color[2], look.color[3], look.color[4])
+    bar:SetStatusBarColor(colour[1], colour[2], colour[3], colour[4] or 1)
     Look.busy = false
 end
 
--- Put back what Blizzard had (when the option is turned off).
 function Look.Restore()
     for bar, look in pairs(Look.original) do
         Look.Apply(bar, look)
@@ -1243,6 +1205,11 @@ function Look.Hook(bar)
     Look.hooked[bar] = true
     local function changed()
         if not Look.busy then
+            -- Blizzard just painted it: remember its colour for turning the option off.
+            local r, g, b, alpha = bar:GetStatusBarColor()
+            if type(r) == "number" and not IsSecretValue(r) then
+                Look.original[bar] = { r, g, b, alpha or 1 }
+            end
             Look.Later()
         end
     end
@@ -1261,22 +1228,20 @@ function Look.ApplyAll()
     if not prd then
         return
     end
-    Look.Hook(Look.PlayerHealthBar())
-    Look.Hook(GetPlayerResourceBar())
-    Look.Remember()
-
     local container = prd.HealthBarsContainer
     local health = container and container.healthBar
     Look.Hook(health)
-    Look.Apply(health, Look.For("HEALTH"))
+    Look.Apply(health, Look.COLOURS.HEALTH)
 
+    -- A power the table has no colour for (rage) keeps Blizzard's colour.
     local token = Look.PowerToken()
-    if token then
-        Look.Hook(prd.PowerBar)
-        Look.Apply(prd.PowerBar, Look.For(token))
+    Look.Hook(prd.PowerBar)
+    local colour = token and Look.COLOURS[token]
+    if colour then
+        Look.Apply(prd.PowerBar, colour)
     end
     Look.Hook(prd.AlternatePowerBar)
-    Look.Apply(prd.AlternatePowerBar, Look.For("MANA"))
+    Look.Apply(prd.AlternatePowerBar, Look.COLOURS.MANA)
 end
 
 function Look.Describe(label, bar)
@@ -1918,9 +1883,6 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
         Look.Describe("PRD health", container and container.healthBar)
         Look.Describe("PRD power", prd and prd.PowerBar)
         Look.Describe("PRD in-form mana", prd and prd.AlternatePowerBar)
-        for key in pairs(Look.cache) do
-            print("  remembered look for", key)
-        end
     elseif msg == "prd" then
         local prd = GetPersonalResourceFrame()
         local bar, info = GetPersonalResourceManaBar()

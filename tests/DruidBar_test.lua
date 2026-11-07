@@ -36,7 +36,6 @@ PersonalResourceDisplayFrame.HealthBarsContainer = { healthBar = prdHealth }
 local ATLAS = {
     HEALTH = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health",
     MANA = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana",
-    ENERGY = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Energy",
 }
 local FLAT = "Interface\\TargetingFrame\\UI-StatusBar"
 local pfHealth = CreateFrame("StatusBar", nil, PlayerFrame)
@@ -137,46 +136,45 @@ W.Advance(0.1)
 W.Near(Marker(prdPower):GetWidth(), 5, "marker width follows the slider setting")
 
 local function Art(bar) return bar:GetStatusBarTexture():GetAtlas() or bar:GetStatusBarTexture():GetTexture() end
-local function Colour(bar) return table.concat({ bar:GetStatusBarColor() }, ",") end
 
-print("Personal Resource Display colours match the Player Frame")
+print("Personal Resource Display tinted to the Player Frame's colours")
+local function Near3(bar, want, label)
+    local r, g, b = bar:GetStatusBarColor()
+    W.Check(math.abs(r - want[1]) < 0.01 and math.abs(g - want[2]) < 0.01 and math.abs(b - want[3]) < 0.01,
+        string.format("%s (got %.2f %.2f %.2f)", label, r, g, b))
+end
+local HEALTH, MANA, ENERGY = { 0.40, 0.73, 0.17 }, { 0.00, 0.34, 0.73 }, { 1.00, 1.00, 0.23 }
 DruidForeverManabarPlusDB.fsrPlayerFrame = true
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.Check(Art(prdHealth) == ATLAS.HEALTH, "PRD health uses the Player Frame health art (" .. tostring(Art(prdHealth)) .. ")")
-W.Check(Colour(prdHealth) == Colour(pfHealth), "PRD health uses the Player Frame health colour")
-W.Check(Art(prdPower) == ATLAS.MANA, "PRD mana uses the Player Frame mana art in caster form")
+W.Check(Art(prdHealth) == FLAT and Art(prdPower) == FLAT and Art(prdAlt) == FLAT,
+    "PRD bars keep their own full-size texture")
+Near3(prdHealth, HEALTH, "PRD health tinted to the Player Frame green")
+Near3(prdPower, MANA, "PRD mana tinted to the Player Frame blue in caster form")
 
-print("Shift to Cat: power bar follows, in-form mana bar keeps the mana look")
+print("Shift to Cat")
 W.powerType, W.formID = 3, 1
-pfBar:GetStatusBarTexture():SetAtlas(ATLAS.ENERGY) -- Blizzard repaints the Player Frame bar
-pfBar:SetStatusBarColor(1, 1, 1, 1)
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.Check(Art(prdPower) == ATLAS.ENERGY, "PRD energy bar uses the Player Frame energy art")
-W.Check(Art(prdAlt) == ATLAS.MANA, "PRD in-form mana bar uses the remembered mana art")
+Near3(prdPower, ENERGY, "PRD energy bar tinted to the Player Frame yellow")
+Near3(prdAlt, MANA, "PRD in-form mana bar tinted to the Player Frame blue")
 
-print("Blizzard repaints a PRD bar: the match is put back")
-prdPower:SetStatusBarTexture(FLAT)
+print("Blizzard repaints a PRD bar: the tint is put back")
 prdPower:SetStatusBarColor(1, 1, 0, 1)
 W.Advance(0.2)
-W.Check(Art(prdPower) == ATLAS.ENERGY, "energy art reapplied after Blizzard's repaint")
-W.Check(Colour(prdPower) == "1,1,1,1", "energy colour reapplied after Blizzard's repaint")
+Near3(prdPower, ENERGY, "energy tint reapplied after Blizzard's repaint")
 
-print("Shift lag: Player Frame still shows mana art after the shift")
-W.powerType, W.formID = 0, nil
+print("Bear Form: rage has no measured colour, so Blizzard's stays")
+W.powerType, W.formID = 1, 5
+prdPower:SetStatusBarColor(1, 0, 0, 1) -- Blizzard paints the rage bar
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.powerType, W.formID = 3, 1 -- now in Cat, but the Player Frame hasn't caught up
-pfBar:GetStatusBarTexture():SetAtlas(ATLAS.MANA)
+Near3(prdPower, { 1, 0, 0 }, "rage bar keeps Blizzard's red")
+W.powerType, W.formID = 3, 1
+prdPower:SetStatusBarColor(1, 1, 0, 1)
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.Check(Art(prdPower) ~= ATLAS.MANA, "mana art not put on the energy bar while the Player Frame lags")
-pfBar:GetStatusBarTexture():SetAtlas(ATLAS.ENERGY)
-pfBar:SetStatusBarColor(1, 1, 1, 1)
-W.Advance(0.2)
-W.Check(Art(prdPower) == ATLAS.ENERGY, "energy art applied once the Player Frame catches up")
 
 print("Claw shading: light wash with enough energy, orange without")
 -- The Player Frame bar shows energy in Cat Form; Claw costs 45 of 100.
@@ -218,7 +216,8 @@ print("Turning the colour match off puts Blizzard's look back")
 DruidForeverManabarPlusDB.prdMatchColours = false
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.Check(Art(prdHealth) == FLAT and Colour(prdHealth) == "0,1,0,1", "PRD health back to Blizzard's flat green")
+Near3(prdHealth, { 0, 1, 0 }, "PRD health back to Blizzard's green")
+Near3(prdPower, { 1, 1, 0 }, "PRD energy back to Blizzard's latest colour (not an older one)")
 
 print("Slash commands run")
 ok = pcall(W.Slash, "/druidbar colours")
