@@ -35,7 +35,7 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
     (unit, castGUID, spellID) and look it up with `GetSpellPowerCost`. Clear it on
     STOP / FAILED / INTERRUPTED / SUCCEEDED, but only when the castGUID matches.
   - `StatusBar` widgets accept secret values, so do comparisons visually with status bars and anchoring,
-    not in Lua (confirmed working in game; see `DruidForeverManabarPlus.lua`):
+    not in Lua (confirmed working in game; see `DruidBar/DruidBar.lua`):
     - A hidden `StatusBar` with range `[threshold - 1, threshold]` and the secret value as its value is a
       binary switch: its fill is either empty or full width.
     - Frames with `SetClipsChildren(true)`, anchored to `GetStatusBarTexture()` edges, turn that switch into
@@ -77,7 +77,7 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   caster and straight back. The client's form reading can lag the server by a few seconds, and the last
   `UPDATE_SHAPESHIFT_FORM` may fire while it still reports caster, with no event when it settles. Don't rely
   on form events alone: also poll `GetShapeshiftFormID()` / `UnitPowerType("player")` (~0.1s) and refresh
-  on change. The default action bar suffers the same bug. The user runs the FormBars addon for that, with a
+  on change. The default action bar suffers the same bug. The user runs CustomFormBars (in this repo) for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
 - **"Script ran too long"** comes from creating too many frames in one go. Frames can't be deleted, so
@@ -104,6 +104,8 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
 - The user tests in game and reports back. Give every addon a `/<command> debug` that prints the raw values
   the logic depends on (range answers, form ID, secret/readable flags). That makes unknown Forever
   behaviour quick to confirm.
+- **Renaming an addon:** keep its saved-variable names, global frame names and button names (macros use
+  them), and copy its files in `WTF/.../SavedVariables` to the new addon name so settings carry over.
 - Hand the user the finished addon as a zip of its folder, and update that addon's `README.md` alongside code changes
   (and the index line in the top-level `README.md` if its summary changes).
 - The user's installed addons are in `C:/Games/Blizzard/World of Warcraft/_forever_/Interface/AddOns` on their

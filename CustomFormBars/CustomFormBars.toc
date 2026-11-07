@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: CustomFormBars
+## Notes: Keeps the main action bar on the right page for each shapeshift form, so it can't desync.
+## Author: Shamboozl
+## Version: 1.2.0
+## SavedVariablesPerCharacter: FormBarsDB
+
+CustomFormBars.lua

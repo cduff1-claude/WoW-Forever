@@ -1,0 +1,10 @@
+## Interface: 16001
+## Title: DruidSequence
+## Notes: Rows of spell icons that fill with colour as you gain the mana to cast the whole sequence, for WoW Forever.
+## Version: 0.6.0
+## SavedVariables: ForeverSequencesDB
+## SavedVariablesPerCharacter: ForeverSequencesCharDB
+
+DruidSequence.lua
+Editor.lua
+MinimapButton.lua

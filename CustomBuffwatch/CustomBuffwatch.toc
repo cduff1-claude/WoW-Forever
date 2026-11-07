@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: CustomBuffwatch
+## Author: Pup
+## Version: 11.01
+## Notes: Monitors Player/Party/Raid buffs of your choosing
+## SavedVariables: BuffwatchConfig
+## SavedVariablesPerCharacter: BuffwatchPlayerConfig, BuffwatchSaveTempEnch, BuffwatchSaveBuffs
+Buffwatch.lua
+Buffwatch.xml
+BuffwatchOptions.lua
+BuffwatchOptions.xml
