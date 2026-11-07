@@ -34,6 +34,11 @@ local DEFAULTS = {
     enablePersonalResource = true,  -- shading on the Personal Resource Display's mana bar
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
     clawShade = true,               -- Cat Form: shade the energy Claw costs on the Player Frame / PRD energy bar
+    -- 5-second-rule marker on Blizzard's own mana bars (what ForeverFiveSecondRule used to do)
+    fsrPlayerFrame = true,          -- the Player Frame mana bar, while it shows mana
+    fsrPersonalResource = true,     -- the Personal Resource Display's mana bar
+    fsrText = true,                 -- countdown number beside the marker
+    fsrWidth = 2,                   -- marker width in pixels (1-6)
 }
 
 -- Fixed look of the druid bar.
@@ -255,6 +260,9 @@ local blizzardOverlays = {}
 
 -- Cat Form energy shading for Claw. Kept in one table to save top-level locals; the
 -- functions are filled in further down.
+-- 5-second-rule markers on Blizzard's mana bars; filled in further down.
+local FSR = { targets = {}, elapsed = 0 }
+
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
     SPELLS = { 9850, 9849, 5201, 3029, 1082 }, -- Claw ranks, highest first
@@ -469,6 +477,9 @@ end
 
 local function StartFiveSecondRule()
     fsrEndTime = GetTime() + FIVE_SECOND_RULE
+    if FSR.Refresh then
+        FSR.Refresh()
+    end
 
     if manaFrame:IsShown() then
         fsrUpdateElapsed = 0
@@ -974,6 +985,119 @@ function Claw.Update()
     end
 end
 
+-- 5-second-rule markers on Blizzard's own mana bars (merged in from ForeverFiveSecondRule):
+-- the Player Frame mana bar while it shows mana, and the Personal Resource Display's PowerBar
+-- (caster) or AlternatePowerBar (Cat/Bear). They follow the same timer as the druid bar's
+-- marker (fsrEndTime), and only tick while there is a timer and a bar to draw on.
+FSR.frame = CreateFrame("Frame")
+
+function FSR.GetTarget(bar)
+    local target = FSR.targets[bar]
+    if target then
+        return target
+    end
+    local frame = CreateFrame("Frame", nil, bar)
+    frame:SetAllPoints(bar)
+    frame:Hide()
+    local marker = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+    marker:SetColorTexture(1, 1, 1, 0.95)
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    text:SetFont("Fonts\\ARIALN.TTF", 10, "")
+    text:SetTextColor(1, 1, 1, 1)
+    text:SetShadowColor(0, 0, 0, 0.9)
+    text:SetShadowOffset(1, -1)
+    text:SetPoint("LEFT", frame, "RIGHT", 3, 0)
+    target = { frame = frame, marker = marker, text = text }
+    FSR.targets[bar] = target
+    return target
+end
+
+function FSR.WantedBars()
+    local bars = {}
+    if not isDruid then
+        return bars
+    end
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return bars
+    end
+    local primaryIsMana = (powerType == MANA_POWER_TYPE)
+    if db.fsrPlayerFrame and primaryIsMana then
+        local bar = GetPlayerResourceBar()
+        if bar then
+            bars[#bars + 1] = bar
+        end
+    end
+    if db.fsrPersonalResource then
+        local prd = GetPersonalResourceFrame()
+        local bar = prd and (primaryIsMana and prd.PowerBar or prd.AlternatePowerBar)
+        if bar and bar.GetObjectType then
+            bars[#bars + 1] = bar
+        end
+    end
+    return bars
+end
+
+function FSR.Stop()
+    FSR.frame:SetScript("OnUpdate", nil)
+    for _, target in pairs(FSR.targets) do
+        target.frame:Hide()
+    end
+end
+
+function FSR.Update()
+    local remaining = fsrEndTime - GetTime()
+    local wanted = remaining > 0 and FSR.WantedBars() or {}
+    if #wanted == 0 then
+        -- Timer over, or no mana bar to draw on (e.g. mid-shift). A form change or a new
+        -- timer calls FSR.Refresh again.
+        FSR.Stop()
+        return
+    end
+
+    local progress = math.min(1, math.max(0, (FIVE_SECOND_RULE - remaining) / FIVE_SECOND_RULE))
+    local width = db.fsrWidth or 2
+    local shown = {}
+    for _, bar in ipairs(wanted) do
+        local target = FSR.GetTarget(bar)
+        shown[target] = true
+        -- Keep above the bar's own text and spark.
+        target.frame:SetFrameStrata(bar:GetFrameStrata())
+        target.frame:SetFrameLevel(bar:GetFrameLevel() + 10)
+        target.frame:Show()
+        target.marker:SetWidth(width)
+        target.marker:SetHeight(target.frame:GetHeight() + 4)
+        local x = (width / 2) + progress * math.max(0, target.frame:GetWidth() - width)
+        target.marker:ClearAllPoints()
+        target.marker:SetPoint("CENTER", target.frame, "LEFT", x, 0)
+        if db.fsrText then
+            target.text:SetText(string.format("%.1f", remaining))
+            target.text:Show()
+        else
+            target.text:Hide()
+        end
+    end
+    for _, target in pairs(FSR.targets) do
+        if not shown[target] then
+            target.frame:Hide()
+        end
+    end
+end
+
+function FSR.Refresh()
+    FSR.Update()
+    if fsrEndTime > GetTime() and #FSR.WantedBars() > 0 then
+        FSR.elapsed = 0
+        FSR.frame:SetScript("OnUpdate", function(_, elapsed)
+            FSR.elapsed = FSR.elapsed + elapsed
+            if FSR.elapsed >= FSR_UPDATE_INTERVAL then
+                FSR.elapsed = 0
+                FSR.Update()
+            end
+        end)
+    end
+end
+
 -- Mana cost of the spell currently being cast, like the darker "cost prediction" section
 -- Blizzard draws on the Player Frame bar while casting.
 local pendingCastCost = 0
@@ -1168,6 +1292,7 @@ local function UpdateFormState()
     else
         manaText:ClearText()
     end
+    FSR.Refresh()
 end
 
 -- Form watcher.
@@ -1432,7 +1557,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "DruidBar"
-panel:SetSize(460, 280)
+panel:SetSize(460, 460)
 
 local settingsCategory
 
@@ -1479,7 +1604,32 @@ local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", personalResourceCh
 local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
     "Shade the energy Claw costs in Cat Form (on the bars enabled above)", "clawShade")
 
-note:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -12)
+local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -16)
+fsrHeader:SetText("5-second rule on Blizzard's mana bars")
+local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
+    "Show on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
+local fsrPrdCheckbox = CreateCheckbox("DFMPFsrPrdCheckbox", fsrPlayerCheckbox,
+    "Show on the Personal Resource Display mana bar", "fsrPersonalResource")
+local fsrTextCheckbox = CreateCheckbox("DFMPFsrTextCheckbox", fsrPrdCheckbox,
+    "Show the countdown number", "fsrText")
+
+local fsrWidthSlider = CreateFrame("Slider", "DFMPFsrWidthSlider", panel, "OptionsSliderTemplate")
+fsrWidthSlider:SetPoint("TOPLEFT", fsrTextCheckbox, "BOTTOMLEFT", 4, -26)
+fsrWidthSlider:SetWidth(200)
+fsrWidthSlider:SetMinMaxValues(1, 6)
+fsrWidthSlider:SetValueStep(1)
+fsrWidthSlider:SetObeyStepOnDrag(true)
+_G[fsrWidthSlider:GetName() .. "Low"]:SetText("1")
+_G[fsrWidthSlider:GetName() .. "High"]:SetText("6")
+fsrWidthSlider:SetScript("OnValueChanged", function(_, value)
+    value = math.floor(value + 0.5)
+    db.fsrWidth = value
+    _G[fsrWidthSlider:GetName() .. "Text"]:SetText("Marker width: " .. value)
+    FSR.Refresh()
+end)
+
+note:SetPoint("TOPLEFT", fsrWidthSlider, "BOTTOMLEFT", -4, -24)
 note:SetWidth(420)
 note:SetJustifyH("LEFT")
 note:SetText("The mana text follows the Player Frame's Status Text setting (Options > Interface).")
@@ -1489,6 +1639,10 @@ panel:SetScript("OnShow", function()
     personalResourceCheckbox:SetChecked(db.enablePersonalResource)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
+    fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
+    fsrPrdCheckbox:SetChecked(db.fsrPersonalResource)
+    fsrTextCheckbox:SetChecked(db.fsrText)
+    fsrWidthSlider:SetValue(db.fsrWidth or 2)
 end)
 
 if Settings and Settings.RegisterCanvasLayoutCategory then
@@ -1517,7 +1671,9 @@ local function PrintDebugInfo()
     if not manaIsSecret then
         print("Current mana:", tostring(currentMana))
     end
-    print("5SR remaining:", string.format("%.2f", remaining))
+    print("5SR remaining:", string.format("%.2f", remaining),
+        "| Blizzard bar markers: Player Frame", tostring(db.fsrPlayerFrame), "PRD", tostring(db.fsrPersonalResource),
+        "bars now:", tostring(#FSR.WantedBars()))
     RefreshShiftCost()
     if shiftCost == nil then
         print("Shift cost: not found (no Cat/Bear Form mana cost available)")
