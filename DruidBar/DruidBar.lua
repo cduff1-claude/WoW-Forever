@@ -273,7 +273,9 @@ local Look = { original = {}, hooked = {}, busy = false,
     COLOURS = {
         HEALTH = { 0.40, 0.73, 0.17 },
         MANA = { 0.00, 0.34, 0.73 },
-        ENERGY = { 1.00, 1.00, 0.23 },
+        -- Energy: the user preferred the paler yellow the old Claw wash gave (white at 35%
+        -- over the Player Frame yellow 1.00 1.00 0.23), so the whole bar uses that.
+        ENERGY = { 1.00, 1.00, 0.50 },
         RAGE = { 0.75, 0.00, 0.00 },
     } }
 

@@ -152,7 +152,7 @@ local function Near3(bar, want, label)
     W.Check(math.abs(r - want[1]) < 0.01 and math.abs(g - want[2]) < 0.01 and math.abs(b - want[3]) < 0.01,
         string.format("%s (got %.2f %.2f %.2f)", label, r, g, b))
 end
-local HEALTH, MANA, ENERGY = { 0.40, 0.73, 0.17 }, { 0.00, 0.34, 0.73 }, { 1.00, 1.00, 0.23 }
+local HEALTH, MANA, ENERGY = { 0.40, 0.73, 0.17 }, { 0.00, 0.34, 0.73 }, { 1.00, 1.00, 0.50 }
 DruidForeverManabarPlusDB.fsrPlayerFrame = true
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
@@ -166,7 +166,7 @@ print("Shift to Cat")
 W.powerType, W.formID = 3, 1
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-Near3(prdPower, ENERGY, "PRD energy bar tinted to the Player Frame yellow")
+Near3(prdPower, ENERGY, "PRD energy bar tinted pale yellow")
 Near3(prdAlt, MANA, "PRD in-form mana bar tinted to the Player Frame blue")
 
 print("Blizzard repaints a PRD bar: the tint is put back")
