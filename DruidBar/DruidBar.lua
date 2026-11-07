@@ -39,7 +39,8 @@ local DEFAULTS = {
     fsrPersonalResource = true,     -- the Personal Resource Display's mana bar
     fsrText = true,                 -- countdown number beside the marker
     fsrWidth = 2,                   -- marker width in pixels (1-6)
-    prdMatchColours = true,         -- give the PRD's bars the Player Frame bars' textures and colours
+    prdMatchColours = true,         -- tint the PRD's bars to the Player Frame bars' colours
+    prdInstantPower = true,         -- set the PRD's power bars straight to the current power (no easing)
 }
 
 -- Fixed look of the druid bar.
@@ -269,6 +270,9 @@ local FSR = { targets = {}, elapsed = 0 }
 -- left, so these come from the brighter right-hand part. Rage was only seen at 10% (the
 -- dark left end, 153/255 red), so its value is an estimate between that and Blizzard's 252.
 -- A power with no entry here keeps Blizzard's colour.
+-- Instant PRD power bars; filled in further down.
+local Instant = { hooked = {}, busy = false }
+
 local Look = { original = {}, hooked = {}, busy = false,
     COLOURS = {
         HEALTH = { 0.40, 0.73, 0.17 },
@@ -286,7 +290,7 @@ local Claw = {
     -- Washes over Blizzard's yellow energy texture: "enough" = you have the energy for
     -- Claw, "short" = you don't yet (the whole fill is then inside the Claw section).
     COLORS = {
-        enough = { 1.0, 1.0, 1.0, 0.35 },
+        enough = { 1.0, 1.0, 1.0, 0 }, -- no shading while you have the energy for Claw
         short = { 1.0, 0.5, 0.0, 0.9 },
     },
 }
@@ -1247,6 +1251,69 @@ function Look.ApplyAll()
     Look.Apply(prd.AlternatePowerBar, Look.COLOURS.MANA)
 end
 
+-- Instant PRD power bars. Blizzard eases the PRD's power bars towards each new value (and
+-- may only update them on the slower power event), so just after spending energy the old
+-- amount lingers, even though Claw's orange, driven straight from UNIT_POWER_FREQUENT, has
+-- already updated. With "Update the PRD's power bars instantly" on, those bars are set
+-- straight to your current power whenever it changes, and again whenever Blizzard sets them
+-- (so its easing can't pull them back). Power is secret; it only ever goes into SetValue.
+function Instant.PowerTypeFor(prd, bar)
+    if bar == prd.AlternatePowerBar then
+        return MANA_POWER_TYPE
+    end
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return nil
+    end
+    return powerType
+end
+
+function Instant.Set(bar, powerType)
+    local interpolation = Enum and Enum.StatusBarInterpolation
+    Instant.busy = true
+    if interpolation and interpolation.Immediate ~= nil then
+        bar:SetValue(UnitPower("player", powerType), interpolation.Immediate)
+    else
+        bar:SetValue(UnitPower("player", powerType))
+    end
+    Instant.busy = false
+end
+
+function Instant.Hook(prd, bar)
+    if Instant.hooked[bar] then
+        return
+    end
+    Instant.hooked[bar] = true
+    hooksecurefunc(bar, "SetValue", function(self)
+        if Instant.busy or not (isDruid and db.prdInstantPower) then
+            return
+        end
+        local powerType = Instant.PowerTypeFor(prd, self)
+        if powerType ~= nil then
+            Instant.Set(self, powerType)
+        end
+    end)
+end
+
+function Instant.Update()
+    if not (isDruid and db.prdInstantPower) then
+        return
+    end
+    local prd = GetPersonalResourceFrame()
+    if not prd then
+        return
+    end
+    for _, bar in ipairs({ prd.PowerBar, prd.AlternatePowerBar }) do
+        if bar and type(bar.SetValue) == "function" then
+            Instant.Hook(prd, bar)
+            local powerType = Instant.PowerTypeFor(prd, bar)
+            if powerType ~= nil and bar:IsShown() then
+                Instant.Set(bar, powerType)
+            end
+        end
+    end
+end
+
 function Look.Describe(label, bar)
     local look = Look.Read(bar)
     if not look then
@@ -1453,6 +1520,7 @@ local function UpdateFormState()
     end
     FSR.Refresh()
     Look.Later()
+    Instant.Update()
 end
 
 -- Form watcher.
@@ -1699,6 +1767,8 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 
     local powerType = arg2
     if event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
+        -- The PRD's own fill first, so Claw's orange and Blizzard's fill change together.
+        Instant.Update()
         if powerType == "MANA" then
             UpdateManaBar()
         elseif powerType == "ENERGY" then
@@ -1717,7 +1787,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "DruidBar"
-panel:SetSize(460, 490)
+panel:SetSize(460, 520)
 
 local settingsCategory
 
@@ -1762,12 +1832,14 @@ local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", personalResourceCh
     "Use Aquatic Form's cost for the travel section when Travel Form isn't learned", "useAquaticCost")
 
 local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
-    "Shade the energy Claw costs in Cat Form (on the bars enabled above)", "clawShade")
+    "Turn the energy bar orange in Cat Form when you can't afford Claw (on the bars enabled above)", "clawShade")
 
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 local colourCheckbox = CreateCheckbox("DFMPColourCheckbox", clawCheckbox,
     "Match the Personal Resource Display's colours to the Player Frame", "prdMatchColours")
-fsrHeader:SetPoint("TOPLEFT", colourCheckbox, "BOTTOMLEFT", 0, -16)
+local instantCheckbox = CreateCheckbox("DFMPInstantCheckbox", colourCheckbox,
+    "Update the Personal Resource Display's power bars instantly", "prdInstantPower")
+fsrHeader:SetPoint("TOPLEFT", instantCheckbox, "BOTTOMLEFT", 0, -16)
 fsrHeader:SetText("5-second rule on Blizzard's mana bars")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
     "Show on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
@@ -1802,6 +1874,7 @@ panel:SetScript("OnShow", function()
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
     colourCheckbox:SetChecked(db.prdMatchColours)
+    instantCheckbox:SetChecked(db.prdInstantPower)
     fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
     fsrPrdCheckbox:SetChecked(db.fsrPersonalResource)
     fsrTextCheckbox:SetChecked(db.fsrText)

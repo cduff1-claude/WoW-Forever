@@ -176,13 +176,13 @@ prdPower:SetStatusBarColor(1, 1, 0, 1)
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
 
-print("Claw shading: light wash with enough energy, orange without")
+print("Claw warning: no shading with enough energy, orange without")
 -- The Player Frame bar shows energy in Cat Form; Claw costs 45 of 100.
 local function ClawLayers(bar)
     local enough, short
     for _, t in ipairs(W.Textures(bar)) do
         local c = t._color
-        if c and c[1] == 1 and c[2] == 1 and c[3] == 1 and c[4] == 0.35 then enough = t end
+        if c and c[1] == 1 and c[2] == 1 and c[3] == 1 and c[4] == 0 then enough = t end
         if c and c[1] == 1 and c[2] == 0.5 and c[3] == 0 and c[4] == 0.9 then short = t end
     end
     return enough, short
@@ -200,17 +200,37 @@ W.Advance(1.1)
 SetEnergy(80)
 local enough, short = ClawLayers(pfBar)
 W.Check(enough and short, "both Claw layers exist on the Player Frame energy bar")
-W.Near(W.VisibleWidth(enough), 0.45 * 124, "80 energy: wash covers Claw's 45 energy", 0.01)
+W.Near(W.VisibleWidth(enough), 0, "80 energy: no shading, just Blizzard's yellow")
 W.Near(W.VisibleWidth(short), 0, "80 energy: no orange")
 SetEnergy(30)
 W.Near(W.VisibleWidth(enough), 0, "30 energy: no wash")
 W.Near(W.VisibleWidth(short), 0.30 * 124, "30 energy: the whole fill is orange", 0.01)
 SetEnergy(45)
-W.Near(W.VisibleWidth(enough), 0.45 * 124, "exactly 45 energy counts as enough", 0.01)
+W.Near(W.VisibleWidth(enough), 0, "exactly 45 energy: no shading")
 W.Near(W.VisibleWidth(short), 0, "exactly 45 energy: no orange")
 local prdEnough, prdShort = ClawLayers(prdPower)
 SetEnergy(20)
 W.Near(W.VisibleWidth(prdShort), 0.20 * 200, "PRD energy bar turns orange too", 0.01)
+
+print("Instant PRD power bars")
+-- Blizzard eases its PRD bars: it sets an in-between value with an easing argument.
+SetEnergy(100)
+W.power[3] = 55 -- Claw spent 45
+prdPower:SetValue(90, Enum.StatusBarInterpolation.ExponentialEaseOut)
+W.Check(prdPower._value == 55, "Blizzard's eased value replaced by the current energy (got " .. tostring(prdPower._value) .. ")")
+W.Check(prdPower._interp == Enum.StatusBarInterpolation.Immediate, "set with no easing")
+W.power[3] = 35
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY") -- Blizzard hasn't updated the bar at all
+W.Check(prdPower._value == 35, "updated straight from the power event (got " .. tostring(prdPower._value) .. ")")
+local _, shortNow = ClawLayers(prdPower)
+W.Near(W.VisibleWidth(shortNow), 0.35 * 200, "orange and the bar's fill end at the same place", 0.01)
+W.power[0] = 700
+prdAlt:SetValue(900, Enum.StatusBarInterpolation.ExponentialEaseOut)
+W.Check(prdAlt._value == 700, "in-form mana bar set to current mana (got " .. tostring(prdAlt._value) .. ")")
+DruidForeverManabarPlusDB.prdInstantPower = false
+prdPower:SetValue(90, Enum.StatusBarInterpolation.ExponentialEaseOut)
+W.Check(prdPower._value == 90, "option off: Blizzard's easing left alone")
+DruidForeverManabarPlusDB.prdInstantPower = true
 
 print("Turning the colour match off puts Blizzard's look back")
 DruidForeverManabarPlusDB.prdMatchColours = false

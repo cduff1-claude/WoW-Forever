@@ -241,7 +241,7 @@ function Frame:Click(button) local fn = self._scripts.OnClick if fn then fn(self
 -- Status bars
 function Frame:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
 function Frame:GetMinMaxValues() return self._min or 0, self._max or 1 end
-function Frame:SetValue(v) self._value = v end
+function Frame:SetValue(v, interpolation) self._value, self._interp = v, interpolation end
 function Frame:GetValue() return self._value end
 function Frame:GetStatusBarTexture()
     if not self._barTexture then
@@ -402,7 +402,8 @@ function hooksecurefunc(a, b, c)
 end
 issecretvalue = function() return false end
 
-Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3 } }
+Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3 },
+    StatusBarInterpolation = { Immediate = 0, ExponentialEaseOut = 1 } }
 
 -- Spell costs: tests fill W.spellCosts[spellID or name] = { {type=0, name="MANA", cost=50} }
 W.spellCosts = {}
