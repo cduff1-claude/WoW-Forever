@@ -32,6 +32,7 @@ local DEFAULTS = {
     enablePlayerFrame = true,       -- druid bar under the Player Frame + caster shading on its mana bar
     enablePersonalResource = true,  -- shading on the Personal Resource Display's mana bar
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
+    clawShade = true,               -- Cat Form: shade the energy Claw costs on the Player Frame / PRD energy bar
 }
 
 -- Fixed look of the druid bar.
@@ -250,6 +251,22 @@ local PLAYER_FRAME_COLORS = {
 
 -- Overlays on Blizzard's own mana bars (Player Frame, Personal Resource Display), keyed by bar.
 local blizzardOverlays = {}
+
+-- Cat Form energy shading for Claw. Kept in one table to save top-level locals; the
+-- functions are filled in further down.
+local Claw = {
+    POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
+    SPELLS = { 9850, 9849, 5201, 3029, 1082 }, -- Claw ranks, highest first
+    cost = nil,
+    spellID = nil,
+    overlays = {}, -- keyed by bar
+    -- Washes over Blizzard's yellow energy texture: "enough" = you have the energy for
+    -- Claw, "short" = you don't yet (the whole fill is then inside the Claw section).
+    COLORS = {
+        enough = { 1.0, 1.0, 1.0, 0.35 },
+        short = { 0.85, 0.3, 0.0, 0.85 },
+    },
+}
 
 local function ColorShiftShade(set, colors, shown)
     for _, layer in ipairs(set.layers) do
@@ -637,6 +654,7 @@ end
 local function RefreshShiftCost()
     shiftCost = nil
     shiftCostSpellID = nil
+    Claw.Refresh()
 
     if not isDruid then
         travelCost = nil
@@ -794,6 +812,10 @@ RefreshBlizzardOverlays = function(reanchor)
             SetBarOverlayActive(overlay, false)
         end
     end
+
+    if Claw.RefreshOverlays then
+        Claw.RefreshOverlays(reanchor)
+    end
 end
 
 local function CountActiveOverlays()
@@ -801,7 +823,154 @@ local function CountActiveOverlays()
     for _, overlay in pairs(blizzardOverlays) do
         if overlay.active then count = count + 1 end
     end
+    for _, overlay in pairs(Claw.overlays) do
+        if overlay.active then count = count + 1 end
+    end
     return count
+end
+
+-- Cat Form: shade the part of the energy bar that Claw costs, on the Player Frame's power
+-- bar and the Personal Resource Display's PowerBar (both show energy in Cat Form). Energy
+-- is secret like mana, so this uses the same step bar / clip trick as the shift shade:
+--   step : range [cost - 1, cost], value = energy, so it is full-width with enough energy.
+--   edge : value = cost over max energy; its fill edge marks the end of the Claw section.
+-- Inside the section (and the current fill): "enough" left of the step bar's edge, "short"
+-- right of it, so exactly one shows.
+function Claw.GetCost(spell)
+    if not (C_Spell and C_Spell.GetSpellPowerCost) then
+        return nil
+    end
+    local ok, costs = pcall(C_Spell.GetSpellPowerCost, spell)
+    if not ok or type(costs) ~= "table" then
+        return nil
+    end
+    for _, costInfo in ipairs(costs) do
+        local powerType, powerName = costInfo.type, costInfo.name
+        local isEnergy = false
+        if powerType ~= nil and not IsSecretValue(powerType) then
+            isEnergy = (powerType == Claw.POWER_TYPE)
+        end
+        if not isEnergy and powerName ~= nil and not IsSecretValue(powerName) then
+            isEnergy = (powerName == "ENERGY")
+        end
+        if isEnergy and IsReadableNumber(costInfo.cost) and costInfo.cost > 0 then
+            return costInfo.cost
+        end
+    end
+    return nil
+end
+
+function Claw.Refresh()
+    Claw.cost = nil
+    Claw.spellID = nil
+    if not isDruid then
+        return
+    end
+    for _, spellID in ipairs(Claw.SPELLS) do
+        if PlayerKnowsSpell(spellID) then
+            local cost = Claw.GetCost(spellID)
+            if cost then
+                Claw.cost, Claw.spellID = cost, spellID
+                return
+            end
+        end
+    end
+    -- Fall back to the spell name, in case Forever's rank IDs differ.
+    local cost = Claw.GetCost("Claw")
+    if cost then
+        Claw.cost, Claw.spellID = cost, "Claw"
+    end
+end
+
+function Claw.CreateShade(bar)
+    local set = { bar = bar, texturePath = "Interface\\Buttons\\WHITE8X8", tree = {}, topLevel = {}, layers = {} }
+
+    set.step = CreateInvisibleBar(set, bar)
+    set.edge = CreateInvisibleBar(set, bar)
+    local step = set.step:GetStatusBarTexture()
+    local edge = set.edge:GetStatusBarTexture()
+
+    set.fillClip = CreateFrame("Frame", nil, bar)
+    set.fillClip:SetClipsChildren(true)
+    set.tree[#set.tree + 1] = { frame = set.fillClip, parent = bar }
+    set.topLevel[#set.topLevel + 1] = set.fillClip
+
+    local section = CreateClip(set, set.fillClip, bar, "LEFT", edge, "RIGHT")
+    CreateLayer(set, CreateClip(set, section, bar, "LEFT", step, "RIGHT"), "enough")
+    CreateLayer(set, CreateClip(set, section, step, "RIGHT", bar, "RIGHT"), "short")
+
+    return set
+end
+
+function Claw.ShowsEnergy()
+    local powerType = UnitPowerType("player")
+    if powerType == nil or IsSecretValue(powerType) then
+        return false
+    end
+    return powerType == Claw.POWER_TYPE
+end
+
+-- Like RefreshBlizzardOverlays, for the energy bars. Called from it.
+function Claw.RefreshOverlays(reanchor)
+    local wanted = {}
+
+    if isDruid and db.clawShade and Claw.cost and Claw.ShowsEnergy() then
+        if db.enablePlayerFrame then
+            local bar = GetPlayerResourceBar()
+            if bar and bar.GetStatusBarTexture then
+                wanted[bar] = true
+            end
+        end
+        if db.enablePersonalResource then
+            local prd = GetPersonalResourceFrame()
+            local bar = prd and prd.PowerBar
+            if bar and bar.GetStatusBarTexture then
+                wanted[bar] = true
+            end
+        end
+    end
+
+    for bar in pairs(wanted) do
+        local overlay = Claw.overlays[bar]
+        if not overlay then
+            overlay = { bar = bar, shade = Claw.CreateShade(bar), active = false }
+            ShowShiftShade(overlay.shade, false)
+            ColorShiftShade(overlay.shade, Claw.COLORS, true)
+            Claw.overlays[bar] = overlay
+        end
+        if reanchor or not overlay.active then
+            overlay.active = true
+            AnchorShiftShade(overlay.shade)
+        end
+    end
+    for bar, overlay in pairs(Claw.overlays) do
+        if overlay.active and not wanted[bar] then
+            overlay.active = false
+            ShowShiftShade(overlay.shade, false)
+        end
+    end
+end
+
+function Claw.Update()
+    if not next(Claw.overlays) then
+        return
+    end
+    local maxEnergy = UnitPowerMax("player", Claw.POWER_TYPE)
+    local energy = UnitPower("player", Claw.POWER_TYPE)
+    local usable = Claw.cost and IsReadableNumber(maxEnergy) and maxEnergy > 0
+
+    for _, overlay in pairs(Claw.overlays) do
+        local shade = overlay.shade
+        if overlay.active and usable then
+            shade.edge:SetMinMaxValues(0, maxEnergy)
+            shade.edge:SetValue(Claw.cost)
+            shade.step:SetMinMaxValues(Claw.cost - 1, Claw.cost)
+            shade.step:SetValue(energy)
+            ShowShiftShade(shade, true)
+        else
+            ShowShiftShade(shade, false)
+        end
+    end
 end
 
 -- Mana cost of the spell currently being cast, like the darker "cost prediction" section
@@ -877,6 +1046,7 @@ local function UpdateManaBar()
     manaBar:SetValue(currentMana)
     SetManaText(currentMana, maxMana)
     UpdateShiftCostVisual(maxMana, currentMana)
+    Claw.Update()
 end
 
 -- Called from Blizzard's PRD repaint hooks; deferred a frame so it runs after Blizzard has
@@ -1245,10 +1415,14 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
         if powerType == "MANA" then
             UpdateManaBar()
+        elseif powerType == "ENERGY" then
+            Claw.Update()
         end
     elseif event == "UNIT_MAXPOWER" then
         if powerType == nil or powerType == "MANA" then
             UpdateManaBar()
+        elseif powerType == "ENERGY" then
+            Claw.Update()
         end
     end
 end)
@@ -1257,7 +1431,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "Druid Forever Manabar Plus"
-panel:SetSize(460, 240)
+panel:SetSize(460, 280)
 
 local settingsCategory
 
@@ -1301,7 +1475,10 @@ local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", personalResourceCheckbox,
     "Use Aquatic Form's cost for the travel section when Travel Form isn't learned", "useAquaticCost")
 
-note:SetPoint("TOPLEFT", aquaticCheckbox, "BOTTOMLEFT", 0, -12)
+local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
+    "Shade the energy Claw costs in Cat Form (on the bars enabled above)", "clawShade")
+
+note:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -12)
 note:SetWidth(420)
 note:SetJustifyH("LEFT")
 note:SetText("The mana text follows the Player Frame's Status Text setting (Options > Interface).")
@@ -1310,6 +1487,7 @@ panel:SetScript("OnShow", function()
     playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
     personalResourceCheckbox:SetChecked(db.enablePersonalResource)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
+    clawCheckbox:SetChecked(db.clawShade)
 end)
 
 if Settings and Settings.RegisterCanvasLayoutCategory then
@@ -1353,6 +1531,11 @@ local function PrintDebugInfo()
         "pending cast cost:", tostring(pendingCastCost))
     print("Travel/Aquatic cost:", travelCost and tostring(travelCost) or "none (not learned, not readable, or not below bear cost)",
         travelCostSource and ("from " .. travelCostSource) or "")
+    local energy = UnitPower("player", Claw.POWER_TYPE)
+    print("Claw cost:", Claw.cost and (tostring(Claw.cost) .. " energy, from " .. tostring(Claw.spellID)) or "not found (Claw not learned?)",
+        "| max energy:", tostring(UnitPowerMax("player", Claw.POWER_TYPE)),
+        "| energy secret:", tostring(IsSecretValue(energy)),
+        "| bar shows energy:", tostring(Claw.ShowsEnergy()), "| Claw shade:", tostring(db.clawShade))
     local fontPath, fontSize = manaText:GetFont()
     print("Text format:", GetStatusTextFormat(), "font:", tostring(fontPath), "size", tostring(fontSize),
         "| player frame:", tostring(db.enablePlayerFrame), "PRD:", tostring(db.enablePersonalResource))
