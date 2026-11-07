@@ -20,11 +20,9 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   The Travel section only exists once Travel Form is learned, or Aquatic Form if "Use Aquatic Form's cost" is ticked
   (default on). Without it, the whole shade is blue / pale orange / bold orange.
 - **Claw warning (Cat Form):** the energy bar turns orange while you have less energy than Claw costs (read live,
-  so Ferocity is included), and is left as Blizzard's yellow once you can afford it. Shown on the Player Frame's
+  so Ferocity is included), and is left as Blizzard's yellow once you can afford it. The orange covers the whole fill,
+  so while Blizzard's bar eases down after you spend energy, the part still catching up is orange too. Shown on the Player Frame's
   energy bar and the Personal Resource Display's `PowerBar`, each only if that bar is enabled below.
-- **Instant Personal Resource Display power bars** (option, on by default): Blizzard eases the PRD's power bars
-  towards each new value, so after spending energy the old amount lingered beyond the orange for a moment. With
-  this on, the PRD's power bars are set straight to your current power whenever it changes.
 - **5-second rule on Blizzard's bars** (this used to be the separate ForeverFiveSecondRule addon): a marker
   that sweeps along the Player Frame mana bar (caster form) and the Personal Resource Display's mana bar (any form)
   for 5 seconds after you spend mana, with an optional countdown number. Settings: the two "Show on…" ticks,

@@ -42,6 +42,10 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
       visible regions. Nested clips intersect.
     - Keep colour layers mutually exclusive. A translucent layer stacked over another lets the lower one
       show through.
+  - **Never set values on Blizzard's bars** (e.g. `PersonalResourceDisplayFrame.PowerBar:SetValue(UnitPower(...))`).
+    Blizzard's own `OnValueChanged` text code then runs tainted by the addon and errors comparing the secret
+    value ("Blizzard_TextStatusBar ... attempt to compare a secret number value (execution tainted by ...)",
+    hundreds of times). Colours (`SetStatusBarColor`) and overlays on top are fine. DruidBar's test checks this.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
 - **Mana regen** on Forever is smooth (a steady flow), not Classic's 2-second ticks.

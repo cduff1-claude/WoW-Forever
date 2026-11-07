@@ -60,6 +60,15 @@ W.spellCosts[5487] = { { type = 0, name = "MANA", cost = 100 } }
 W.spellCosts[1082] = { { type = 3, name = "ENERGY", cost = 45 } }
 W.spellCosts["Claw"] = W.spellCosts[1082]
 
+-- Spy: only Blizzard (the test, standing in for it) may set these bars' values.
+for _, bar in ipairs({ pfBar, prdPower, prdAlt, prdHealth, pfHealth }) do
+    local real = bar.SetValue
+    bar.SetValue = function(self, ...)
+        if not W.blizzard then W.touchedBlizzard = true end
+        return real(self, ...)
+    end
+end
+
 W.Load("DruidBar/DruidBar.lua", "DruidBar", {})
 
 local ok
@@ -189,10 +198,12 @@ local function ClawLayers(bar)
 end
 local function SetEnergy(value)
     W.power[3] = value
+    W.blizzard = true -- these SetValue calls are Blizzard's own
     pfBar:SetMinMaxValues(0, 100)
-    pfBar:SetValue(value) -- Blizzard's own fill
+    pfBar:SetValue(value)
     prdPower:SetMinMaxValues(0, 100)
     prdPower:SetValue(value)
+    W.blizzard = false
     W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 end
 W.Fire("SPELLS_CHANGED")
@@ -212,25 +223,18 @@ local prdEnough, prdShort = ClawLayers(prdPower)
 SetEnergy(20)
 W.Near(W.VisibleWidth(prdShort), 0.20 * 200, "PRD energy bar turns orange too", 0.01)
 
-print("Instant PRD power bars")
--- Blizzard eases its PRD bars: it sets an in-between value with an easing argument.
-SetEnergy(100)
-W.power[3] = 55 -- Claw spent 45
-prdPower:SetValue(90, Enum.StatusBarInterpolation.ExponentialEaseOut)
-W.Check(prdPower._value == 55, "Blizzard's eased value replaced by the current energy (got " .. tostring(prdPower._value) .. ")")
-W.Check(prdPower._interp == Enum.StatusBarInterpolation.Immediate, "set with no easing")
-W.power[3] = 35
-W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY") -- Blizzard hasn't updated the bar at all
-W.Check(prdPower._value == 35, "updated straight from the power event (got " .. tostring(prdPower._value) .. ")")
-local _, shortNow = ClawLayers(prdPower)
-W.Near(W.VisibleWidth(shortNow), 0.35 * 200, "orange and the bar's fill end at the same place", 0.01)
-W.power[0] = 700
-prdAlt:SetValue(900, Enum.StatusBarInterpolation.ExponentialEaseOut)
-W.Check(prdAlt._value == 700, "in-form mana bar set to current mana (got " .. tostring(prdAlt._value) .. ")")
-DruidForeverManabarPlusDB.prdInstantPower = false
-prdPower:SetValue(90, Enum.StatusBarInterpolation.ExponentialEaseOut)
-W.Check(prdPower._value == 90, "option off: Blizzard's easing left alone")
-DruidForeverManabarPlusDB.prdInstantPower = true
+print("Blizzard's bar still easing down: the whole fill is orange")
+SetEnergy(80)
+W.power[3] = 30 -- spent 50, but Blizzard's fill is still easing down from 80
+W.blizzard = true
+prdPower:SetValue(80)
+W.blizzard = false
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+local _, lagShort = ClawLayers(prdPower)
+W.Near(W.VisibleWidth(lagShort), 0.80 * 200, "orange covers all of Blizzard's lagging fill, no yellow beyond it", 0.01)
+
+print("DruidBar never sets values on Blizzard's bars (that taints Blizzard's text code)")
+W.Check(not W.touchedBlizzard, "no SetValue on Blizzard's bars from DruidBar")
 
 print("Turning the colour match off puts Blizzard's look back")
 DruidForeverManabarPlusDB.prdMatchColours = false
