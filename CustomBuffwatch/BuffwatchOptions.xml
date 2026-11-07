@@ -140,6 +140,56 @@
                 </Scripts>
             </CheckButton>
 
+            <CheckButton name="$parent_PartySecondRow" inherits="InterfaceOptionsCheckButtonTemplate">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent_Visible" relativePoint="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="280" y="0"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnLoad>
+                        _G[self:GetName().."Text"]:SetText("Party members in second row");
+                    </OnLoad>
+                    <OnClick>
+                        BUFFWATCHADDON_G.Options_PartySecondRow_OnClick(self);
+                    </OnClick>
+                    <OnEnter>
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
+                        GameTooltip:SetText(BUFFWATCHADDON_G.TOOLTIP.PARTYSECONDROW);
+                    </OnEnter>
+                    <OnLeave>
+                        GameTooltip:Hide();
+                    </OnLeave>
+                </Scripts>
+            </CheckButton>
+
+            <CheckButton name="$parent_KeepCentred" inherits="InterfaceOptionsCheckButtonTemplate">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent_PartySecondRow" relativePoint="BOTTOMLEFT">
+                        <Offset>
+                            <AbsDimension x="0" y="0"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnLoad>
+                        _G[self:GetName().."Text"]:SetText("Keep centred");
+                    </OnLoad>
+                    <OnClick>
+                        BUFFWATCHADDON_G.Options_KeepCentred_OnClick(self);
+                    </OnClick>
+                    <OnEnter>
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
+                        GameTooltip:SetText(BUFFWATCHADDON_G.TOOLTIP.KEEPCENTRED);
+                    </OnEnter>
+                    <OnLeave>
+                        GameTooltip:Hide();
+                    </OnLeave>
+                </Scripts>
+            </CheckButton>
+
             <CheckButton name="$parent_ShowPets" inherits="InterfaceOptionsCheckButtonTemplate">
                 <Anchors>
                     <Anchor point="TOPLEFT" relativeTo="$parent_Visible" relativePoint="BOTTOMLEFT">

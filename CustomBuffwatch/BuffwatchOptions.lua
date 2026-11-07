@@ -12,6 +12,8 @@ BUFFWATCHADDON_G.TOOLTIP.SHOWALLFORPLAYER = "Always show all buffs for this play
 BUFFWATCHADDON_G.TOOLTIP.SHOWCASTABLEBUFFS = "Only show buffs you can cast on other players";
 BUFFWATCHADDON_G.TOOLTIP.SHOWONLYMINE = "Only show buffs you have cast";
 BUFFWATCHADDON_G.TOOLTIP.SHOWPETS = "Show pets in the player list";
+BUFFWATCHADDON_G.TOOLTIP.PARTYSECONDROW = "Show yourself alone on the top row, and party members side by side on the row below";
+BUFFWATCHADDON_G.TOOLTIP.KEEPCENTRED = "Keep the window centred when it grows or shrinks, instead of expanding to the right";
 BUFFWATCHADDON_G.TOOLTIP.SHOWSPIRALS = "Enable cooldown spirals on buff buttons";
 BUFFWATCHADDON_G.TOOLTIP.SORTORDER = "Specifies the sort order for the player list in the Buffwatch Window";
 BUFFWATCHADDON_G.TOOLTIP.VISIBLE = "Show or hide the Buffwatch window";
@@ -118,6 +120,9 @@ function BUFFWATCHADDON.Options_Init()
 
     Buffwatch_Options_ShowPets:SetChecked(BuffwatchPlayerConfig.ShowPets);
 
+    Buffwatch_Options_PartySecondRow:SetChecked(BuffwatchPlayerConfig.PartySecondRow);
+    Buffwatch_Options_KeepCentred:SetChecked(BuffwatchPlayerConfig.KeepCentred);
+
     Buffwatch_Options_ShowOnlyMine:SetChecked(BuffwatchPlayerConfig.ShowOnlyMine);
     BUFFWATCHADDON_G.Options_ShowOnlyMine_OnClick(Buffwatch_Options_ShowOnlyMine, true);
 
@@ -219,6 +224,16 @@ function BUFFWATCHADDON_G.Options_ShowPets_OnClick(self)
         BuffwatchPlayerConfig.ShowPets = false;
     end
     BUFFWATCHADDON.Set_UNIT_IDs(true);
+    BUFFWATCHADDON.ResizeWindow();
+end
+
+function BUFFWATCHADDON_G.Options_PartySecondRow_OnClick(self)
+    BuffwatchPlayerConfig.PartySecondRow = self:GetChecked() and true or false;
+    BUFFWATCHADDON.ResizeWindow();
+end
+
+function BUFFWATCHADDON_G.Options_KeepCentred_OnClick(self)
+    BuffwatchPlayerConfig.KeepCentred = self:GetChecked() and true or false;
     BUFFWATCHADDON.ResizeWindow();
 end
 

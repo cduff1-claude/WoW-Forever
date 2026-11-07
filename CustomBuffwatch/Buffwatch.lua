@@ -75,6 +75,8 @@ BUFFWATCHADDON.PLAYER_DEFAULTS = {
     ShowCastableBuffs       = false,
     ShowAllForPlayer        = false,
     ShowPets                = true,
+    PartySecondRow          = false, -- You alone on the top row, everyone else side by side below
+    KeepCentred             = false, -- Resize around the window's top centre instead of growing right
     SortOrder               = BUFFWATCHADDON.SORTORDER_DROPDOWN_LIST[1],
     Version                 = BUFFWATCHADDON.VERSION,
     Visible                 = true,
@@ -1316,6 +1318,92 @@ function BUFFWATCHADDON.GetPlayerInfo()
 
 end
 
+-- CustomBuffwatch layout. Anchors the visible player frames (Current_Order) in one column,
+-- as Buffwatch always did, or with "Party members in second row": you alone on the top row
+-- and everyone else side by side on the row below. Frames can't be moved in combat (they
+-- hold secure buttons), so a layout asked for then waits until combat ends.
+BUFFWATCHADDON.ROW_GAP = 10;
+
+-- Width of one player's block: lock box and name (names share one column width, as in the
+-- single-column layout), then 18 per buff icon.
+function BUFFWATCHADDON.BlockWidth(v)
+
+    local count = 0;
+
+    if BuffwatchPlayerBuffs[v.Name] then
+        count = BUFFWATCHADDON.GetLen(BuffwatchPlayerBuffs[v.Name]["Buffs"]);
+    end
+
+    if v.IsUnitPlayer then
+        count = count + BUFFWATCHADDON.GetLen(BuffwatchPlayerTempEnch);
+    end
+
+    return 20 + maxnamewidth + (count * 18);
+
+end
+
+-- True when the two-row layout applies: the option is on, you're shown, and someone else is too.
+function BUFFWATCHADDON.UsingSecondRow()
+
+    if not BuffwatchPlayerConfig.PartySecondRow or #Current_Order < 2 then
+        return false;
+    end
+
+    for _, v in ipairs(Current_Order) do
+        if v.IsUnitPlayer then
+            return true;
+        end
+    end
+
+    return false;
+
+end
+
+function BUFFWATCHADDON.ApplyLayout()
+
+    if InCombatLockdown() then
+        BUFFWATCHADDON.layoutPending = true;
+        return;
+    end
+
+    BUFFWATCHADDON.layoutPending = nil;
+
+    local secondRow = BUFFWATCHADDON.UsingSecondRow();
+    local prev;
+
+    for _, v in ipairs(Current_Order) do
+
+        local frame = _G["BuffwatchFrame_PlayerFrame"..v.ID];
+
+        if frame then
+
+            frame:ClearAllPoints();
+
+            if secondRow and v.IsUnitPlayer then
+                frame:SetPoint("TOPLEFT", BuffwatchFrame_PlayerFrame);
+            elseif secondRow then
+                if prev then
+                    frame:SetPoint("TOPLEFT", "BuffwatchFrame_PlayerFrame"..prev.ID, "TOPLEFT",
+                        BUFFWATCHADDON.BlockWidth(prev) + BUFFWATCHADDON.ROW_GAP, 0);
+                else
+                    frame:SetPoint("TOPLEFT", BuffwatchFrame_PlayerFrame, "TOPLEFT", 0, -18);
+                end
+                prev = v;
+            else
+                if prev then
+                    frame:SetPoint("TOPLEFT", "BuffwatchFrame_PlayerFrame"..prev.ID, "BOTTOMLEFT");
+                else
+                    frame:SetPoint("TOPLEFT", BuffwatchFrame_PlayerFrame);
+                end
+                prev = v;
+            end
+
+        end
+
+    end
+
+end
+
 function BUFFWATCHADDON.PositionAllPlayerFrames()
 
     BUFFWATCHADDON.GetPlayerSortOrder();
@@ -1416,6 +1504,9 @@ function BUFFWATCHADDON.PositionPlayerFrame(playerid)
         end
 
     end
+
+
+    BUFFWATCHADDON.ApplyLayout();
 
 end
 
@@ -2283,6 +2374,18 @@ function BUFFWATCHADDON.ResizeWindow()
 
     if not InCombatLockdown() and BUFFWATCHADDON.framePositioned == true then
 
+        BUFFWATCHADDON.ApplyLayout();
+
+        -- Keep centred: note the top centre now, and re-anchor there after resizing.
+        local centreX, top;
+        if BuffwatchPlayerConfig.KeepCentred then
+            local left, right = BuffwatchFrame:GetLeft(), BuffwatchFrame:GetRight();
+            top = BuffwatchFrame:GetTop();
+            if left and right and top then
+                centreX = (left + right) / 2;
+            end
+        end
+
         local x, y = BUFFWATCHADDON.GetPoint(BuffwatchFrame, BUFFWATCHADDON.ANCHORPOINT_DROPDOWN_MAP[BuffwatchPlayerConfig.AnchorPoint]);
 
         if not BuffwatchPlayerConfig.Minimized then
@@ -2327,6 +2430,24 @@ function BUFFWATCHADDON.ResizeWindow()
 
             width = math.max(32 + maxnamewidth + (maxbuffs * 18), 115);
 
+            if BUFFWATCHADDON.UsingSecondRow() then
+
+                -- Two rows: you on top, everyone else side by side below.
+                local rowWidth, others = 0, 0;
+                for _, v in ipairs(Current_Order) do
+                    if v.IsUnitPlayer then
+                        width = math.max(12 + BUFFWATCHADDON.BlockWidth(v), 115);
+                    else
+                        rowWidth = rowWidth + BUFFWATCHADDON.BlockWidth(v);
+                        others = others + 1;
+                    end
+                end
+                rowWidth = rowWidth + (others - 1) * BUFFWATCHADDON.ROW_GAP;
+                width = math.max(width, 12 + rowWidth);
+                BuffwatchFrame:SetHeight(24 + (2 * 18));
+
+            end
+
             BuffwatchFrame:SetWidth(width);
 
         else
@@ -2336,7 +2457,13 @@ function BUFFWATCHADDON.ResizeWindow()
 
         end
 
-        BUFFWATCHADDON.SetPoint(BuffwatchFrame, BUFFWATCHADDON.ANCHORPOINT_DROPDOWN_MAP[BuffwatchPlayerConfig.AnchorPoint], x, y);
+        if centreX then
+            BuffwatchFrame:ClearAllPoints();
+            BuffwatchFrame:SetPoint("TOP", UIParent, "BOTTOMLEFT", centreX, top);
+            BUFFWATCHADDON.SaveAutoPosition();
+        else
+            BUFFWATCHADDON.SetPoint(BuffwatchFrame, BUFFWATCHADDON.ANCHORPOINT_DROPDOWN_MAP[BuffwatchPlayerConfig.AnchorPoint], x, y);
+        end
 
     end
 
@@ -2429,7 +2556,7 @@ function BUFFWATCHADDON.Process_InCombat_Events()
 
     end
 
-    if eventfired then
+    if eventfired or BUFFWATCHADDON.layoutPending then
         BUFFWATCHADDON.ResizeWindow();
     end
 

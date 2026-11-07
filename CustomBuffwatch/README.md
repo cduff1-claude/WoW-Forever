@@ -13,3 +13,10 @@ Forever changes:
 - A row locks automatically on death, restoring the buffs it had just before they were stripped.
 - `/buffwatch always [buff name]` lists, adds or removes buffs shown even when a filter would hide them (Well Fed by
   default). Right-clicking a buff off an unlocked row hides it from that row.
+- **Party members in second row** (option): you alone on the top row, with party members (and pets) side by side
+  on the row below, each with their own buffs.
+- **Keep centred** (option): when the window grows or shrinks (buffs added or removed, people joining), it stays
+  centred on the same point instead of expanding to the right.
+
+  Both are applied out of combat only: the rows hold secure buttons, which can't move mid-fight, so a change during
+  combat waits until it ends.
