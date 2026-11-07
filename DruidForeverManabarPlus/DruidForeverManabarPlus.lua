@@ -603,7 +603,7 @@ local function FindShiftCostSpells()
 end
 
 local travelCost = nil
-local travelCostOverride = nil -- set with /dfmp testtravel, for testing without Travel Form
+local travelCostOverride = nil -- set with /druidbar testtravel, for testing without Travel Form
 
 local function IsReadableNumber(value)
     return type(value) == "number" and not IsSecretValue(value)
@@ -727,7 +727,7 @@ local function PrimaryPowerIsMana()
     return powerType == MANA_POWER_TYPE
 end
 
--- Returns the PRD bar currently showing mana (or nil), and a short reason for /dfmp prd.
+-- Returns the PRD bar currently showing mana (or nil), and a short reason for /druidbar prd.
 local function GetPersonalResourceManaBar()
     local prd = GetPersonalResourceFrame()
     if not prd then
@@ -1191,7 +1191,7 @@ local function GetFormSignature()
     return tostring(GetShapeshiftFormID()) .. ":" .. tostring(powerType)
 end
 
--- /dfmp formlog: print every change in the form-related readings, with timings, so we can
+-- /druidbar formlog: print every change in the form-related readings, with timings, so we can
 -- see which signal updates first after a shift.
 local formLogEnabled = false
 local formLogStart = 0
@@ -1312,7 +1312,7 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         UpdateFormState()
 
         if isDruid then
-            print("|cff00ff00DruidForeverManabarPlus loaded.|r Right-click the mana bar or type |cffffffff/dfmp|r for options.")
+            print("|cff00ff00DruidForeverManabarPlus loaded.|r Right-click the mana bar or type |cffffffff/druidbar|r for options.")
         end
         return
     end
@@ -1452,7 +1452,7 @@ title:SetText("Druid Forever Manabar Plus Settings")
 
 local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-subtitle:SetText("Right-click the druid mana bar, or type /dfmp, to open this menu.")
+subtitle:SetText("Right-click the druid mana bar, or type /druidbar, to open this menu.")
 
 local function CreateCheckbox(name, anchor, label, key)
     local checkbox = CreateFrame("CheckButton", name, panel, "InterfaceOptionsCheckButtonTemplate")
@@ -1549,7 +1549,7 @@ local function PrintDebugInfo()
     end
 end
 
-SLASH_DRUIDFOREVERMANABARPLUS1 = "/dfmp"
+SLASH_DRUIDFOREVERMANABARPLUS1 = "/druidbar"
 SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
 
@@ -1571,7 +1571,7 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
         formLogStart = 0
         lastFormLogLine = nil
         if formLogEnabled then
-            print("|cff55ff55DFMP:|r form log on. Shift forms, then /dfmp formlog again to stop.")
+            print("|cff55ff55DFMP:|r form log on. Shift forms, then /druidbar formlog again to stop.")
             LogFormReadings("start")
         else
             print("|cff55ff55DFMP:|r form log off.")
@@ -1580,7 +1580,7 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
         local value = tonumber(testTravel)
         if value and value > 0 then
             travelCostOverride = value
-            print("|cff55ff55DFMP:|r pretending Travel Form costs " .. value .. " mana until /reload or /dfmp testtravel off.")
+            print("|cff55ff55DFMP:|r pretending Travel Form costs " .. value .. " mana until /reload or /druidbar testtravel off.")
         else
             travelCostOverride = nil
             print("|cff55ff55DFMP:|r Travel Form test cost cleared.")
