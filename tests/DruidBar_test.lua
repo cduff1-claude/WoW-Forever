@@ -91,6 +91,7 @@ W.Fire("PLAYER_LOGIN")
 W.Fire("PLAYER_ENTERING_WORLD")
 local db = DruidForeverManabarPlusDB
 W.Check(db.enablePlayerFrame == false and db.fsrPlayerFrame == false, "old Player Frame settings switched off once")
+W.Check(db.finisherSpell == "bite" and db.settingsVersion == 2, "full combo points default to Ferocious Bite")
 W.Check(db.enablePersonalResource == nil and db.prdMatchColours == nil and db.fsrPersonalResource == nil,
     "Personal Resource Display settings removed")
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", HEALING_TOUCH)

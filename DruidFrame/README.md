@@ -45,7 +45,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   bars while you don't have it (Gift of the Wild counts), and a Thorns button to the right. Each is as tall as
   both bars and the gap between them. Click to cast it on yourself (from a form too: it leaves the form first);
   the button fades out. Only checked out of combat, and only once the spell is learned. Both show while the
-  options are open, so you can see where they go. Macro-clickable as `DruidFrameMarkButton` /
+  options are open, so you can see where they go. Not shown in battlegrounds or arenas (buffs get purged
+  there) unless "Also in battlegrounds and arenas" is ticked. Macro-clickable as `DruidFrameMarkButton` /
   `DruidFrameThornsButton`. `/druidframe buffs` shows what it sees.
 - The DruidBar features below (shift shading, energy warning, 5-second rule) all show on its bars.
 
@@ -72,7 +73,7 @@ Based on *Druid Forever Manabar* by antisnake.
 - **Energy warning (Cat Form):** the energy bar turns orange while you can't afford your next ability, and stays
   its normal colour once you can, or while Clearcasting is up. Which ability:
   - **Ability:** Claw (default) or Shred.
-  - **At full combo points:** no override (default), Rip or Ferocious Bite.
+  - **At full combo points:** Ferocious Bite (default), Rip or no override.
   - **In Prowl:** Ravage (default), Pounce or no override.
   
   An override only applies once its spell is learned (until then the ability counts; Shred unlearned falls back

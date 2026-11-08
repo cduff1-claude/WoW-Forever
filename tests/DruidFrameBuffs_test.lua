@@ -90,6 +90,27 @@ W.Near(mark:GetHeight(), R.health:GetTop() - R.mana:GetBottom(), "follows the ba
 ns.panels.frame:GetScript("OnHide")(ns.panels.frame)
 W.Check(not mark:IsShown() and thorns:IsShown(), "closed: back to just what's missing")
 
+print("Battlegrounds and arenas")
+local instance = "pvp"
+IsInInstance = function() return instance ~= "none", instance end
+W.Check(s.buffButtonsPvP == false, "off there by default")
+W.Fire("ZONE_CHANGED_NEW_AREA")
+W.Check(not mark:IsShown() and not thorns:IsShown(), "battleground: no buttons")
+instance = "arena"
+W.Fire("ZONE_CHANGED_NEW_AREA")
+W.Check(not thorns:IsShown(), "arena: no buttons")
+_G.DruidBarResourceBuffsPvP:SetChecked(true)
+_G.DruidBarResourceBuffsPvP:Click()
+W.Check(s.buffButtonsPvP == true and thorns:IsShown(), "ticked: shown there too")
+_G.DruidBarResourceBuffsPvP:SetChecked(false)
+_G.DruidBarResourceBuffsPvP:Click()
+W.Check(s.buffButtonsPvP == false and not thorns:IsShown(), "unticked: hidden again")
+instance = "party"
+W.Fire("ZONE_CHANGED_NEW_AREA")
+W.Check(thorns:IsShown(), "dungeon: shown")
+instance = "none"
+W.Fire("ZONE_CHANGED_NEW_AREA")
+
 print("Option off")
 s.buffButtons = false
 R.Refresh()

@@ -98,9 +98,22 @@ function B.HasBuff(buff)
     return has
 end
 
+-- Battlegrounds and arenas: buffs get purged, so re-casting isn't usually worth the mana.
+function B.InPvP()
+    if not IsInInstance then
+        return false
+    end
+    local ok, inInstance, instanceType = pcall(IsInInstance)
+    return ok and inInstance and (instanceType == "pvp" or instanceType == "arena") or false
+end
+
 local function Enabled()
     local R = ns.Resource
-    return R and R.Settings().buffButtons and ns.IsDruid and ns.IsDruid()
+    if not (R and ns.IsDruid and ns.IsDruid()) then
+        return false
+    end
+    local s = R.Settings()
+    return s.buffButtons and (s.buffButtonsPvP or not B.InPvP())
 end
 
 -- Fade out after a click, then look again (in case the cast didn't land).
@@ -248,7 +261,7 @@ end
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "UNIT_AURA",
-    "SPELLS_CHANGED", "PLAYER_UNGHOST", "PLAYER_ALIVE", "PLAYER_CONTROL_GAINED" }) do
+    "SPELLS_CHANGED", "PLAYER_UNGHOST", "PLAYER_ALIVE", "PLAYER_CONTROL_GAINED", "ZONE_CHANGED_NEW_AREA" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, unit)
@@ -260,7 +273,8 @@ end)
 
 function B.Debug()
     print("|cff55ff55DruidFrame buff buttons|r on:", tostring(ns.Resource and ns.Resource.Settings().buffButtons),
-        "| in combat:", tostring(InCombatLockdown()))
+        "| in combat:", tostring(InCombatLockdown()), "| battleground/arena:", tostring(B.InPvP()),
+        "| shown there:", tostring(ns.Resource and ns.Resource.Settings().buffButtonsPvP))
     for _, buff in ipairs(B.BUFFS) do
         local button = B.buttons and B.buttons[buff.key]
         print(buff.name, "learned:", tostring(B.Learned(buff)), "| have it:", tostring(B.HasBuff(buff)),

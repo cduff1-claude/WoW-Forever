@@ -80,6 +80,7 @@ R.DEFAULTS = {
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
     buffButtons = true, -- out of combat: Mark of the Wild / Thorns buttons beside the display when missing
+    buffButtonsPvP = false, -- ...in battlegrounds and arenas too (off: buffs get purged there)
     comboStyle = "circles",
     x = nil, -- position of the frame's top centre, in UIParent units (nil: default spot)
     y = nil,
@@ -1416,7 +1417,9 @@ Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
 Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
     "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger"), 28)
 Place(Checkbox("DruidBarResourceBuffs", enabledBox,
-    "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 36)
+    "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 28)
+Place(Checkbox("DruidBarResourceBuffsPvP", enabledBox,
+    "Also in battlegrounds and arenas", "buffButtonsPvP"), 36, 20)
 
 local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
 resetButton:SetSize(200, 22)

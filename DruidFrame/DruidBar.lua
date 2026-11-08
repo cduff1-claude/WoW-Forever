@@ -37,7 +37,7 @@ local DEFAULTS = {
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
     clawShade = true,               -- Cat Form: energy bars turn orange when you can't afford Claw
     energySpell = "claw",           -- what that warns for: "claw" or "shred"
-    finisherSpell = "none",         -- at full combo points instead: "none", "rip" or "bite"
+    finisherSpell = "bite",         -- at full combo points instead: "none", "rip" or "bite"
     openerSpell = "ravage",         -- in Prowl instead: "none", "ravage" or "pounce"
     -- 5-second-rule marker on Blizzard's own mana bars (what ForeverFiveSecondRule used to do)
     fsrPlayerFrame = false,         -- the Player Frame mana bar, while it shows mana
@@ -70,6 +70,13 @@ local function EnsureDB()
         db.settingsVersion = 1
         db.enablePlayerFrame = false
         db.fsrPlayerFrame = false
+    end
+    -- Version 2: Ferocious Bite became the full-combo-points default.
+    if db.settingsVersion < 2 then
+        db.settingsVersion = 2
+        if db.finisherSpell == "none" then
+            db.finisherSpell = "bite"
+        end
     end
     return db
 end

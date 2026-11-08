@@ -102,7 +102,8 @@ W.Near(W.VisibleWidth(orange), 0, "80 energy: no orange")
 
 print("Which ability the energy warning is for")
 local db = DruidForeverManabarPlusDB
-W.Check(db.energySpell == "claw" and db.finisherSpell == "none" and db.openerSpell == "ravage", "defaults: Claw, no finisher, Ravage")
+W.Check(db.energySpell == "claw" and db.finisherSpell == "bite" and db.openerSpell == "ravage", "defaults: Claw, Ferocious Bite, Ravage")
+db.finisherSpell = "none"
 W.spellCosts[5221] = { { type = 3, name = "ENERGY", cost = 60 } }  -- Shred
 W.spellCosts[1079] = { { type = 3, name = "ENERGY", cost = 30 } }  -- Rip
 W.spellCosts[22568] = { { type = 3, name = "ENERGY", cost = 35 } } -- Ferocious Bite
