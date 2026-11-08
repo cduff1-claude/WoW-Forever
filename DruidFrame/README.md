@@ -25,7 +25,7 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   Cat: Hide, Circles, or Bar (five bordered segments the size of a power bar, one filled per combo point,
   glowing gold when all five are full). The frame hangs from its top edge, so health and mana never move when you shift.
 - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
-  ("Healing Touch (55)"), an indigo bar with a spark riding its edge while casting and a flash when the spell goes off. Options (both
+  ("Healing Touch (55)"), a purple bar (the range bar's purple) with a spark riding its edge while casting and a flash when the spell goes off. Options (both
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
   3 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
   held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
