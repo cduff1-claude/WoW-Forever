@@ -116,13 +116,56 @@ function E.Members(resultID)
     return members
 end
 
-function E.DungeonNames(resultID)
-    local info = resultID and C_LFGList.GetSearchResultInfo(resultID)
-    local ids = info and info.activityIDs
-    if not Readable(ids) or type(ids) ~= "table" then
-        local single = info and info.activityID
-        ids = Readable(single) and { single } or {}
+-- LFG Forever's filter panel: the frame in its window with SelectedActivityIDs().
+function E.FilterPanel()
+    if E.filterPanel then
+        return E.filterPanel
     end
+    local function Find(frame, depth)
+        if depth > 10 then return nil end
+        for _, child in ipairs({ frame:GetChildren() }) do
+            if type(child.SelectedActivityIDs) == "function" then
+                return child
+            end
+            local found = Find(child, depth + 1)
+            if found then return found end
+        end
+    end
+    local window = _G.LFGForeverFrame
+    E.filterPanel = window and Find(window, 0)
+    return E.filterPanel
+end
+
+-- The activities ticked in LFG Forever's search dropdown.
+function E.SelectedActivityIDs()
+    local filter = E.FilterPanel()
+    local ok, ids = pcall(function() return filter and filter:SelectedActivityIDs() end)
+    return ok and type(ids) == "table" and ids or {}
+end
+
+-- For %dungeon%: the dungeon(s) you searched for that this group lists; if it lists none of
+-- them, the ones you searched for; with nothing ticked, the group's own.
+function E.DungeonIDs(resultID)
+    local info = resultID and C_LFGList.GetSearchResultInfo(resultID)
+    local groupIDs = info and info.activityIDs
+    if not Readable(groupIDs) or type(groupIDs) ~= "table" then
+        local single = info and info.activityID
+        groupIDs = Readable(single) and { single } or {}
+    end
+    local selected = E.SelectedActivityIDs()
+    if #selected == 0 then
+        return groupIDs
+    end
+    local wanted, both = {}, {}
+    for _, id in ipairs(selected) do wanted[id] = true end
+    for _, id in ipairs(groupIDs) do
+        if wanted[id] then both[#both + 1] = id end
+    end
+    return #both > 0 and both or selected
+end
+
+function E.DungeonNames(resultID)
+    local ids = E.DungeonIDs(resultID)
     local names = {}
     for _, id in ipairs(ids) do
         local activity = C_LFGList.GetActivityInfoTable(id)

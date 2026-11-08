@@ -3,16 +3,19 @@
 package.path = "tests/?.lua;" .. package.path
 local W = require("wow")
 C_LFGList = {
-  GetSearchResultInfo = function(id) return { numMembers = 3, leaderName = "Bob", activityIDs = { 7 } } end,
+  GetSearchResultInfo = function(id) return { numMembers = 3, leaderName = "Bob", activityIDs = { 7, 8 } } end,
   GetSearchResultPlayerInfo = function(id, i) return ({ { name = "Bob", areaName = "Darkshore", classFilename = "DRUID" },
     { name = "Amy-Realm", areaName = "Ashenvale", classFilename = "MAGE" }, { name = "Cid", classFilename = "ROGUE" } })[i] end,
-  GetActivityInfoTable = function(id) return { fullName = "The Deadmines" } end,
+  GetActivityInfoTable = function(id) return { fullName = ({ [7] = "The Deadmines", [8] = "Wailing Caverns", [9] = "Gnomeregan" })[id] } end,
 }
 local sent
 C_FriendList = { SendWho = function(q) sent = q end, GetNumWhoResults = function() return 1 end,
   GetWhoInfo = function() return { fullName = "Bob", fullGuildName = "Moonglade", area = "Darkshore" } end }
 GetGuildInfo = function() return nil end
 LFGForeverFrame = CreateFrame("Frame", "LFGForeverFrame", UIParent)
+local filter = CreateFrame("Frame", nil, LFGForeverFrame)
+local ticked = {}
+function filter:SelectedActivityIDs() return ticked end
 local row = CreateFrame("Button", nil, LFGForeverFrame)
 row.resultID = 5
 row:SetScript("OnClick", function() end)
@@ -36,6 +39,12 @@ W.Check(sent == 'n-"Bob"', "click: /who the first unknown member (got " .. tostr
 W.Fire("WHO_LIST_UPDATE")
 W.Check(LFGForeverExtras.Guild("Bob") == "Moonglade", "guild remembered")
 ask:Click()
-W.Check(whispered == "LF The Deadmines, %class%", "dungeon filled in (got " .. tostring(whispered) .. ")")
+W.Check(whispered == "LF The Deadmines, Wailing Caverns, %class%", "nothing ticked: the group's dungeons (got " .. tostring(whispered) .. ")")
+ticked = { 8 }
+ask:Click()
+W.Check(whispered == "LF Wailing Caverns, %class%", "the one you searched for (got " .. tostring(whispered) .. ")")
+ticked = { 9 }
+ask:Click()
+W.Check(whispered == "LF Gnomeregan, %class%", "group doesn't list it: what you searched for (got " .. tostring(whispered) .. ")")
 W.Check(LFGForeverCharDB.askToJoinMessage == "LF %dungeon%, %class%", "saved message restored")
 W.Done()

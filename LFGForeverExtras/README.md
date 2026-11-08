@@ -11,7 +11,9 @@ Nothing in LFG Forever's own files is changed. Needs LFG Forever installed and e
 - **Remembered guilds:** guilds are also picked up from anyone you mouse over or target, and saved, so known
   players show their guild without a /who.
 - **%dungeon% in Ask to Join:** LFG Forever only fills %dungeon% in for its Invite whisper. Here it also works in
-  the Ask to Join message, as the clicked group's dungeon(s). Your saved message keeps the %dungeon% tag.
+  the Ask to Join message: the dungeon you ticked in LFG Forever's search dropdown that the group lists (if you
+  ticked several and the group lists more than one of them, all of those). If the group lists none of yours, it's
+  the ones you ticked; with nothing ticked, the group's own. Your saved message keeps the %dungeon% tag.
 
 Commands: `/lfgextras` shows what it's hooked and the last hovered group's members, zones and guilds;
 `/lfgextras forget` clears the remembered guilds.
