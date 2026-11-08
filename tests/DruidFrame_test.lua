@@ -14,7 +14,7 @@ W.spellCosts["Claw"] = W.spellCosts[1082]
 W.power[4], W.powerMax[4] = 0, 5 -- combo points
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 local R = ns.Resource
@@ -42,6 +42,11 @@ W.Near(Top(R.health), f:GetTop(), "health at the top")
 W.Near(Top(R.mana), f:GetTop() - s.healthHeight - s.padding, "mana right below health")
 W.Check(Shown(R.cast) and not Shown(R.power), "caster form: the cast row is held in place")
 W.Check((R.cast.centre._text or "") == "" and R.cast:GetStatusBarTexture():GetWidth() == 0, "and empty until a spell goes off")
+W.Check(R.cast:GetAlpha() == 0, "the empty row isn't drawn")
+ns.panels.frame:GetScript("OnShow")(ns.panels.frame)
+W.Check(R.cast:GetAlpha() == 1, "but shows while unlocked, so the layout can be seen")
+ns.panels.frame:GetScript("OnHide")(ns.panels.frame)
+W.Check(R.cast:GetAlpha() == 0, "and hides again when locked")
 W.Check(not R.combo:IsShown(), "no combo points in caster form")
 W.Near(R.health:GetWidth(), s.width, "health is the full width")
 W.Near(R.mana:GetWidth(), s.width, "mana is the full width")
@@ -73,7 +78,7 @@ for _, point in ipairs(R.comboPoints) do
 end
 W.Check(lit == 3, "three combo points lit (got " .. lit .. ")")
 local c = R.power:GetStatusBarTexture()._color
-W.Check(c and c[1] == 1 and c[2] == 1 and c[3] == 0.5, "energy uses the pale yellow")
+W.Check(c and c[1] == 0.95 and c[2] == 0.80 and c[3] == 0.18, "energy uses the warm gold")
 local left, right = R.comboPoints[1]:GetLeft(), R.comboPoints[5]:GetRight()
 W.Near((left + right) / 2, (f:GetLeft() + f:GetRight()) / 2, "combo points centred under the bars")
 
@@ -94,6 +99,101 @@ W.Near(orange and W.VisibleWidth(orange) or -1, 0.20 * s.width, "20 energy: the 
 W.power[3] = 80
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 W.Near(W.VisibleWidth(orange), 0, "80 energy: no orange")
+
+print("Which ability the energy warning is for")
+local db = DruidForeverManabarPlusDB
+W.Check(db.energySpell == "claw" and db.finisherSpell == "none" and db.openerSpell == "ravage", "defaults: Claw, no finisher, Ravage")
+W.spellCosts[5221] = { { type = 3, name = "ENERGY", cost = 60 } }  -- Shred
+W.spellCosts[1079] = { { type = 3, name = "ENERGY", cost = 30 } }  -- Rip
+W.spellCosts[22568] = { { type = 3, name = "ENERGY", cost = 35 } } -- Ferocious Bite
+W.spellCosts[6785] = { { type = 3, name = "ENERGY", cost = 60 } }  -- Ravage
+W.spellCosts[9005] = { { type = 3, name = "ENERGY", cost = 50 } }  -- Pounce
+local learned = { [5221] = true, [1079] = true, [22568] = true, [6785] = true, [9005] = true, [1082] = true }
+local realKnows = IsPlayerSpell
+IsPlayerSpell = function(id) return learned[id] or false end
+IsSpellKnown = IsPlayerSpell
+-- All the orange showing (one layer for the ability, one for the finisher).
+local function OrangeWidth()
+    local total = 0
+    for _, t in ipairs(W.Textures(R.power)) do
+        local col = t._color
+        if col and col[1] == 1 and col[2] == 0.5 and col[3] == 0 and col[4] == 0.9 then
+            total = total + W.VisibleWidth(t)
+        end
+    end
+    return total
+end
+local function Energy(value)
+    W.power[3] = value
+    W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    return OrangeWidth()
+end
+local function Pick(name, key)
+    W.Check(W.Pick(_G[name], key), "option " .. key .. " offered")
+end
+W.Fire("SPELLS_CHANGED")
+W.power[4] = 0
+W.Check(Energy(50) == 0, "Claw (45): 50 energy is enough")
+Pick("DFMPEnergySpellDropdown", "shred")
+W.Check(db.energySpell == "shred", "Shred picked from the options")
+W.Check(Energy(50) > 0, "Shred (60): 50 energy is short")
+W.Check(Energy(60) == 0, "Shred: 60 is enough")
+learned[5221] = nil
+W.Fire("SPELLS_CHANGED")
+W.Check(Energy(50) == 0, "Shred not learned: falls back to Claw")
+learned[5221] = true
+W.Fire("SPELLS_CHANGED")
+
+print("  ... full combo points: Rip or Ferocious Bite")
+Pick("DFMPFinisherDropdown", "bite")
+W.Check(db.finisherSpell == "bite", "Ferocious Bite picked")
+W.power[4] = 4
+W.Check(Energy(40) > 0, "4 combo points: still warns for Shred")
+W.power[4] = 5
+W.Fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+W.Check(OrangeWidth() == 0, "5 combo points: 40 is enough for Ferocious Bite (35)")
+W.Check(Energy(30) > 0, "and 30 isn't")
+db.finisherSpell = "rip"
+learned[1079] = nil
+W.Fire("SPELLS_CHANGED")
+W.Check(Energy(50) > 0, "Rip not learned: no override, Shred's 60 still counts")
+learned[1079] = true
+W.Fire("SPELLS_CHANGED")
+W.Check(Energy(30) == 0, "Rip learned: 30 is enough at full combo points")
+W.power[4] = 0
+W.Fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+
+print("  ... in Prowl: Ravage or Pounce, with live costs")
+local realStealth = IsStealthed
+local stealthed = true
+IsStealthed = function() return stealthed end
+W.Fire("UPDATE_STEALTH")
+W.Check(Energy(55) > 0, "Prowl: 55 is short of Ravage (60)")
+W.spellCosts[6785][1].cost = 50 -- Forever: openers cost less at full energy in stealth
+W.Fire("SPELL_UPDATE_USABLE")
+W.Check(OrangeWidth() == 0, "a cheaper Ravage is picked up without any setting")
+W.spellCosts[6785][1].cost = 60
+Pick("DFMPOpenerDropdown", "pounce")
+W.Check(db.openerSpell == "pounce" and Energy(55) == 0, "Pounce (50): 55 is enough")
+Pick("DFMPOpenerDropdown", "none")
+W.Check(db.openerSpell == "none" and Energy(55) > 0, "no override: back to Shred in Prowl")
+db.openerSpell = "ravage"
+stealthed = false
+W.Fire("UPDATE_STEALTH")
+
+print("  ... Clearcasting: back to plain yellow")
+W.Check(Energy(20) > 0, "20 energy: orange")
+local realAura = C_UnitAuras.GetPlayerAuraBySpellID
+C_UnitAuras.GetPlayerAuraBySpellID = function(id) if id == 16870 then return { spellId = 16870 } end end
+W.Fire("UNIT_AURA", "player")
+W.Check(OrangeWidth() == 0, "Clearcasting up: no orange")
+C_UnitAuras.GetPlayerAuraBySpellID = realAura
+W.Fire("UNIT_AURA", "player")
+W.Check(OrangeWidth() > 0, "spent: orange again")
+IsPlayerSpell, IsSpellKnown, IsStealthed = realKnows, realKnows, realStealth
+db.energySpell, db.finisherSpell = "claw", "none"
+W.Fire("SPELLS_CHANGED")
+W.Check(Energy(80) == 0, "back to Claw: 80 is enough")
 
 print("Bear Form: rage below mana, no combo points")
 W.powerType, W.formID = 1, 5
@@ -136,9 +236,14 @@ W.Check(not R.cast.spark:IsShown(), "spark gone")
 W.Advance(4.9)
 W.Check(R.cast.centre:GetAlpha() == 1, "still fully shown just before 5 seconds")
 W.Advance(0.35)
-W.Check(R.cast.centre._alpha and R.cast.centre._alpha < 1 and R.cast.centre._alpha > 0, "fading after 5 seconds")
-W.Advance(0.3)
+W.Check(R.cast.centre._alpha and R.cast.centre._alpha < 1 and R.cast.centre._alpha > 0, "name fading after 5 seconds")
+W.Check(R.cast:GetAlpha() == 1, "the bar itself still fully shown")
+W.Advance(0.4)
+W.Check(R.cast.centre:GetAlpha() == 0, "name gone")
+W.Check(R.cast:GetAlpha() < 1 and R.cast:GetAlpha() > 0, "then the bar fades (got " .. R.cast:GetAlpha() .. ")")
+W.Advance(0.4)
 W.Check(R.cast.centre._text == "" and R.linger == nil, "gone after the fade")
+W.Check(R.cast:GetAlpha() == 0, "bar no longer drawn")
 W.Check(Shown(R.cast), "row stays in place")
 W.Near(f:GetHeight(), s.healthHeight + 2 * s.padding + 2 * s.powerHeight, "frame still three rows")
 
@@ -184,7 +289,7 @@ W.Check(not Shown(R.cast), "row not held in place with that option off")
 W.Near(f:GetHeight(), s.healthHeight + s.padding + s.powerHeight, "frame back to two rows")
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-5", REJUV)
 W.Check(Shown(R.cast), "but appears for a lingering instant")
-W.Advance(5.6)
+W.Advance(6.1)
 W.Check(not Shown(R.cast), "and goes when it fades")
 s.castLocked = true
 R.Refresh()

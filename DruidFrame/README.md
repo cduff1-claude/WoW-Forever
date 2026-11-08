@@ -27,7 +27,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
   ("Healing Touch (55)"), a spark riding its edge while casting and a flash when the spell goes off. Options (both
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
-  5 seconds after it goes off, instant spells included, then fade. A new spell or a shift replaces it.
+  5 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
+  held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
 - Text: current amount centred (default), or current on the left and max on the right (energy and rage just
   current), current only, percent, current and percent, or none.
 - Visibility: always, in combat, in combat or with a target, or hidden.
@@ -39,7 +40,14 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Omen of Clarity (option, on): a pulsing gold glow around the mana and energy/rage bars while Clearcasting is
   up, stopping as soon as it's spent. Detected from the aura when the client shows it, otherwise from a known
   spell's cost dropping to 0. `/druidframe clearcasting` shows what each method sees.
-- The DruidBar features below (shift shading, Claw orange, 5-second rule) all show on its bars.
+- Colours: health green, mana blue, energy a warm gold, rage red.
+- Buff reminders (option, on): out of combat, a Mark of the Wild button to the left of the health and mana
+  bars while you don't have it (Gift of the Wild counts), and a Thorns button to the right. Each is as tall as
+  both bars and the gap between them. Click to cast it on yourself (from a form too: it leaves the form first);
+  the button fades out. Only checked out of combat, and only once the spell is learned. Both show while the
+  options are open, so you can see where they go. Macro-clickable as `DruidFrameMarkButton` /
+  `DruidFrameThornsButton`. `/druidframe buffs` shows what it sees.
+- The DruidBar features below (shift shading, energy warning, 5-second rule) all show on its bars.
 
 ## Mana tools (DruidBar page)
 
@@ -61,8 +69,15 @@ Based on *Druid Forever Manabar* by antisnake.
 
   The Travel section only exists once Travel Form is learned, or Aquatic Form if "Use Aquatic Form's cost" is ticked
   (default on). Without it, the whole shade is blue / pale orange / bold orange.
-- **Claw warning (Cat Form):** the energy bar turns orange while you have less energy than Claw costs (read live,
-  so Ferocity is included), and is left as Blizzard's yellow once you can afford it. The orange covers the whole fill,
+- **Energy warning (Cat Form):** the energy bar turns orange while you can't afford your next ability, and stays
+  its normal colour once you can, or while Clearcasting is up. Which ability:
+  - **Ability:** Claw (default) or Shred.
+  - **At full combo points:** no override (default), Rip or Ferocious Bite.
+  - **In Prowl:** Ravage (default), Pounce or no override.
+  
+  An override only applies once its spell is learned (until then the ability counts; Shred unlearned falls back
+  to Claw). Costs are read live from the game, so anything that changes them is included (Ferocity, and Forever's
+  cheaper openers at full energy in stealth). The orange covers the whole fill,
   so while Blizzard's bar eases down after you spend energy, the part still catching up is orange too. Shown on DruidFrame's energy bar, and on the Player Frame's energy bar if
   that option is on.
 - **5-second rule on Blizzard's bars** (this used to be the separate ForeverFiveSecondRule addon): a marker
@@ -90,15 +105,17 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
   if "Don't hide while stealthed" is ticked (default).
 - Position: **Above DruidFrame** or **Below DruidFrame** (it moves with the display, follows its width, and its
   width slider is a percentage of that), or **Free** (the default when upgrading, so it stays where you had it).
-  Free has "Keep centred" (on: dragging only moves it up and down, with the red centre line) and "Snap to the
-  main-hand swing timer". While its options are open it shows (green) even with no target, so you can place it.
+  Free has "Keep centred" (on: dragging only moves it up and down, with the red centre line). While its options
+  are open it shows (green) even with no target, so you can place it.
 - Width, height and opacity sliders.
 
 ## Commands
 
 - `/druidframe`, `/druidbar`, `/druidrange`: open their options pages.
 - `/druidframe debug`: the display's settings and state. `/druidframe clearcasting`: Omen of Clarity detection.
-- `/druidbar debug`: detected shift/travel/Claw costs, text format, font and overlay status.
+  `/druidframe buffs`: the buff buttons' view of Mark of the Wild and Thorns.
+- `/druidbar debug`: detected shift/travel costs, the energy warning's spells and costs, text format, font and
+  overlay status.
 - `/druidbar test`: shows the druid bar with a 5-second-rule test timer.
 - `/druidbar testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/druidbar testtravel off` clears it.
 - `/druidbar formlog`: toggles a log of form-related readings with timings, for diagnosing shifts.

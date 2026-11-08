@@ -36,6 +36,9 @@ local DEFAULTS = {
     enablePlayerFrame = false,      -- druid bar under the Player Frame + caster shading on its mana bar
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
     clawShade = true,               -- Cat Form: energy bars turn orange when you can't afford Claw
+    energySpell = "claw",           -- what that warns for: "claw" or "shred"
+    finisherSpell = "none",         -- at full combo points instead: "none", "rip" or "bite"
+    openerSpell = "ravage",         -- in Prowl instead: "none", "ravage" or "pounce"
     -- 5-second-rule marker on Blizzard's own mana bars (what ForeverFiveSecondRule used to do)
     fsrPlayerFrame = false,         -- the Player Frame mana bar, while it shows mana
     fsrText = true,                 -- countdown number beside the marker
@@ -281,9 +284,9 @@ local Look = {
     COLOURS = {
         HEALTH = { 0.40, 0.73, 0.17 },
         MANA = { 0.00, 0.34, 0.73 },
-        -- Energy: the user preferred the paler yellow the old Claw wash gave (white at 35%
-        -- over the Player Frame yellow 1.00 1.00 0.23), so the whole bar uses that.
-        ENERGY = { 1.00, 1.00, 0.50 },
+        -- Energy: a warm gold, between Blizzard's bright yellow (1.00 1.00 0.23) and the pale
+        -- yellow tried before (1.00 1.00 0.50), at the same depth as the other colours.
+        ENERGY = { 0.95, 0.80, 0.18 },
         RAGE = { 0.75, 0.00, 0.00 },
     } }
 ns.COLOURS = Look.COLOURS
@@ -292,14 +295,30 @@ ns.OverlaysChanged = nil
 
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
-    SPELLS = { 9850, 9849, 5201, 3029, 1082 }, -- Claw ranks, highest first
-    cost = nil,
+    COMBO_TYPE = (Enum and Enum.PowerType and Enum.PowerType.ComboPoints) or 4,
+    -- Ranks, highest first, then the name (in case Forever's rank IDs differ).
+    SPELLS = {
+        claw = { name = "Claw", 9850, 9849, 5201, 3029, 1082 },
+        shred = { name = "Shred", 9830, 9829, 8992, 6800, 5221 },
+        rip = { name = "Rip", 9896, 9894, 9752, 9493, 9492, 1079 },
+        bite = { name = "Ferocious Bite", 31018, 22829, 22828, 22827, 22568 },
+        ravage = { name = "Ravage", 9867, 9866, 6787, 6785 },
+        pounce = { name = "Pounce", 9827, 9823, 9005 },
+    },
+    -- The options: which spell the energy bar warns for, and the overrides.
+    CHOICES = {
+        energySpell = { { key = "claw", label = "Claw" }, { key = "shred", label = "Shred" } },
+        finisherSpell = { { key = "none", label = "No override" }, { key = "rip", label = "Rip" },
+            { key = "bite", label = "Ferocious Bite" } },
+        openerSpell = { { key = "none", label = "No override" }, { key = "ravage", label = "Ravage" },
+            { key = "pounce", label = "Pounce" } },
+    },
+    known = {},    -- key -> learned spell (ID or name), filled by Claw.Refresh
+    cost = nil,    -- the base spell's cost when last read (for /druidbar debug)
     spellID = nil,
     overlays = {}, -- keyed by bar
-    -- Washes over Blizzard's yellow energy texture: "enough" = you have the energy for
-    -- Claw, "short" = you don't yet (the whole fill is then inside the Claw section).
+    -- Wash over the energy texture while you can't afford the spell.
     COLORS = {
-        enough = { 1.0, 1.0, 1.0, 0 }, -- no shading while you have the energy for Claw
         short = { 1.0, 0.5, 0.0, 0.9 },
     },
 }
@@ -840,48 +859,99 @@ function Claw.GetCost(spell)
     return nil
 end
 
-function Claw.Refresh()
-    Claw.cost = nil
-    Claw.spellID = nil
-    if not isDruid then
-        return
-    end
-    for _, spellID in ipairs(Claw.SPELLS) do
-        if PlayerKnowsSpell(spellID) then
-            local cost = Claw.GetCost(spellID)
-            if cost then
-                Claw.cost, Claw.spellID = cost, spellID
-                return
-            end
+-- The learned rank of a spell (or its name, when the client knows it by name only), or nil.
+function Claw.Learned(key)
+    local list = Claw.SPELLS[key]
+    -- The highest learned rank whose cost the client answers for.
+    for _, spellID in ipairs(list) do
+        if PlayerKnowsSpell(spellID) and Claw.GetCost(spellID) then
+            return spellID
         end
     end
-    -- Fall back to the spell name, in case Forever's rank IDs differ.
-    local cost = Claw.GetCost("Claw")
-    if cost then
-        Claw.cost, Claw.spellID = cost, "Claw"
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, list.name)
+        local id = ok and type(info) == "table" and info.spellID
+        if id and not IsSecretValue(id) and PlayerKnowsSpell(id) then
+            return id
+        end
     end
+    -- Claw is every druid's first Cat ability: trust a cost answer by name for it.
+    if key == "claw" and Claw.GetCost(list.name) then
+        return list.name
+    end
+    return nil
 end
 
+-- Which spells are learned. Called when spells change; costs are read live in Claw.Update.
+function Claw.Refresh()
+    Claw.known = {}
+    if not isDruid then
+        Claw.cost, Claw.spellID = nil, nil
+        return
+    end
+    for key in pairs(Claw.SPELLS) do
+        Claw.known[key] = Claw.Learned(key)
+    end
+    Claw.cost, Claw.spellID = Claw.Costs()
+end
+
+-- The spell the energy bar warns for: Shred if chosen and learned, else Claw.
+function Claw.BaseSpell()
+    local known = Claw.known
+    return (db.energySpell == "shred" and known.shred) or known.claw or known.shred
+end
+
+-- Current costs, read live, so anything that changes them (talents, gear, Forever's
+-- cheaper openers at full energy in stealth) is included. Returns the cost to warn for
+-- below full combo points, the spell, and the cost at full combo points.
+function Claw.Costs()
+    local known = Claw.known
+    if db.openerSpell ~= "none" and known[db.openerSpell] and IsStealthed and IsStealthed() then
+        local cost = Claw.GetCost(known[db.openerSpell])
+        if cost then
+            return cost, known[db.openerSpell], cost
+        end
+    end
+    local spell = Claw.BaseSpell()
+    local cost = spell and Claw.GetCost(spell)
+    if not cost then
+        return nil
+    end
+    local finisher = db.finisherSpell ~= "none" and known[db.finisherSpell]
+    local finisherCost = finisher and Claw.GetCost(finisher) or cost
+    return cost, spell, finisherCost
+end
+
+-- The orange layers: one for the base spell (shown below full combo points) and one for the
+-- finisher (at full combo points). Combo points are secret like energy, so a switch bar
+-- (range [max - 1, max], value = combo points) picks between them, as the steps do for energy:
+--   step / stepF : range [cost - 1, cost], value = energy; full-width when you can afford it.
+--   combo        : full-width at full combo points.
+-- Each layer covers the whole current fill right of its step bar's edge, so it only shows
+-- when you're short, and sits inside the combo clip that's open.
 function Claw.CreateShade(bar)
     local set = { bar = bar, texturePath = "Interface\\Buttons\\WHITE8X8", tree = {}, topLevel = {}, layers = {} }
 
     set.step = CreateInvisibleBar(set, bar)
-    set.edge = CreateInvisibleBar(set, bar)
+    set.stepF = CreateInvisibleBar(set, bar)
+    set.combo = CreateInvisibleBar(set, bar)
     local step = set.step:GetStatusBarTexture()
-    local edge = set.edge:GetStatusBarTexture()
+    local stepF = set.stepF:GetStatusBarTexture()
+    local combo = set.combo:GetStatusBarTexture()
 
     set.fillClip = CreateFrame("Frame", nil, bar)
     set.fillClip:SetClipsChildren(true)
     set.tree[#set.tree + 1] = { frame = set.fillClip, parent = bar }
     set.topLevel[#set.topLevel + 1] = set.fillClip
 
-    local section = CreateClip(set, set.fillClip, bar, "LEFT", edge, "RIGHT")
-    CreateLayer(set, CreateClip(set, section, bar, "LEFT", step, "RIGHT"), "enough")
-    -- Short of energy: the whole fill, not just the Claw section. Blizzard eases its bars
-    -- down after you spend energy, so for a moment its fill is longer than your energy;
-    -- covering all of it keeps that lingering part orange too. (Setting Blizzard's bar
-    -- value ourselves instead taints its text code, which then errors on secret values.)
-    CreateLayer(set, CreateClip(set, set.fillClip, step, "RIGHT", bar, "RIGHT"), "short")
+    -- The whole fill, not just the spell's section: Blizzard eases its bars down after you
+    -- spend energy, so for a moment its fill is longer than your energy; covering all of it
+    -- keeps that lingering part orange too. (Setting Blizzard's bar value ourselves instead
+    -- taints its text code, which then errors on secret values.)
+    local notFull = CreateClip(set, set.fillClip, combo, "RIGHT", bar, "RIGHT")
+    CreateLayer(set, CreateClip(set, notFull, step, "RIGHT", bar, "RIGHT"), "short")
+    local full = CreateClip(set, set.fillClip, bar, "LEFT", combo, "RIGHT")
+    CreateLayer(set, CreateClip(set, full, stepF, "RIGHT", bar, "RIGHT"), "short")
 
     return set
 end
@@ -898,7 +968,7 @@ end
 function Claw.RefreshOverlays(reanchor)
     local wanted = {}
 
-    if isDruid and db.clawShade and Claw.cost and Claw.ShowsEnergy() then
+    if isDruid and db.clawShade and Claw.BaseSpell() and Claw.ShowsEnergy() then
         if db.enablePlayerFrame then
             local bar = GetPlayerResourceBar()
             if bar and bar.GetStatusBarTexture then
@@ -938,21 +1008,46 @@ function Claw.Update()
     end
     local maxEnergy = UnitPowerMax("player", Claw.POWER_TYPE)
     local energy = UnitPower("player", Claw.POWER_TYPE)
-    local usable = Claw.cost and IsReadableNumber(maxEnergy) and maxEnergy > 0
+    local maxCombo = UnitPowerMax("player", Claw.COMBO_TYPE)
+    if not IsReadableNumber(maxCombo) or maxCombo < 1 then
+        maxCombo = 5
+    end
+    local combo = UnitPower("player", Claw.COMBO_TYPE)
+    local cost, spell, finisherCost = Claw.Costs()
+    Claw.cost, Claw.spellID = cost, spell
+    -- Clearcasting makes the next ability free: no warning while it's up.
+    local free = ns.Resource and ns.Resource.clearcasting
+    local usable = cost and not free and IsReadableNumber(maxEnergy) and maxEnergy > 0
 
     for _, overlay in pairs(Claw.overlays) do
         local shade = overlay.shade
         if overlay.active and usable then
-            shade.edge:SetMinMaxValues(0, maxEnergy)
-            shade.edge:SetValue(Claw.cost)
-            shade.step:SetMinMaxValues(Claw.cost - 1, Claw.cost)
+            shade.step:SetMinMaxValues(cost - 1, cost)
             shade.step:SetValue(energy)
+            shade.stepF:SetMinMaxValues(finisherCost - 1, finisherCost)
+            shade.stepF:SetValue(energy)
+            shade.combo:SetMinMaxValues(maxCombo - 1, maxCombo)
+            shade.combo:SetValue(combo or 0)
             ShowShiftShade(shade, true)
         else
             ShowShiftShade(shade, false)
         end
     end
 end
+
+-- Costs can change a moment after the energy event that causes them (e.g. an opener getting
+-- cheaper at full energy), so look once more shortly after the last event.
+function Claw.UpdateSoon()
+    Claw.Update()
+    if C_Timer and C_Timer.After and not Claw.tailQueued then
+        Claw.tailQueued = true
+        C_Timer.After(0.3, function()
+            Claw.tailQueued = false
+            Claw.Update()
+        end)
+    end
+end
+ns.EnergyCostsChanged = Claw.Update
 
 -- 5-second-rule markers on Blizzard's own mana bars (merged in from ForeverFiveSecondRule):
 -- DruidFrame's mana bar, and (if enabled) the Player Frame mana bar while it shows mana.
@@ -1397,6 +1492,9 @@ manaFrame:RegisterEvent("PLAYER_LEVEL_UP")
 -- The Player Frame's status text setting, which the druid bar's text follows.
 manaFrame:RegisterEvent("CVAR_UPDATE")
 pcall(manaFrame.RegisterEvent, manaFrame, "PLAYER_TALENT_UPDATE")
+pcall(manaFrame.RegisterEvent, manaFrame, "UPDATE_STEALTH")
+pcall(manaFrame.RegisterEvent, manaFrame, "UNIT_AURA")
+pcall(manaFrame.RegisterEvent, manaFrame, "SPELL_UPDATE_USABLE")
 pcall(manaFrame.RegisterEvent, manaFrame, "CHARACTER_POINTS_CHANGED")
 
 manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
@@ -1442,6 +1540,12 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 
     if event == "CVAR_UPDATE" then
         UpdateManaBar()
+        return
+    end
+
+    -- Stealth and usability changes can change the cost the energy bar warns for.
+    if event == "UPDATE_STEALTH" or event == "SPELL_UPDATE_USABLE" then
+        Claw.UpdateSoon()
         return
     end
 
@@ -1517,15 +1621,17 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
         if powerType == "MANA" then
             UpdateManaBar()
-        elseif powerType == "ENERGY" then
-            Claw.Update()
+        elseif powerType == "ENERGY" or powerType == "COMBO_POINTS" then
+            Claw.UpdateSoon()
         end
     elseif event == "UNIT_MAXPOWER" then
         if powerType == nil or powerType == "MANA" then
             UpdateManaBar()
-        elseif powerType == "ENERGY" then
+        elseif powerType == "ENERGY" or powerType == "COMBO_POINTS" then
             Claw.Update()
         end
+    elseif event == "UNIT_AURA" then
+        Claw.UpdateSoon()
     end
 end)
 
@@ -1533,7 +1639,7 @@ manaFrame:Hide()
 
 local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIParent)
 panel.name = "DruidBar"
-panel:SetSize(460, 490)
+panel:SetSize(560, 560)
 
 
 -- Registered by Options.lua as a page under DruidFrame.
@@ -1573,11 +1679,75 @@ local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", playerFrameCheckbo
     "Use Aquatic Form's cost for the travel section when Travel Form isn't learned", "useAquaticCost")
 
 local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
-    "Turn energy bars orange in Cat Form when you can't afford Claw (DruidFrame's, and the Player Frame's if on)",
+    "Turn energy bars orange in Cat Form when you can't afford this (DruidFrame's, and the Player Frame's if on):",
     "clawShade")
 
+-- Which ability the energy warning is for, in a row under the tick box. Overrides only
+-- apply once their spell is learned.
+do
+    local function Dropdown(name, x, label, key)
+        local choices = Claw.CHOICES[key]
+        local caption = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        caption:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 30 + x, -8)
+        caption:SetText(label)
+        local function LabelFor(value)
+            for _, choice in ipairs(choices) do
+                if choice.key == value then return choice.label end
+            end
+            return ""
+        end
+        local function Pick(value)
+            db[key] = value
+            Claw.Refresh()
+            UpdateFormState()
+        end
+        local widget
+        if UIDropDownMenu_Initialize and UIDropDownMenu_AddButton then
+            widget = CreateFrame("Frame", name, panel, "UIDropDownMenuTemplate")
+            widget:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", -18, -2)
+            UIDropDownMenu_SetWidth(widget, 130)
+            UIDropDownMenu_Initialize(widget, function()
+                for _, choice in ipairs(choices) do
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = choice.label
+                    info.value = choice.key
+                    info.checked = (db[key] == choice.key)
+                    info.func = function()
+                        Pick(choice.key)
+                        UIDropDownMenu_SetText(widget, choice.label)
+                    end
+                    UIDropDownMenu_AddButton(info)
+                end
+            end)
+            widget.Refresh = function() UIDropDownMenu_SetText(widget, LabelFor(db[key])) end
+        else
+            -- No dropdowns: a button that steps through the choices.
+            widget = CreateFrame("Button", name, panel, "UIPanelButtonTemplate")
+            widget:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 0, -2)
+            widget:SetSize(150, 22)
+            widget:SetScript("OnClick", function(self)
+                local index = 1
+                for i, choice in ipairs(choices) do
+                    if choice.key == db[key] then index = i end
+                end
+                Pick(choices[index % #choices + 1].key)
+                self.Refresh()
+            end)
+            widget.Refresh = function() widget:SetText(LabelFor(db[key])) end
+        end
+        widget.Refresh()
+        return widget
+    end
+    Claw.dropdowns = {
+        Dropdown("DFMPEnergySpellDropdown", 0, "Ability", "energySpell"),
+        Dropdown("DFMPFinisherDropdown", 170, "At full combo points", "finisherSpell"),
+        Dropdown("DFMPOpenerDropdown", 340, "In Prowl", "openerSpell"),
+    }
+    Claw.dropdownAnchor = Claw.dropdowns[1]
+end
+
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -16)
+fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -70)
 fsrHeader:SetText("5-second rule marker (always on DruidFrame's mana bar)")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
     "Also show it on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
@@ -1608,6 +1778,9 @@ panel:SetScript("OnShow", function()
     playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
+    for _, dropdown in ipairs(Claw.dropdowns) do
+        dropdown.Refresh()
+    end
     fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
     fsrTextCheckbox:SetChecked(db.fsrText)
     fsrWidthSlider:SetValue(db.fsrWidth or 2)
@@ -1654,7 +1827,16 @@ local function PrintDebugInfo()
     print("Travel/Aquatic cost:", travelCost and tostring(travelCost) or "none (not learned, not readable, or not below bear cost)",
         travelCostSource and ("from " .. travelCostSource) or "")
     local energy = UnitPower("player", Claw.POWER_TYPE)
-    print("Claw cost:", Claw.cost and (tostring(Claw.cost) .. " energy, from " .. tostring(Claw.spellID)) or "not found (Claw not learned?)",
+    local known = {}
+    for key in pairs(Claw.SPELLS) do
+        known[#known + 1] = key .. "=" .. tostring(Claw.known[key])
+    end
+    table.sort(known)
+    print("Energy spells learned:", table.concat(known, " "), "| stealthed:", tostring(IsStealthed and IsStealthed()),
+        "| Clearcasting:", tostring(ns.Resource and ns.Resource.clearcasting))
+    local _, _, finisherCost = Claw.Costs()
+    print("Energy warning cost:", Claw.cost and (tostring(Claw.cost) .. " energy, from " .. tostring(Claw.spellID)) or "not found (Claw not learned?)",
+        "| at full combo points:", tostring(finisherCost),
         "| max energy:", tostring(UnitPowerMax("player", Claw.POWER_TYPE)),
         "| energy secret:", tostring(IsSecretValue(energy)),
         "| bar shows energy:", tostring(Claw.ShowsEnergy()), "| Claw shade:", tostring(db.clawShade))

@@ -29,10 +29,11 @@ local STYLE_TEXTURE = {
 }
 local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
-local ART = "Interface\\AddOns\\DruidBar\\"
+local ART = "Interface\\AddOns\\DruidFrame\\"
 local CAST_COLOUR = { 1.0, 0.7, 0.0 }
 local COMBO_COLOUR = { 0.95, 0.25, 0.1 }
-local LINGER_TIME, LINGER_FADE = 5, 0.5 -- seconds the last spell's name stays, then fades
+-- Seconds the last spell's name stays; then the name fades, then the whole bar.
+local LINGER_TIME, LINGER_FADE = 5, 0.5
 local SEGMENT_GAP = 2                    -- between combo bar segments
 local GLOW_SIZE = 2                      -- full-combo glow, drawn just outside each segment
 local GLOW_COLOUR = { 1.0, 0.85, 0.2 }   -- DruidSequence's glow colour
@@ -78,6 +79,7 @@ R.DEFAULTS = {
     castBar = true,
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
+    buffButtons = true, -- out of combat: Mark of the Wild / Thorns buttons beside the display when missing
     comboStyle = "circles",
     x = nil, -- position of the frame's top centre, in UIParent units (nil: default spot)
     y = nil,
@@ -240,7 +242,7 @@ function R.Build()
     local unlockLabel = f:CreateFontString(nil, "OVERLAY")
     unlockLabel:SetFont(FONT, 10, "OUTLINE")
     unlockLabel:SetPoint("BOTTOM", f, "TOP", 0, 4)
-    unlockLabel:SetText("DruidBar: drag to move (close the options to lock)")
+    unlockLabel:SetText("DruidFrame: drag to move (close the options to lock)")
     unlockLabel:Hide()
     R.unlockLabel = unlockLabel
 
@@ -542,7 +544,15 @@ function R.UpdateClearcasting()
     if not R.frame then
         return
     end
-    local active = R.Settings().clearcastGlow and R.ClearcastingActive()
+    -- Kept for DruidBar's energy warning, which goes back to plain yellow while it's up.
+    local clearcasting = R.ClearcastingActive() and true or false
+    if clearcasting ~= R.clearcasting then
+        R.clearcasting = clearcasting
+        if ns.EnergyCostsChanged then
+            ns.EnergyCostsChanged()
+        end
+    end
+    local active = R.Settings().clearcastGlow and clearcasting
     for _, bar in ipairs({ R.mana, R.power }) do
         if active and bar:IsShown() then
             bar.procGlow.Show()
@@ -653,6 +663,9 @@ function R.Layout()
     R.frame:SetSize(s.width, math.max(1, y))
     R.frame:SetScale(s.scale)
     R.frame:SetAlpha(s.opacity)
+    if ns.Buffs then
+        ns.Buffs.Layout()
+    end
 end
 
 -- Default spot: centred, a little below the middle of the screen (where the PRD sits).
@@ -675,6 +688,9 @@ function R.ApplyPosition()
     -- Offsets are in the frame's own (scaled) units.
     R.frame:ClearAllPoints()
     R.frame:SetPoint("TOP", UIParent, "BOTTOMLEFT", x / s.scale, y / s.scale)
+    if ns.Buffs then
+        ns.Buffs.Layout()
+    end
 end
 
 -- Cursor position in UIParent units.
@@ -738,6 +754,10 @@ function R.SetUnlocked(unlocked)
         end
         R.unlockTint:SetShown(R.unlocked)
         R.unlockLabel:SetShown(R.unlocked)
+        R.UpdateIdleCast()
+        if ns.Buffs then
+            ns.Buffs.Refresh()
+        end
         if not R.unlocked then
             R.StopDrag()
         end
@@ -931,6 +951,14 @@ local function SetCastAlpha(alpha)
     R.cast.gloss:SetAlpha(alpha)
 end
 
+-- The empty cast row keeps its place (if locked) but isn't drawn, except while unlocked so
+-- the layout can be seen.
+function R.UpdateIdleCast()
+    if R.cast and not (R.casting or R.linger) then
+        R.cast:SetAlpha(R.unlocked and 1 or 0)
+    end
+end
+
 -- The empty cast row (locked in place, nothing to show).
 function R.ClearCast()
     R.casting = nil
@@ -939,6 +967,7 @@ function R.ClearCast()
     R.cast:SetValue(0)
     R.cast.centre:SetText("")
     SetCastAlpha(1)
+    R.UpdateIdleCast()
     R.UpdateSpark()
     R.Layout()
 end
@@ -957,6 +986,7 @@ function R.StartLinger(name, spellID)
     R.cast:SetValue(1)
     SetCastText(name, spellID)
     SetCastAlpha(1)
+    R.cast:SetAlpha(1)
     R.cast.flashAnim:Stop()
     R.cast.flashAnim:Play()
     R.UpdateSpark()
@@ -965,10 +995,14 @@ end
 
 function R.UpdateLinger()
     local t = GetTime() - R.linger.start
-    if t >= LINGER_TIME + LINGER_FADE then
+    if t >= LINGER_TIME + 2 * LINGER_FADE then
         R.ClearCast()
+    elseif t > LINGER_TIME + LINGER_FADE then
+        -- The name has gone: now the bar fades out.
+        R.cast.centre:SetAlpha(0)
+        R.cast:SetAlpha(1 - (t - LINGER_TIME - LINGER_FADE) / LINGER_FADE)
     elseif t > LINGER_TIME then
-        SetCastAlpha(1 - (t - LINGER_TIME) / LINGER_FADE)
+        R.cast.centre:SetAlpha(1 - (t - LINGER_TIME) / LINGER_FADE)
     end
 end
 
@@ -1007,6 +1041,7 @@ function R.StartCast(channel, spellID)
     R.cast:SetMinMaxValues(startMS, endMS)
     R.cast:SetValue(R.CastValue())
     SetCastAlpha(1)
+    R.cast:SetAlpha(1)
     -- Centred: the spell's name, with its mana cost in brackets.
     SetCastText(name, spellID)
     R.Layout()
@@ -1093,6 +1128,7 @@ function R.Refresh()
         R.cast:SetValue(0)
         R.cast.centre:SetText("")
     end
+    R.UpdateIdleCast()
     R.ApplyStyle()
     R.Layout()
     R.ApplyPosition()
@@ -1103,6 +1139,9 @@ function R.Refresh()
     R.UpdateCombo()
     R.SetUnlocked(R.unlocked)
     R.UpdateClearcasting()
+    if ns.Buffs then
+        ns.Buffs.Refresh()
+    end
     -- A range bar attached to the display follows its size and position.
     if ns.Range and ns.Range.RefreshLayout then
         ns.Range.RefreshLayout()
@@ -1177,7 +1216,7 @@ end)
 
 function R.DebugClearcasting()
     local active, how = R.ClearcastingActive()
-    print("|cff55ff55DruidBar Clearcasting|r active:", tostring(active), how and ("(" .. how .. ")") or "")
+    print("|cff55ff55DruidFrame Clearcasting|r active:", tostring(active), how and ("(" .. how .. ")") or "")
     if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, CLEARCASTING)
         print("  aura lookup:", ok and (aura ~= nil and "found" or "not found") or ("error: " .. tostring(aura)),
@@ -1194,7 +1233,7 @@ end
 function R.Debug()
     local s = R.Settings()
     local powerType, token = PowerType()
-    print("|cff55ff55DruidBar resource display|r enabled:", tostring(s.enabled), "shown:",
+    print("|cff55ff55DruidFrame display|r enabled:", tostring(s.enabled), "shown:",
         tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(R.unlocked))
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",
@@ -1375,7 +1414,9 @@ Place(Checkbox("DruidBarResourceCast", enabledBox, "Cast bar below mana in caste
 Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
     "Keep the cast bar's row in place (not just while casting)", "castLocked"), 28)
 Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
-    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger"), 36)
+    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger"), 28)
+Place(Checkbox("DruidBarResourceBuffs", enabledBox,
+    "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 36)
 
 local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
 resetButton:SetSize(200, 22)

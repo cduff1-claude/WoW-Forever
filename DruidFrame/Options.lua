@@ -57,6 +57,8 @@ SlashCmdList["DRUIDFRAME"] = function(msg)
         ns.Resource.Debug()
     elseif msg == "clearcasting" and ns.Resource then
         ns.Resource.DebugClearcasting()
+    elseif msg == "buffs" and ns.Buffs then
+        ns.Buffs.Debug()
     else
         ns.OpenOptions("frame")
     end

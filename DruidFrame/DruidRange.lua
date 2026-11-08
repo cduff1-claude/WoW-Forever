@@ -94,7 +94,7 @@ local function InitDefaults()
         db.anchor = "free" -- where it was before DruidFrame
     end
     if db.keepCentred == nil then db.keepCentred = true end
-    if db.snapMelee == nil then db.snapMelee = true end
+    db.snapMelee = nil -- old setting: snapping to a swing timer was removed
     if db.chargeEnabled == nil then db.chargeEnabled = true end
     if db.stealthNoHide == nil then db.stealthNoHide = true end
     if db.hideMode ~= HIDE_NONE and db.hideMode ~= HIDE_MELEE and db.hideMode ~= HIDE_CHARGE_MIN then
@@ -292,18 +292,7 @@ end
 
 local BASE_WIDTH = 200
 local BASE_HEIGHT = 4.921875
-local cachedSwingWidth = nil
 local optionsPanelOpen = false
-
-local SWING_TIMER_FRAMES = { "SwingTimerMainHandFrame", "SwingTimerFrame", "SwingTimerMeleeFrame", "MainHandSwingTimerBar", "MainHandSwingBar", "PlayerSwingBar" }
-
-local function GetSnapFrame()
-    for _, name in ipairs(SWING_TIMER_FRAMES) do
-        local f = _G[name]
-        if f then return f end
-    end
-    return nil
-end
 
 local bar = CreateFrame("Frame", "DruidRangeBarFrame", UIParent, "BackdropTemplate")
 bar:SetSize(BASE_WIDTH, BASE_HEIGHT)
@@ -332,18 +321,13 @@ end
 local function RefreshLayout()
     local db = DruidRangeDB
     local host, side = AttachFrame()
-    local swingFrame = not host and db.snapMelee and GetSnapFrame() or nil
-
-    if swingFrame and swingFrame:GetWidth() and swingFrame:GetWidth() > 0 then
-        cachedSwingWidth = swingFrame:GetWidth()
-    end
     local height = BASE_HEIGHT * ((db.height or 75) / 50)
     local width
     if host then
         -- Attached: as wide as DruidFrame's bars (times the width setting), its padding apart.
         width = host:GetWidth() * host:GetScale() * ((db.width or 100) / 100)
     else
-        width = (cachedSwingWidth or BASE_WIDTH) * ((db.width or 100) / 100)
+        width = BASE_WIDTH * ((db.width or 100) / 100)
     end
     bar:SetSize(width, height)
     bar:SetAlpha((db.opacity or 75) / 100)
@@ -356,8 +340,6 @@ local function RefreshLayout()
         else
             bar:SetPoint("TOP", host, "BOTTOM", 0, -gap)
         end
-    elseif swingFrame then
-        bar:SetPoint("BOTTOM", swingFrame, "TOP", 0, 4)
     else
         local p = db.point
         local x, y = 0, -180
@@ -393,7 +375,7 @@ local function Cursor()
 end
 
 local function CanDrag()
-    return unlocked and not AttachFrame() and not (DruidRangeDB.snapMelee and GetSnapFrame())
+    return unlocked and not AttachFrame()
 end
 
 local function UpdateDraggability()
@@ -550,7 +532,7 @@ local POSITIONS = {
     { anchor = "bottom", label = "Below DruidFrame" },
     { anchor = "free", label = "Free (drag it while the options are open)" },
 }
-local centredCB, snapCB
+local centredCB
 local function RefreshPositionButtons()
     local free = DruidRangeDB.anchor == "free"
     for _, b in ipairs(posButtons) do
@@ -558,9 +540,7 @@ local function RefreshPositionButtons()
     end
     if centredCB then
         centredCB:SetEnabled(free)
-        snapCB:SetEnabled(free)
         centredCB:SetAlpha(free and 1 or 0.5)
-        snapCB:SetAlpha(free and 1 or 0.5)
     end
 end
 local lastPos = posLabel
@@ -585,15 +565,7 @@ centredCB:SetScript("OnClick", function(self)
     RefreshLayout()
 end)
 
-snapCB = CreateCheck("DruidRangeSnapCheck", "Snap to Main Hand Swing Timer (free only)", true)
-snapCB:SetPoint("TOPLEFT", centredCB, "BOTTOMLEFT", 0, -2)
-snapCB:SetScript("OnClick", function(self)
-    DruidRangeDB.snapMelee = self:GetChecked() and true or false
-    UpdateDraggability()
-    RefreshLayout()
-end)
-
-local widthSlider = CreatePercentSlider("DruidRangeWidthSlider", "Bar Width", 10, 300, 10, snapCB, -24, "width")
+local widthSlider = CreatePercentSlider("DruidRangeWidthSlider", "Bar Width", 10, 300, 10, centredCB, -24, "width")
 local heightSlider = CreatePercentSlider("DruidRangeHeightSlider", "Bar Height", 50, 300, 25, widthSlider, -26, "height")
 local opacitySlider = CreatePercentSlider("DruidRangeOpacitySlider", "Bar Opacity", 10, 100, 5, heightSlider, -26, "opacity")
 
@@ -648,7 +620,6 @@ local function RefreshOptionsUI()
     InitDefaults()
     local db = DruidRangeDB
     enableCB:SetChecked(db.enabled)
-    snapCB:SetChecked(db.snapMelee)
     centredCB:SetChecked(db.keepCentred)
     RefreshPositionButtons()
     widthSlider:SetValue(db.width)
@@ -778,7 +749,4 @@ driver:SetScript("OnUpdate", function(self, elapsed)
     if elapsedTotal < 0.1 then return end
     elapsedTotal = 0
     UpdateBar()
-    if DruidRangeDB.snapMelee then
-        RefreshLayout()
-    end
 end)

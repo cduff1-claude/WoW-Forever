@@ -2,10 +2,11 @@
 ## Title: DruidFrame
 ## Notes: Druid resource display (health, mana, energy/rage, cast bar, combo points), range bar and mana tools for WoW Forever. DruidBar is based on Druid Forever Manabar by antisnake; DruidRange on RangeBar.
 ## Author: antisnake (original), modified
-## Version: 1.0.4-plus1
+## Version: 1.1.0
 ## SavedVariables: DruidForeverManabarPlusDB, DruidRangeDB
 
 DruidBar.lua
 Resource.lua
+Buffs.lua
 DruidRange.lua
 Options.lua
