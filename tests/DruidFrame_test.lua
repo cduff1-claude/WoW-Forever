@@ -287,7 +287,7 @@ W.combat = false
 W.Fire("PLAYER_REGEN_ENABLED")
 s.casterEnergy = "combat"
 local cr, cg, cb = R.cast:GetStatusBarColor()
-W.Check(cr == 0.58 and cg == 0.32 and cb == 0.90, "cast bar is purple")
+W.Check(cr == 0.32 and cg == 0.18 and cb == 0.85, "cast bar is indigo")
 
 print("Spell goes off: name and cost stay for 3 seconds, then fade")
 local plays = R.cast.flashAnim._plays

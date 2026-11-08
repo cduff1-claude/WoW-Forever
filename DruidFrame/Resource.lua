@@ -31,8 +31,9 @@ local STYLE_TEXTURE = {
 local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
--- Purple, so it doesn't look like the gold energy bar.
-local CAST_COLOUR = { 0.58, 0.32, 0.90 }
+-- A bold indigo: suggests mana, but stays clear of the mana blue, the gold energy bar and the
+-- range bar's purple.
+local CAST_COLOUR = { 0.32, 0.18, 0.85 }
 local COMBO_COLOUR = { 0.90, 0.13, 0.04 }
 -- Seconds the last spell's name stays; then the name fades, then the whole bar.
 local LINGER_TIME, LINGER_FADE = 3, 0.5
