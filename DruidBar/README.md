@@ -49,9 +49,13 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   - Bar style: flat (like the Personal Resource Display: a plain fill with a lighter top half, the default) or
     shaded (Blizzard's classic bar texture).
   - Size, bar width, health and power bar heights, padding (default 4, the PRD's gap) and opacity sliders.
-  - "Keep centred": dragging only moves it up and down, with a red line down the middle of the screen while you
-    drag (like Edit Mode's snap). Unlock it to drag with the tick box or `/druidbar unlock` (`/druidbar lock`
-    when done). "Reset to default position" puts it back.
+  - Moving it: while its options page is open it's unlocked (highlighted) and left-drag moves it; closing the page
+    locks it. Right-click it to open the page. Locked, left clicks pass through to the world. "Keep centred":
+    dragging only moves it up and down, with a red line down the middle of the screen while you drag (like Edit
+    Mode's snap). "Reset to default position" puts it back.
+  - Omen of Clarity (option, on): a pulsing gold glow around the mana and energy/rage bars while Clearcasting is
+    up, stopping as soon as it's spent. Detected from the aura when the client shows it, otherwise from a known
+    spell's cost dropping to 0. `/druidbar clearcasting` shows what each method sees.
   - The PRD colours, the Claw orange, the 5-second-rule marker and the shift-cost shading all show on its bars.
 - **Where it shows:** the druid bar under the Player Frame (in form), the Player Frame's own mana bar (whenever it
   shows mana), and the Personal Resource Display's mana bar (`PowerBar` in caster form, `AlternatePowerBar` in Cat/Bear).

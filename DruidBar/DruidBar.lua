@@ -1915,10 +1915,9 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
-    elseif msg == "unlock" or msg == "lock" then
+    elseif msg == "clearcasting" then
         if ns.Resource then
-            ns.Resource.SetUnlocked(msg == "unlock")
-            print("|cff55ff55DruidBar:|r resource display " .. (msg == "unlock" and "unlocked: drag it to move." or "locked."))
+            ns.Resource.DebugClearcasting()
         end
     elseif msg == "resource" then
         if ns.Resource then

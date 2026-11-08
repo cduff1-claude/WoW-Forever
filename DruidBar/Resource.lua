@@ -36,6 +36,7 @@ local LINGER_TIME, LINGER_FADE = 5, 0.5 -- seconds the last spell's name stays, 
 local SEGMENT_GAP = 2                    -- between combo bar segments
 local GLOW_SIZE = 2                      -- full-combo glow, drawn just outside each segment
 local GLOW_COLOUR = { 1.0, 0.85, 0.2 }   -- DruidSequence's glow colour
+local CLEARCASTING = 16870               -- the Omen of Clarity proc (Classic spell ID)
 
 R.VISIBILITY = {
     { key = "always", label = "Always" },
@@ -73,7 +74,7 @@ R.DEFAULTS = {
     padding = 4, -- the PRD's gap: about 3 clear pixels between the bars' borders
     opacity = 1.0,
     keepCentred = true,
-    unlocked = false,
+    clearcastGlow = true, -- gold glow on the mana and energy/rage bars while Omen of Clarity is up
     castBar = true,
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
@@ -108,6 +109,7 @@ function R.Settings()
         s.style = "flat"
     end
     -- Version 3: centred current text (asked for), combo points became a choice.
+    s.unlocked = nil -- no longer saved: the frame is unlocked while its options page is open
     if s.version < 3 then
         s.version = 3
         s.text = "centre"
@@ -238,7 +240,7 @@ function R.Build()
     local unlockLabel = f:CreateFontString(nil, "OVERLAY")
     unlockLabel:SetFont(FONT, 10, "OUTLINE")
     unlockLabel:SetPoint("BOTTOM", f, "TOP", 0, 4)
-    unlockLabel:SetText("DruidBar: drag to move (/druidbar lock)")
+    unlockLabel:SetText("DruidBar: drag to move (close the options to lock)")
     unlockLabel:Hide()
     R.unlockLabel = unlockLabel
 
@@ -254,14 +256,32 @@ function R.Build()
     guide:Hide()
     R.guide = guide
 
+    -- Right-click (without dragging the camera) opens the options; while they're open the
+    -- frame is unlocked and left-drag moves it. Locked, left clicks pass through to the world.
+    f:EnableMouse(true)
     f:SetScript("OnMouseDown", function(_, button)
-        if button == "LeftButton" and R.Settings().unlocked then
+        if button == "LeftButton" and R.unlocked then
             R.StartDrag()
+        elseif button == "RightButton" then
+            R.rightDown = { R.Cursor() }
         end
     end)
-    f:SetScript("OnMouseUp", function()
-        R.StopDrag()
+    f:SetScript("OnMouseUp", function(_, button)
+        if button == "RightButton" and R.rightDown then
+            local x, y = R.Cursor()
+            local moved = math.abs(x - R.rightDown[1]) + math.abs(y - R.rightDown[2])
+            R.rightDown = nil
+            if moved < 5 then
+                R.OpenOptions()
+            end
+        else
+            R.StopDrag()
+        end
     end)
+
+    -- Omen of Clarity: a pulsing gold glow around the mana and energy/rage bars.
+    R.mana.procGlow = R.EdgeGlow(R.mana)
+    R.power.procGlow = R.EdgeGlow(R.power)
 
     R.cast:SetScript("OnUpdate", function(bar)
         if R.casting then
@@ -420,6 +440,118 @@ local function GlowAround(i, seg)
     pieces[5]:Show()
 end
 
+-- A gold edge just outside a frame plus a soft gold flash over it, pulsing like
+-- DruidSequence's glow. Returns a table with Show/Hide.
+function R.EdgeGlow(target)
+    local holder = CreateFrame("Frame", nil, target)
+    holder:SetPoint("TOPLEFT", target, "TOPLEFT", -GLOW_SIZE, GLOW_SIZE)
+    holder:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", GLOW_SIZE, -GLOW_SIZE)
+    holder:SetFrameLevel(target:GetFrameLevel() + 25)
+    local r, g, b = GLOW_COLOUR[1], GLOW_COLOUR[2], GLOW_COLOUR[3]
+    local G = GLOW_SIZE
+    local function Edge(p1, x1, y1, p2, x2, y2)
+        local t = holder:CreateTexture(nil, "OVERLAY")
+        t:SetColorTexture(r, g, b, 1)
+        t:SetPoint(p1, target, p1, x1, y1)
+        t:SetPoint(p2, target, p2, x2, y2)
+        return t
+    end
+    local top = holder:CreateTexture(nil, "OVERLAY")
+    top:SetColorTexture(r, g, b, 1)
+    top:SetPoint("BOTTOMLEFT", target, "TOPLEFT", -G, 0)
+    top:SetPoint("TOPRIGHT", target, "TOPRIGHT", G, G)
+    local bottom = holder:CreateTexture(nil, "OVERLAY")
+    bottom:SetColorTexture(r, g, b, 1)
+    bottom:SetPoint("TOPLEFT", target, "BOTTOMLEFT", -G, 0)
+    bottom:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", G, -G)
+    local left = holder:CreateTexture(nil, "OVERLAY")
+    left:SetColorTexture(r, g, b, 1)
+    left:SetPoint("TOPRIGHT", target, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", target, "BOTTOMLEFT", -G, 0)
+    local right = holder:CreateTexture(nil, "OVERLAY")
+    right:SetColorTexture(r, g, b, 1)
+    right:SetPoint("TOPLEFT", target, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", G, 0)
+    local flash = holder:CreateTexture(nil, "OVERLAY")
+    flash:SetAllPoints(target)
+    flash:SetColorTexture(r, g, b, 0.35)
+    flash:SetBlendMode("ADD")
+    local pulse = holder:CreateAnimationGroup()
+    pulse:SetLooping("BOUNCE")
+    local fade = pulse:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(0.3)
+    fade:SetDuration(0.35)
+    holder:Hide()
+    local glow = { frame = holder, pulse = pulse, flash = flash }
+    function glow.Show()
+        if not holder:IsShown() then
+            holder:Show()
+            pulse:Play()
+        end
+    end
+    function glow.Hide()
+        pulse:Stop()
+        holder:Hide()
+    end
+    return glow
+end
+
+-- Is Omen of Clarity's Clearcasting up? Two ways, as the client may hide auras in combat:
+--   aura: C_UnitAuras.GetPlayerAuraBySpellID, when it answers;
+--   cost: Clearcasting makes the next spell free, so a known spell's (readable) cost drops to 0.
+-- Returns active, and which way told us (for /druidbar clearcasting).
+R.PROBES = { "Claw", "Shred", "Rake", "Maul", "Swipe", "Healing Touch", "Regrowth", "Rejuvenation", "Wrath",
+    "Moonfire" }
+
+function R.ProbeCost(spell)
+    if not (C_Spell and C_Spell.GetSpellPowerCost) then
+        return nil
+    end
+    local ok, costs = pcall(C_Spell.GetSpellPowerCost, spell)
+    if not ok or type(costs) ~= "table" or #costs == 0 then
+        return nil
+    end
+    local info = costs[1]
+    if type(info.cost) == "number" and not IsSecret(info.cost) then
+        return info.cost
+    end
+end
+
+function R.ClearcastingActive()
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, CLEARCASTING)
+        if ok and aura ~= nil then
+            return true, "aura"
+        end
+    end
+    -- Free spells: only counts if a spell that normally costs something now costs 0.
+    R.normalCost = R.normalCost or {}
+    for _, spell in ipairs(R.PROBES) do
+        local cost = R.ProbeCost(spell)
+        if cost and cost > 0 then
+            R.normalCost[spell] = cost
+        elseif cost == 0 and R.normalCost[spell] then
+            return true, "cost of " .. spell
+        end
+    end
+    return false, nil
+end
+
+function R.UpdateClearcasting()
+    if not R.frame then
+        return
+    end
+    local active = R.Settings().clearcastGlow and R.ClearcastingActive()
+    for _, bar in ipairs({ R.mana, R.power }) do
+        if active and bar:IsShown() then
+            bar.procGlow.Show()
+        else
+            bar.procGlow.Hide()
+        end
+    end
+end
+
 local function ComboCount()
     local count = UnitPowerMax("player", POWER.COMBO)
     if type(count) ~= "number" or IsSecret(count) or count < 1 or count > 10 then
@@ -546,7 +678,7 @@ function R.ApplyPosition()
 end
 
 -- Cursor position in UIParent units.
-local function Cursor()
+function R.Cursor()
     local cx, cy = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
     return cx / scale, cy / scale
@@ -558,7 +690,7 @@ function R.StartDrag()
     if not (left and right and top) then
         return
     end
-    local cx, cy = Cursor()
+    local cx, cy = R.Cursor()
     R.drag = { dx = (left + right) / 2 * s.scale - cx, dy = top * s.scale - cy }
     if s.keepCentred then
         R.guide:Show()
@@ -571,7 +703,7 @@ function R.DragUpdate()
         return
     end
     local s = R.Settings()
-    local cx, cy = Cursor()
+    local cx, cy = R.Cursor()
     s.x = s.keepCentred and UIParent:GetWidth() / 2 or (cx + R.drag.dx)
     s.y = cy + R.drag.dy
     R.ApplyPosition()
@@ -593,14 +725,20 @@ function R.ResetPosition()
     R.ApplyPosition()
 end
 
+-- Unlocked while the options page is open (not saved).
 function R.SetUnlocked(unlocked)
-    local s = R.Settings()
-    s.unlocked = unlocked and true or false
+    R.unlocked = unlocked and true or false
     if R.frame then
-        R.frame:EnableMouse(s.unlocked)
-        R.unlockTint:SetShown(s.unlocked)
-        R.unlockLabel:SetShown(s.unlocked)
-        if not s.unlocked then
+        if R.frame.SetPassThroughButtons then
+            if R.unlocked then
+                pcall(R.frame.SetPassThroughButtons, R.frame)
+            else
+                pcall(R.frame.SetPassThroughButtons, R.frame, "LeftButton")
+            end
+        end
+        R.unlockTint:SetShown(R.unlocked)
+        R.unlockLabel:SetShown(R.unlocked)
+        if not R.unlocked then
             R.StopDrag()
         end
     end
@@ -899,7 +1037,7 @@ function R.ShouldShow()
     if not (s.enabled and R.frame and ns.IsDruid and ns.IsDruid()) then
         return false
     end
-    if s.unlocked then
+    if R.unlocked then
         return true -- always visible while you're placing it
     end
     if s.visibility == "hidden" then
@@ -963,7 +1101,8 @@ function R.Refresh()
     R.UpdateMana()
     R.UpdatePower()
     R.UpdateCombo()
-    R.SetUnlocked(R.Settings().unlocked)
+    R.SetUnlocked(R.unlocked)
+    R.UpdateClearcasting()
 end
 
 local events = CreateFrame("Frame")
@@ -972,7 +1111,7 @@ for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "UNIT_HEALTH",
     "PLAYER_REGEN_ENABLED", "PLAYER_TARGET_CHANGED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
     "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP",
-    "UNIT_SPELLCAST_SUCCEEDED" }) do
+    "UNIT_SPELLCAST_SUCCEEDED", "UNIT_AURA", "SPELL_UPDATE_USABLE", "SPELLS_CHANGED" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
@@ -987,10 +1126,16 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
         R.UpdateVisibility()
         return
     end
+    if event == "SPELL_UPDATE_USABLE" or event == "SPELLS_CHANGED" then
+        R.UpdateClearcasting()
+        return
+    end
     if unit ~= "player" then
         return
     end
-    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+    if event == "UNIT_AURA" then
+        R.UpdateClearcasting()
+    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
         R.UpdateHealth()
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER" then
         if powerToken == "MANA" then
@@ -1011,6 +1156,7 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
         R.StartCast(true, spellID)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         R.SpellSucceeded(spellID)
+        R.UpdateClearcasting()
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         R.ChannelStopped()
     elseif event == "UNIT_SPELLCAST_STOP" then
@@ -1025,11 +1171,27 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
     end
 end)
 
+function R.DebugClearcasting()
+    local active, how = R.ClearcastingActive()
+    print("|cff55ff55DruidBar Clearcasting|r active:", tostring(active), how and ("(" .. how .. ")") or "")
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, CLEARCASTING)
+        print("  aura lookup:", ok and (aura ~= nil and "found" or "not found") or ("error: " .. tostring(aura)),
+            "| in combat:", tostring(UnitAffectingCombat("player")))
+    end
+    for _, spell in ipairs(R.PROBES) do
+        local cost = R.ProbeCost(spell)
+        if cost ~= nil then
+            print("  " .. spell .. " costs", cost, "| normally", tostring(R.normalCost and R.normalCost[spell]))
+        end
+    end
+end
+
 function R.Debug()
     local s = R.Settings()
     local powerType, token = PowerType()
     print("|cff55ff55DruidBar resource display|r enabled:", tostring(s.enabled), "shown:",
-        tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(s.unlocked))
+        tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(R.unlocked))
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",
         "| combo points:", s.comboStyle, tostring(R.ShowsCombo()), "| casting:", tostring(R.casting ~= nil),
@@ -1176,26 +1338,49 @@ local function Slider(name, anchor, label, key, minV, maxV, step, asPercent, x, 
     return slider
 end
 
+-- Left column, at fixed positions (anchoring each widget to the one above drifted, because
+-- dropdowns carry their own left padding).
+local COLUMN_X = 16
+local columnY = -64
+local function Place(widget, height, x)
+    widget:ClearAllPoints()
+    widget:SetPoint("TOPLEFT", panel, "TOPLEFT", COLUMN_X + (x or 0), columnY)
+    columnY = columnY - height
+end
+local function PlaceDropdown(dd)
+    if dd.caption then
+        Place(dd.caption, 16, 4)
+        Place(dd, 38, -14) -- the template's art starts ~16px in
+    else
+        Place(dd, 32, 4)
+    end
+end
+
 local enabledBox = Checkbox("DruidBarResourceEnabled", subtitle, "Show the resource display", "enabled")
-local visibilityDrop = Dropdown("DruidBarResourceVisibility", enabledBox, "Visibility", "visibility", R.VISIBILITY)
-local textDrop = Dropdown("DruidBarResourceText", visibilityDrop, "Text", "text", R.TEXT)
-local styleDrop = Dropdown("DruidBarResourceStyle", textDrop, "Bar style", "style", R.STYLE)
-local comboDrop = Dropdown("DruidBarResourceCombo", styleDrop, "Combo points (Cat Form)", "comboStyle", R.COMBO)
-local centredBox = Checkbox("DruidBarResourceCentred", comboDrop, "Keep centred (dragging only moves it up and down)",
-    "keepCentred")
-centredBox:SetPoint("TOPLEFT", comboDrop, "BOTTOMLEFT", 14, -6)
-local unlockBox = Checkbox("DruidBarResourceUnlocked", centredBox, "Unlock to move (drag it)", "unlocked")
-local castBox = Checkbox("DruidBarResourceCast", unlockBox, "Cast bar below mana in caster form", "castBar")
-local castLockedBox = Checkbox("DruidBarResourceCastLocked", castBox,
-    "Keep the cast bar's row in place (not just while casting)", "castLocked")
-local castLingerBox = Checkbox("DruidBarResourceCastLinger", castLockedBox,
-    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger")
+Place(enabledBox, 34)
+PlaceDropdown(Dropdown("DruidBarResourceVisibility", enabledBox, "Visibility", "visibility", R.VISIBILITY))
+PlaceDropdown(Dropdown("DruidBarResourceText", enabledBox, "Text", "text", R.TEXT))
+PlaceDropdown(Dropdown("DruidBarResourceStyle", enabledBox, "Bar style", "style", R.STYLE))
+PlaceDropdown(Dropdown("DruidBarResourceCombo", enabledBox, "Combo points (Cat Form)", "comboStyle", R.COMBO))
+columnY = columnY - 4
+Place(Checkbox("DruidBarResourceCentred", enabledBox, "Keep centred (dragging only moves it up and down)",
+    "keepCentred"), 28)
+Place(Checkbox("DruidBarResourceClearcast", enabledBox, "Glow while Omen of Clarity is up", "clearcastGlow"), 28)
+Place(Checkbox("DruidBarResourceCast", enabledBox, "Cast bar below mana in caster form", "castBar"), 28)
+Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
+    "Keep the cast bar's row in place (not just while casting)", "castLocked"), 28)
+Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
+    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger"), 36)
 
 local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
 resetButton:SetSize(200, 22)
-resetButton:SetPoint("TOPLEFT", castLingerBox, "BOTTOMLEFT", 4, -12)
+Place(resetButton, 30, 4)
 resetButton:SetText("Reset to default position")
 resetButton:SetScript("OnClick", function() R.ResetPosition() end)
+
+local moveNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+Place(moveNote, 20, 4)
+moveNote:SetText("While this page is open, drag the display to move it. Right-click it to come back here.")
 
 local sizeSlider = Slider("DruidBarResourceScale", subtitle, "Size", "scale", 0.5, 2.0, 0.05, true, 340, -40)
 local widthSlider = Slider("DruidBarResourceWidth", sizeSlider, "Bar width", "width", 80, 400, 5)
@@ -1208,6 +1393,10 @@ panel:SetScript("OnShow", function()
     for _, refresh in ipairs(widgets) do
         refresh()
     end
+    R.SetUnlocked(true)
+end)
+panel:SetScript("OnHide", function()
+    R.SetUnlocked(false)
 end)
 
 if Settings and Settings.RegisterCanvasLayoutSubcategory and ns.settingsCategory then

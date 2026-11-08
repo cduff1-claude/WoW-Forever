@@ -260,17 +260,21 @@ W.target = false
 W.Fire("PLAYER_TARGET_CHANGED")
 W.Check(not f:IsShown(), "hidden without one")
 s.visibility = "hidden"
-s.unlocked = true
-R.Refresh()
-W.Check(f:IsShown(), "shown while unlocked, even when set to hidden (so you can place it)")
+R.panel:GetScript("OnShow")(R.panel)
+W.Check(f:IsShown(), "shown while the options are open, even when set to hidden (so you can place it)")
+R.panel:GetScript("OnHide")(R.panel)
+W.Check(not f:IsShown(), "hidden again when the options close")
 s.visibility = "always"
-s.unlocked = false
 R.Refresh()
 W.Check(f:IsShown(), "always mode: shown")
 
 print("Dragging with Keep centred")
-R.SetUnlocked(true)
-W.Check(R.unlockTint:IsShown(), "unlocked: highlighted")
+W.Check(not R.unlocked, "locked while the options are closed")
+f:GetScript("OnMouseDown")(f, "LeftButton")
+W.Check(R.drag == nil, "left-drag does nothing while locked")
+f:GetScript("OnMouseUp")(f, "LeftButton")
+R.panel:GetScript("OnShow")(R.panel)
+W.Check(R.unlocked and R.unlockTint:IsShown(), "opening the options unlocks it (highlighted)")
 local centreX = UIParent:GetWidth() / 2
 W.Near((f:GetLeft() + f:GetRight()) / 2, centreX, "starts centred")
 local startTop = f:GetTop()
@@ -299,8 +303,70 @@ R.ResetPosition()
 local dx, dy = R.DefaultPosition()
 W.Near(f:GetTop(), dy, "reset puts it back at the default height")
 s.keepCentred = true
-R.SetUnlocked(false)
-W.Check(not R.unlockTint:IsShown(), "locked again")
+R.panel:GetScript("OnHide")(R.panel)
+W.Check(not R.unlocked and not R.unlockTint:IsShown(), "closing the options locks it")
+
+print("Right-click opens the options")
+local opened = 0
+local realOpen = Settings.OpenToCategory
+Settings.OpenToCategory = function() opened = opened + 1 end
+local fx, fy = f:GetCenter()
+W.cursor = { fx, fy }
+f:GetScript("OnMouseDown")(f, "RightButton")
+f:GetScript("OnMouseUp")(f, "RightButton")
+W.Check(opened == 1, "right-click opens the options")
+f:GetScript("OnMouseDown")(f, "RightButton")
+W.cursor = { fx + 40, fy }
+f:GetScript("OnMouseUp")(f, "RightButton")
+W.Check(opened == 1, "right-drag (turning the camera) doesn't")
+Settings.OpenToCategory = realOpen
+W.Check(DruidForeverManabarPlusDB.resource.unlocked == nil, "unlocked isn't saved")
+
+print("Omen of Clarity glow")
+local auraUp = false
+C_UnitAuras.GetPlayerAuraBySpellID = function(id)
+    if id == 16870 and auraUp then return { spellId = 16870 } end
+end
+local function Glowing(bar) return bar.procGlow.frame:IsShown() and bar.procGlow.pulse:IsPlaying() end
+W.powerType, W.formID = 3, 1
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(not Glowing(R.mana) and not Glowing(R.power), "no glow without the proc")
+auraUp = true
+W.Fire("UNIT_AURA", "player")
+W.Check(Glowing(R.mana) and Glowing(R.power), "proc: mana and energy bars glow (aura seen)")
+local glowFlash = R.mana.procGlow.flash
+W.Near(glowFlash:GetWidth(), R.mana:GetWidth(), "flash covers the bar")
+auraUp = false
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "claw-1", 1082)
+W.Check(not Glowing(R.mana) and not Glowing(R.power), "proc spent: glow stops at once")
+print("  ... when the client hides the aura in combat, via spell costs")
+C_UnitAuras.GetPlayerAuraBySpellID = function() error("Auras cannot be accessed when secret") end
+W.Fire("UNIT_AURA", "player")
+W.Check(not Glowing(R.power), "normal costs: no glow")
+W.spellCosts["Claw"] = { { type = 3, name = "ENERGY", cost = 0 } }
+W.Fire("UNIT_AURA", "player")
+W.Check(Glowing(R.power), "Claw suddenly free: glow")
+local active, how = R.ClearcastingActive()
+W.Check(how == "cost of Claw", "told by Claw's cost (got " .. tostring(how) .. ")")
+W.spellCosts["Claw"] = W.spellCosts[1082]
+W.Fire("SPELL_UPDATE_USABLE")
+W.Check(not Glowing(R.power), "cost back: glow stops")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+auraUp = true
+C_UnitAuras.GetPlayerAuraBySpellID = function(id) if id == 16870 and auraUp then return {} end end
+W.Fire("UNIT_AURA", "player")
+W.Check(Glowing(R.mana) and not Glowing(R.power), "caster form: only the mana bar (no energy bar showing)")
+s.clearcastGlow = false
+W.Fire("UNIT_AURA", "player")
+W.Check(not Glowing(R.mana), "option off: no glow")
+s.clearcastGlow = true
+auraUp = false
+W.Fire("UNIT_AURA", "player")
+local okDebug = pcall(W.Slash, "/druidbar clearcasting")
+W.Check(okDebug, "/druidbar clearcasting runs without errors")
 
 print("Shaded style, and the Claw orange still lines up after the switch")
 s.style = "shaded"
@@ -392,9 +458,25 @@ W.Near(R.health:GetWidth(), 300, "width slider resizes the bars")
 W.Near(R.mana:GetWidth(), 300, "all bars together")
 local ok = pcall(W.Slash, "/druidbar resource")
 W.Check(ok, "/druidbar resource runs without errors")
-ok = pcall(W.Slash, "/druidbar unlock")
-W.Check(ok and s.unlocked, "/druidbar unlock unlocks it")
-pcall(W.Slash, "/druidbar lock")
-W.Check(not s.unlocked, "/druidbar lock locks it")
+print("Options layout: the left column lines up")
+R.panel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 200, -100) -- the game places it when the options open
+local function LeftOf(name) return _G[name]:GetLeft() end
+local column = LeftOf("DruidBarResourceEnabled")
+for _, name in ipairs({ "DruidBarResourceCentred", "DruidBarResourceClearcast", "DruidBarResourceCast",
+    "DruidBarResourceCastLocked", "DruidBarResourceCastLinger" }) do
+    W.Near(LeftOf(name), column, name .. " lines up with the first tick box")
+end
+local ddLeft = LeftOf("DruidBarResourceVisibility")
+for _, name in ipairs({ "DruidBarResourceText", "DruidBarResourceStyle", "DruidBarResourceCombo" }) do
+    W.Near(LeftOf(name), ddLeft, name .. " lines up with the first dropdown")
+end
+local tops = {}
+for _, name in ipairs({ "DruidBarResourceEnabled", "DruidBarResourceVisibility", "DruidBarResourceText",
+    "DruidBarResourceStyle", "DruidBarResourceCombo", "DruidBarResourceCentred", "DruidBarResourceReset" }) do
+    tops[#tops + 1] = _G[name]:GetTop()
+end
+local ordered = true
+for i = 2, #tops do if not (tops[i] < tops[i - 1]) then ordered = false end end
+W.Check(ordered, "rows run top to bottom without overlapping")
 
 W.Done()
