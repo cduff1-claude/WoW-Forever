@@ -33,7 +33,7 @@ local ART = "Interface\\AddOns\\DruidFrame\\"
 local CAST_COLOUR = { 1.0, 0.7, 0.0 }
 local COMBO_COLOUR = { 0.90, 0.13, 0.04 }
 -- Seconds the last spell's name stays; then the name fades, then the whole bar.
-local LINGER_TIME, LINGER_FADE = 5, 0.5
+local LINGER_TIME, LINGER_FADE = 3, 0.5
 local SEGMENT_GAP = 2                    -- between combo bar segments
 local GLOW_SIZE = 2                      -- full-combo glow, drawn just outside each segment
 local GLOW_COLOUR = { 1.0, 0.85, 0.2 }   -- DruidSequence's glow colour
@@ -1458,7 +1458,7 @@ Place(Checkbox("DruidBarResourceCast", enabledBox, "Cast bar below mana in caste
 Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
     "Keep the cast bar's row in place (not just while casting)", "castLocked"), 28)
 Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
-    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger"), 28)
+    "Show the last spell's name and cost for 3 seconds (instant spells too)", "castLinger"), 28)
 Place(Checkbox("DruidBarResourceBuffs", enabledBox,
     "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 28)
 Place(Checkbox("DruidBarResourceBuffsPvP", enabledBox,

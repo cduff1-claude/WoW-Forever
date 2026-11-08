@@ -27,7 +27,7 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
   ("Healing Touch (55)"), a spark riding its edge while casting and a flash when the spell goes off. Options (both
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
-  5 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
+  3 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
   held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
 - Text: current amount centred (default), or current on the left and max on the right (energy and rage just
   current), current only, percent, current and percent, or none.

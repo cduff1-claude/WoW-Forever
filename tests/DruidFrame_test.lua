@@ -260,7 +260,7 @@ W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "half full after 
 local sx = R.cast.spark:GetCenter()
 W.Near(sx, R.cast:GetLeft() + 0.5 * s.width, "spark rides the fill's edge", 1)
 
-print("Spell goes off: name and cost stay for 5 seconds, then fade")
+print("Spell goes off: name and cost stay for 3 seconds, then fade")
 local plays = R.cast.flashAnim._plays
 W.casting = nil
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", HEALING_TOUCH)
@@ -269,10 +269,10 @@ W.Check(Shown(R.cast) and R.cast.centre._text == "Healing Touch (55)", "name and
 W.Near(R.cast:GetStatusBarTexture():GetWidth(), s.width, "bar shown full")
 W.Check(R.cast.flashAnim._plays == plays + 1, "finish flash played")
 W.Check(not R.cast.spark:IsShown(), "spark gone")
-W.Advance(4.9)
-W.Check(R.cast.centre:GetAlpha() == 1, "still fully shown just before 5 seconds")
+W.Advance(2.9)
+W.Check(R.cast.centre:GetAlpha() == 1, "still fully shown just before 3 seconds")
 W.Advance(0.35)
-W.Check(R.cast.centre._alpha and R.cast.centre._alpha < 1 and R.cast.centre._alpha > 0, "name fading after 5 seconds")
+W.Check(R.cast.centre._alpha and R.cast.centre._alpha < 1 and R.cast.centre._alpha > 0, "name fading after 3 seconds")
 W.Check(R.cast:GetAlpha() == 1, "the bar itself still fully shown")
 W.Advance(0.4)
 W.Check(R.cast.centre:GetAlpha() == 0, "name gone")
@@ -291,8 +291,8 @@ W.Check(R.cast.centre._text == "Spell 774 (25)", "instant spell shown with its c
 W.Advance(2)
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-2", HEALING_TOUCH)
 W.Check(R.cast.centre._text == "Spell 5185 (55)", "a new spell replaces it")
-W.Advance(4.9)
-W.Check(R.cast.centre._text ~= "", "and gets its own 5 seconds")
+W.Advance(2.9)
+W.Check(R.cast.centre._text ~= "", "and gets its own 3 seconds")
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-3", REJUV)
 W.powerType, W.formID = 3, 1
 W.Fire("UPDATE_SHAPESHIFT_FORM")
@@ -325,7 +325,7 @@ W.Check(not Shown(R.cast), "row not held in place with that option off")
 W.Near(f:GetHeight(), s.healthHeight + s.padding + s.powerHeight, "frame back to two rows")
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-5", REJUV)
 W.Check(Shown(R.cast), "but appears for a lingering instant")
-W.Advance(6.1)
+W.Advance(4.1)
 W.Check(not Shown(R.cast), "and goes when it fades")
 s.castLocked = true
 R.Refresh()
