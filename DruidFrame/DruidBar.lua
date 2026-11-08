@@ -32,17 +32,16 @@ local TRACKED_FORMS = {
 DruidForeverManabarPlusDB = DruidForeverManabarPlusDB or {}
 
 local DEFAULTS = {
-    enablePlayerFrame = true,       -- druid bar under the Player Frame + caster shading on its mana bar
-    enablePersonalResource = true,  -- shading on the Personal Resource Display's mana bar
+    -- Player Frame features: off by default, DruidFrame's resource display replaces them.
+    enablePlayerFrame = false,      -- druid bar under the Player Frame + caster shading on its mana bar
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
-    clawShade = true,               -- Cat Form: shade the energy Claw costs on the Player Frame / PRD energy bar
+    clawShade = true,               -- Cat Form: energy bars turn orange when you can't afford Claw
     -- 5-second-rule marker on Blizzard's own mana bars (what ForeverFiveSecondRule used to do)
-    fsrPlayerFrame = true,          -- the Player Frame mana bar, while it shows mana
-    fsrPersonalResource = true,     -- the Personal Resource Display's mana bar
+    fsrPlayerFrame = false,         -- the Player Frame mana bar, while it shows mana
     fsrText = true,                 -- countdown number beside the marker
     fsrWidth = 2,                   -- marker width in pixels (1-6)
-    prdMatchColours = true,         -- tint the PRD's bars to the Player Frame bars' colours
     resource = {},                  -- the resource display's own settings (Resource.lua fills them in)
+    settingsVersion = 0,
 }
 
 -- Fixed look of the druid bar.
@@ -62,7 +61,14 @@ local function EnsureDB()
             DruidForeverManabarPlusDB[key] = value
         end
     end
-    return DruidForeverManabarPlusDB
+    -- Version 1 (DruidFrame): stop touching the Player Frame (the resource display replaces it).
+    local db = DruidForeverManabarPlusDB
+    if db.settingsVersion < 1 then
+        db.settingsVersion = 1
+        db.enablePlayerFrame = false
+        db.fsrPlayerFrame = false
+    end
+    return db
 end
 
 local db = EnsureDB()
@@ -259,7 +265,7 @@ local PLAYER_FRAME_COLORS = {
     darkRed = { 0.7, 0.05, 0.05, 0.92 },
 }
 
--- Overlays on Blizzard's own mana bars (Player Frame, Personal Resource Display), keyed by bar.
+-- Overlays on the Player Frame's mana bar and DruidFrame's own bars, keyed by bar.
 local blizzardOverlays = {}
 
 -- Cat Form energy shading for Claw. Kept in one table to save top-level locals; the
@@ -267,12 +273,11 @@ local blizzardOverlays = {}
 -- 5-second-rule markers on Blizzard's mana bars; filled in further down.
 local FSR = { targets = {}, elapsed = 0 }
 
--- Personal Resource Display colours matched to the Player Frame; filled in further down.
 -- Colours measured from the Player Frame's bars in game. Its bar art darkens towards the
 -- left, so these come from the brighter right-hand part. Rage was only seen at 10% (the
 -- dark left end, 153/255 red), so its value is an estimate between that and Blizzard's 252.
--- A power with no entry here keeps Blizzard's colour.
-local Look = { original = {}, hooked = {}, busy = false,
+-- The resource display (Resource.lua) uses these.
+local Look = {
     COLOURS = {
         HEALTH = { 0.40, 0.73, 0.17 },
         MANA = { 0.00, 0.34, 0.73 },
@@ -711,9 +716,9 @@ local function RefreshShiftCost()
     RefreshTravelCost()
 end
 
--- Copies of the shift-cost shade/line on Blizzard's own mana bars: the Player Frame bar
--- whenever it shows mana, and the Personal Resource Display's mana bar(s). Both use
--- Blizzard's blue texture, so they share the translucent PLAYER_FRAME_COLORS washes.
+-- Copies of the shift-cost shade/line on other mana bars: the Player Frame bar whenever it
+-- shows mana (if enabled), and DruidFrame's mana bar. They share the translucent
+-- PLAYER_FRAME_COLORS washes.
 local function EnsureBarOverlay(bar)
     local overlay = blizzardOverlays[bar]
     if overlay then
@@ -739,20 +744,8 @@ local function SetBarOverlayActive(overlay, active)
     end
 end
 
--- Personal Resource Display (Midnight-style, confirmed from the ForeverResourceBar addon):
--- PersonalResourceDisplayFrame with HealthBarsContainer.healthBar, PowerBar and
--- AlternatePowerBar. PowerBar shows the primary power, so it is mana in caster, Travel and
--- Aquatic Form; in Cat/Bear the AlternatePowerBar is the in-form mana bar.
-local prdHooked = false
 local RefreshBlizzardOverlays
 local UpdateManaBarLater
-
-local function GetPersonalResourceFrame()
-    local frame = _G.PersonalResourceDisplayFrame
-    if frame and type(frame) == "table" and frame.GetObjectType then
-        return frame
-    end
-end
 
 local function PrimaryPowerIsMana()
     local powerType = UnitPowerType("player")
@@ -760,55 +753,6 @@ local function PrimaryPowerIsMana()
         return nil
     end
     return powerType == MANA_POWER_TYPE
-end
-
--- Returns the PRD bar currently showing mana (or nil), and a short reason for /druidbar prd.
-local function GetPersonalResourceManaBar()
-    local prd = GetPersonalResourceFrame()
-    if not prd then
-        return nil, "PersonalResourceDisplayFrame not found"
-    end
-
-    local primaryIsMana = PrimaryPowerIsMana()
-    if primaryIsMana == nil then
-        return nil, "power type unreadable"
-    end
-
-    local bar = primaryIsMana and prd.PowerBar or prd.AlternatePowerBar
-    local key = primaryIsMana and "PowerBar" or "AlternatePowerBar"
-    if not (bar and bar.GetStatusBarTexture) then
-        return nil, key .. " not found"
-    end
-    return bar, key
-end
-
--- Blizzard repaints these bars (and may swap their fill texture) from these methods, so
--- re-check and re-anchor after them. Hooked lazily: the PRD can load after us.
-local function HookPersonalResourceFrame()
-    if prdHooked then
-        return
-    end
-    local prd = GetPersonalResourceFrame()
-    if not prd then
-        return
-    end
-    prdHooked = true
-
-    local function OnRepaint()
-        if not isDruid then
-            return
-        end
-        if Look.ApplyAll then
-            Look.ApplyAll()
-        end
-        RefreshBlizzardOverlays(true)
-        UpdateManaBarLater()
-    end
-    for _, method in ipairs({ "UpdatePowerBar", "UpdateAlternatePowerBar" }) do
-        if type(prd[method]) == "function" then
-            hooksecurefunc(prd, method, OnRepaint)
-        end
-    end
 end
 
 local function PlayerFrameBarShowsMana()
@@ -828,14 +772,6 @@ RefreshBlizzardOverlays = function(reanchor)
         local resourceBar = GetPlayerResourceBar()
         if resourceBar and resourceBar.GetStatusBarTexture then
             wanted[resourceBar] = true
-        end
-    end
-
-    if isDruid and db.enablePersonalResource then
-        HookPersonalResourceFrame()
-        local bar = GetPersonalResourceManaBar()
-        if bar then
-            wanted[bar] = true
         end
     end
 
@@ -873,8 +809,8 @@ local function CountActiveOverlays()
     return count
 end
 
--- Cat Form: shade the part of the energy bar that Claw costs, on the Player Frame's power
--- bar and the Personal Resource Display's PowerBar (both show energy in Cat Form). Energy
+-- Cat Form: shade the part of the energy bar that Claw costs, on DruidFrame's energy bar and
+-- (if enabled) the Player Frame's power bar. Energy
 -- is secret like mana, so this uses the same step bar / clip trick as the shift shade:
 --   step : range [cost - 1, cost], value = energy, so it is full-width with enough energy.
 --   edge : value = cost over max energy; its fill edge marks the end of the Claw section.
@@ -969,13 +905,6 @@ function Claw.RefreshOverlays(reanchor)
                 wanted[bar] = true
             end
         end
-        if db.enablePersonalResource then
-            local prd = GetPersonalResourceFrame()
-            local bar = prd and prd.PowerBar
-            if bar and bar.GetStatusBarTexture then
-                wanted[bar] = true
-            end
-        end
         local ownEnergy = ns.Resource and ns.Resource.EnergyBar()
         if ownEnergy then
             wanted[ownEnergy] = true
@@ -1026,8 +955,8 @@ function Claw.Update()
 end
 
 -- 5-second-rule markers on Blizzard's own mana bars (merged in from ForeverFiveSecondRule):
--- the Player Frame mana bar while it shows mana, and the Personal Resource Display's PowerBar
--- (caster) or AlternatePowerBar (Cat/Bear). They follow the same timer as the druid bar's
+-- DruidFrame's mana bar, and (if enabled) the Player Frame mana bar while it shows mana.
+-- They follow the same timer as the druid bar's
 -- marker (fsrEndTime), and only tick while there is a timer and a bar to draw on.
 FSR.frame = CreateFrame("Frame")
 
@@ -1065,13 +994,6 @@ function FSR.WantedBars()
     if db.fsrPlayerFrame and primaryIsMana then
         local bar = GetPlayerResourceBar()
         if bar then
-            bars[#bars + 1] = bar
-        end
-    end
-    if db.fsrPersonalResource then
-        local prd = GetPersonalResourceFrame()
-        local bar = prd and (primaryIsMana and prd.PowerBar or prd.AlternatePowerBar)
-        if bar and bar.GetObjectType then
             bars[#bars + 1] = bar
         end
     end
@@ -1142,147 +1064,6 @@ function FSR.Refresh()
     end
 end
 
--- Personal Resource Display colours. Blizzard draws the PRD's bars in flat, bright colours;
--- the Player Frame's are softer. With "Match the Player Frame's colours" on, each PRD bar
--- keeps its own full-size texture but is tinted to the Player Frame's colour for the same
--- thing: health, the current power (energy in Cat), and mana for the in-form mana bar.
--- (Copying the Player Frame's bar art instead doesn't work: that art has its own border
--- built in, so on the PRD the fill shrank inside a thick black frame.)
-function Look.PlayerHealthBar()
-    local content = PlayerFrame and PlayerFrame.PlayerFrameContent
-    local main = content and content.PlayerFrameContentMain
-    local container = main and main.HealthBarsContainer
-    local bar = (container and (container.HealthBar or container.healthBar)) or _G.PlayerFrameHealthBar
-    if bar and bar.GetStatusBarTexture then
-        return bar
-    end
-end
-
--- A bar's texture and colour, for /druidbar colours.
-function Look.Read(bar)
-    local texture = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
-    if not texture then
-        return nil
-    end
-    local look = {}
-    local atlas = texture.GetAtlas and texture:GetAtlas()
-    if type(atlas) == "string" and atlas ~= "" and not IsSecretValue(atlas) then
-        look.atlas = atlas
-    else
-        local file = texture.GetTexture and texture:GetTexture()
-        if file ~= nil and not IsSecretValue(file) then
-            look.file = file
-        end
-    end
-    local r, g, b, a = bar:GetStatusBarColor()
-    if type(r) ~= "number" or IsSecretValue(r) then
-        r, g, b, a = 1, 1, 1, 1
-    end
-    look.color = { r, g, b, a or 1 }
-    return look
-end
-
-function Look.PowerToken()
-    local _, token = UnitPowerType("player")
-    if type(token) == "string" and not IsSecretValue(token) then
-        return token
-    end
-end
-
-function Look.Apply(bar, colour)
-    if not (bar and colour and bar.SetStatusBarColor) then
-        return
-    end
-    if not Look.original[bar] then
-        local r, g, b, a = bar:GetStatusBarColor()
-        if type(r) == "number" and not IsSecretValue(r) then
-            Look.original[bar] = { r, g, b, a or 1 }
-        end
-    end
-    Look.busy = true
-    bar:SetStatusBarColor(colour[1], colour[2], colour[3], colour[4] or 1)
-    Look.busy = false
-end
-
-function Look.Restore()
-    for bar, look in pairs(Look.original) do
-        Look.Apply(bar, look)
-    end
-    wipe(Look.original)
-end
-
--- When Blizzard repaints a bar (ours or the Player Frame's), apply again just after.
-function Look.Later()
-    if Look.pending then
-        return
-    end
-    Look.pending = true
-    local function run()
-        Look.pending = false
-        Look.ApplyAll()
-    end
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0.05, run)
-    else
-        run()
-    end
-end
-
-function Look.Hook(bar)
-    if not bar or Look.hooked[bar] or type(bar.SetStatusBarColor) ~= "function" then
-        return
-    end
-    Look.hooked[bar] = true
-    local function changed()
-        if not Look.busy then
-            -- Blizzard just painted it: remember its colour for turning the option off.
-            local r, g, b, alpha = bar:GetStatusBarColor()
-            if type(r) == "number" and not IsSecretValue(r) then
-                Look.original[bar] = { r, g, b, alpha or 1 }
-            end
-            Look.Later()
-        end
-    end
-    hooksecurefunc(bar, "SetStatusBarColor", changed)
-    hooksecurefunc(bar, "SetStatusBarTexture", changed)
-end
-
-function Look.ApplyAll()
-    if not (isDruid and db.prdMatchColours) then
-        if next(Look.original) then
-            Look.Restore()
-        end
-        return
-    end
-    local prd = GetPersonalResourceFrame()
-    if not prd then
-        return
-    end
-    local container = prd.HealthBarsContainer
-    local health = container and container.healthBar
-    Look.Hook(health)
-    Look.Apply(health, Look.COLOURS.HEALTH)
-
-    -- A power the table has no colour for (rage) keeps Blizzard's colour.
-    local token = Look.PowerToken()
-    Look.Hook(prd.PowerBar)
-    local colour = token and Look.COLOURS[token]
-    if colour then
-        Look.Apply(prd.PowerBar, colour)
-    end
-    Look.Hook(prd.AlternatePowerBar)
-    Look.Apply(prd.AlternatePowerBar, Look.COLOURS.MANA)
-end
-
-function Look.Describe(label, bar)
-    local look = Look.Read(bar)
-    if not look then
-        print("  " .. label .. ":", bar and "no texture" or "not found")
-        return
-    end
-    print(string.format("  %s: %s %s  colour %.2f %.2f %.2f %.2f", label, look.atlas and "atlas" or "file",
-        tostring(look.atlas or look.file), look.color[1], look.color[2], look.color[3], look.color[4]))
-end
 
 -- Mana cost of the spell currently being cast, like the darker "cost prediction" section
 -- Blizzard draws on the Player Frame bar while casting.
@@ -1360,8 +1141,7 @@ local function UpdateManaBar()
     Claw.Update()
 end
 
--- Called from Blizzard's PRD repaint hooks; deferred a frame so it runs after Blizzard has
--- finished updating the bar.
+-- Deferred a frame, so it runs after Blizzard has finished updating its bars.
 local updateQueued = false
 UpdateManaBarLater = function()
     if updateQueued then
@@ -1483,7 +1263,6 @@ local function UpdateFormState()
         manaText:ClearText()
     end
     FSR.Refresh()
-    Look.Later()
 end
 
 ns.OverlaysChanged = function()
@@ -1573,8 +1352,8 @@ formWatcher:SetScript("OnUpdate", function(_, elapsed)
         overlayRescanElapsed = 0
         UpdateFormState()
     else
-        -- The Personal Resource Display can appear (e.g. entering combat) or recycle its
-        -- bars without a form change, so look for its mana bar again now and then.
+        -- Blizzard can swap the Player Frame's bar texture without a form change, so look
+        -- for the bars again now and then.
         overlayRescanElapsed = overlayRescanElapsed + FORM_POLL_INTERVAL
         if overlayRescanElapsed >= OVERLAY_RESCAN_INTERVAL then
             overlayRescanElapsed = 0
@@ -1635,7 +1414,7 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         UpdateFormState()
 
         if isDruid then
-            print("|cff00ff00DruidBar loaded.|r Right-click the mana bar or type |cffffffff/druidbar|r for options.")
+            print("|cff00ff00DruidFrame loaded.|r Type |cffffffff/druidframe|r for options.")
         end
         return
     end
@@ -1756,26 +1535,23 @@ local panel = CreateFrame("Frame", "DruidForeverManabarPlusOptionsPanel", UIPare
 panel.name = "DruidBar"
 panel:SetSize(460, 490)
 
-local settingsCategory
 
+-- Registered by Options.lua as a page under DruidFrame.
+ns.panels = ns.panels or {}
+ns.panels.bar = panel
 OpenOptions = function()
-    if Settings and Settings.OpenToCategory and settingsCategory then
-        local ok = pcall(Settings.OpenToCategory, settingsCategory:GetID())
-        if not ok then
-            pcall(Settings.OpenToCategory, settingsCategory)
-        end
-    elseif InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory(panel)
+    if ns.OpenOptions then
+        ns.OpenOptions("bar")
     end
 end
 
 local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", 16, -16)
-title:SetText("DruidBar Settings")
+title:SetText("DruidBar")
 
 local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-subtitle:SetText("Right-click the druid mana bar, or type /druidbar, to open this menu.")
+subtitle:SetText("The Player Frame parts (off by default; DruidFrame's display replaces them). /druidbar opens this page.")
 
 local function CreateCheckbox(name, anchor, label, key)
     local checkbox = CreateFrame("CheckButton", name, panel, "InterfaceOptionsCheckButtonTemplate")
@@ -1790,27 +1566,22 @@ local function CreateCheckbox(name, anchor, label, key)
 end
 
 local playerFrameCheckbox = CreateCheckbox("DFMPPlayerFrameCheckbox", subtitle,
-    "Enable for player frame", "enablePlayerFrame")
-local personalResourceCheckbox = CreateCheckbox("DFMPPersonalResourceCheckbox", playerFrameCheckbox,
-    "Enable for Personal Resource Display", "enablePersonalResource")
+    "Druid mana bar under the Player Frame in forms, and shift-cost shading on its mana bar", "enablePlayerFrame")
 
 local note = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", personalResourceCheckbox,
+local aquaticCheckbox = CreateCheckbox("DFMPAquaticCheckbox", playerFrameCheckbox,
     "Use Aquatic Form's cost for the travel section when Travel Form isn't learned", "useAquaticCost")
 
 local clawCheckbox = CreateCheckbox("DFMPClawCheckbox", aquaticCheckbox,
-    "Turn the energy bar orange in Cat Form when you can't afford Claw (on the bars enabled above)", "clawShade")
+    "Turn energy bars orange in Cat Form when you can't afford Claw (DruidFrame's, and the Player Frame's if on)",
+    "clawShade")
 
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-local colourCheckbox = CreateCheckbox("DFMPColourCheckbox", clawCheckbox,
-    "Match the Personal Resource Display's colours to the Player Frame", "prdMatchColours")
-fsrHeader:SetPoint("TOPLEFT", colourCheckbox, "BOTTOMLEFT", 0, -16)
-fsrHeader:SetText("5-second rule on Blizzard's mana bars")
+fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -16)
+fsrHeader:SetText("5-second rule marker (always on DruidFrame's mana bar)")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
-    "Show on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
-local fsrPrdCheckbox = CreateCheckbox("DFMPFsrPrdCheckbox", fsrPlayerCheckbox,
-    "Show on the Personal Resource Display mana bar", "fsrPersonalResource")
-local fsrTextCheckbox = CreateCheckbox("DFMPFsrTextCheckbox", fsrPrdCheckbox,
+    "Also show it on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
+local fsrTextCheckbox = CreateCheckbox("DFMPFsrTextCheckbox", fsrPlayerCheckbox,
     "Show the countdown number", "fsrText")
 
 local fsrWidthSlider = CreateFrame("Slider", "DFMPFsrWidthSlider", panel, "OptionsSliderTemplate")
@@ -1835,23 +1606,16 @@ note:SetText("The mana text follows the Player Frame's Status Text setting (Opti
 
 panel:SetScript("OnShow", function()
     playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
-    personalResourceCheckbox:SetChecked(db.enablePersonalResource)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
-    colourCheckbox:SetChecked(db.prdMatchColours)
     fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
-    fsrPrdCheckbox:SetChecked(db.fsrPersonalResource)
     fsrTextCheckbox:SetChecked(db.fsrText)
     fsrWidthSlider:SetValue(db.fsrWidth or 2)
 end)
 
-if Settings and Settings.RegisterCanvasLayoutCategory then
-    settingsCategory = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-    Settings.RegisterAddOnCategory(settingsCategory)
-    ns.settingsCategory = settingsCategory
-elseif InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(panel)
-end
+-- Unlock DruidFrame's bars while any of its pages is open.
+panel:HookScript("OnShow", function() if ns.PageShown then ns.PageShown(true) end end)
+panel:HookScript("OnHide", function() if ns.PageShown then ns.PageShown(false) end end)
 
 local function PrintDebugInfo()
     local version, build, _, tocVersion = GetBuildInfo()
@@ -1873,7 +1637,7 @@ local function PrintDebugInfo()
         print("Current mana:", tostring(currentMana))
     end
     print("5SR remaining:", string.format("%.2f", remaining),
-        "| Blizzard bar markers: Player Frame", tostring(db.fsrPlayerFrame), "PRD", tostring(db.fsrPersonalResource),
+        "| Player Frame marker:", tostring(db.fsrPlayerFrame),
         "bars now:", tostring(#FSR.WantedBars()))
     RefreshShiftCost()
     if shiftCost == nil then
@@ -1896,7 +1660,7 @@ local function PrintDebugInfo()
         "| bar shows energy:", tostring(Claw.ShowsEnergy()), "| Claw shade:", tostring(db.clawShade))
     local fontPath, fontSize = manaText:GetFont()
     print("Text format:", GetStatusTextFormat(), "font:", tostring(fontPath), "size", tostring(fontSize),
-        "| player frame:", tostring(db.enablePlayerFrame), "PRD:", tostring(db.enablePersonalResource))
+        "| player frame:", tostring(db.enablePlayerFrame))
     if lastManaSpellID and not IsSecretValue(lastManaSpellID) then
         local spellName = nil
         if C_Spell and C_Spell.GetSpellName then
@@ -1915,33 +1679,6 @@ SlashCmdList["DRUIDFOREVERMANABARPLUS"] = function(msg)
 
     if msg == "debug" then
         PrintDebugInfo()
-    elseif msg == "clearcasting" then
-        if ns.Resource then
-            ns.Resource.DebugClearcasting()
-        end
-    elseif msg == "resource" then
-        if ns.Resource then
-            ns.Resource.Debug()
-            ns.Resource.OpenOptions()
-        end
-    elseif msg == "colours" or msg == "colors" then
-        local prd = GetPersonalResourceFrame()
-        local container = prd and prd.HealthBarsContainer
-        print("|cff55ff55DruidBar|r bar textures and colours (match option: " .. tostring(db.prdMatchColours) .. ")")
-        Look.Describe("Player Frame health", Look.PlayerHealthBar())
-        Look.Describe("Player Frame power", GetPlayerResourceBar())
-        Look.Describe("PRD health", container and container.healthBar)
-        Look.Describe("PRD power", prd and prd.PowerBar)
-        Look.Describe("PRD in-form mana", prd and prd.AlternatePowerBar)
-    elseif msg == "prd" then
-        local prd = GetPersonalResourceFrame()
-        local bar, info = GetPersonalResourceManaBar()
-        local overlay = bar and blizzardOverlays[bar]
-        print("|cff55ff55DFMP|r Personal Resource Display:", prd and "found" or "not found",
-            "| shown:", prd and tostring(prd:IsShown()) or "-", "| hooked:", tostring(prdHooked))
-        print("  mana bar:", bar and info or ("none (" .. info .. ")"),
-            "| bar shown:", bar and tostring(bar:IsShown()) or "-",
-            "| overlay:", overlay and overlay.active and "on" or "off")
     elseif msg == "formlog" then
         formLogEnabled = not formLogEnabled
         formLogStart = 0

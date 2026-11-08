@@ -1,4 +1,4 @@
--- DruidBar resource display: our own replacement for Blizzard's Personal Resource Display.
+-- DruidFrame: the resource display, our own replacement for Blizzard's Personal Resource Display.
 --
 -- Rows, top to bottom, all the same width:
 --   health
@@ -1103,6 +1103,10 @@ function R.Refresh()
     R.UpdateCombo()
     R.SetUnlocked(R.unlocked)
     R.UpdateClearcasting()
+    -- A range bar attached to the display follows its size and position.
+    if ns.Range and ns.Range.RefreshLayout then
+        ns.Range.RefreshLayout()
+    end
 end
 
 local events = CreateFrame("Frame")
@@ -1207,8 +1211,9 @@ end
 ----------------------------------------------------------------------------------------------
 
 local panel = CreateFrame("Frame", "DruidBarResourceOptionsPanel", UIParent)
-panel.name = "Resource display"
-panel.parent = "DruidBar"
+panel.name = "DruidFrame"
+ns.panels = ns.panels or {}
+ns.panels.frame = panel -- registered by Options.lua as the top page
 panel:SetSize(620, 600)
 panel:Hide()
 R.panel = panel
@@ -1224,13 +1229,13 @@ end
 
 local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", 16, -16)
-title:SetText("DruidBar resource display")
+title:SetText("DruidFrame")
 local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
 subtitle:SetWidth(580)
 subtitle:SetJustifyH("LEFT")
-subtitle:SetText("Health, mana and energy/rage bars to use instead of Blizzard's Personal Resource Display. " ..
-    "Turn Blizzard's off in its own settings so there aren't two.")
+subtitle:SetText("Health, mana and energy/rage bars to use instead of Blizzard's Personal Resource Display " ..
+    "(turn Blizzard's off so there aren't two). /druidframe opens this page.")
 
 local widgets = {}
 
@@ -1380,7 +1385,7 @@ resetButton:SetScript("OnClick", function() R.ResetPosition() end)
 
 local moveNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 Place(moveNote, 20, 4)
-moveNote:SetText("While this page is open, drag the display to move it. Right-click it to come back here.")
+moveNote:SetText("While DruidFrame's options are open, drag the display to move it. Right-click it to come back here.")
 
 local sizeSlider = Slider("DruidBarResourceScale", subtitle, "Size", "scale", 0.5, 2.0, 0.05, true, 340, -40)
 local widthSlider = Slider("DruidBarResourceWidth", sizeSlider, "Bar width", "width", 80, 400, 5)
@@ -1393,26 +1398,14 @@ panel:SetScript("OnShow", function()
     for _, refresh in ipairs(widgets) do
         refresh()
     end
-    R.SetUnlocked(true)
+    if ns.PageShown then ns.PageShown(true) end
 end)
 panel:SetScript("OnHide", function()
-    R.SetUnlocked(false)
+    if ns.PageShown then ns.PageShown(false) end
 end)
 
-if Settings and Settings.RegisterCanvasLayoutSubcategory and ns.settingsCategory then
-    local sub = Settings.RegisterCanvasLayoutSubcategory(ns.settingsCategory, panel, panel.name)
-    R.settingsCategory = sub
-elseif Settings and Settings.RegisterCanvasLayoutCategory then
-    local category = Settings.RegisterCanvasLayoutCategory(panel, "DruidBar resource display")
-    Settings.RegisterAddOnCategory(category)
-    R.settingsCategory = category
-end
-
 function R.OpenOptions()
-    if Settings and Settings.OpenToCategory and R.settingsCategory then
-        local ok = pcall(Settings.OpenToCategory, R.settingsCategory:GetID())
-        if not ok then
-            pcall(Settings.OpenToCategory, R.settingsCategory)
-        end
+    if ns.OpenOptions then
+        ns.OpenOptions("frame")
     end
 end

@@ -1,8 +1,0 @@
-## Interface: 16001
-## Title: DruidRange
-## Notes: A single druid range bar that changes behaviour with shapeshift form and target. Based on RangeBar.
-## Author: modified from RangeBar
-## Version: 1.0
-## SavedVariables: DruidRangeDB
-
-DruidRange.lua

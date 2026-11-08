@@ -403,6 +403,15 @@ W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
 function UnitExists(unit) if unit == "target" then return W.target end return true end
 function UnitHealth() return W.health end
 function UnitHealthMax() return W.healthMax end
+-- The target: W.target is true/false; W.enemy picks hostile or friendly; W.range[spell] is the
+-- game's range answer (true / false / nil) for that spell name on the target.
+W.enemy, W.targetDead, W.range = true, false, {}
+function UnitIsDead(unit) return unit == "target" and W.targetDead or false end
+function UnitIsDeadOrGhost(unit) return unit == "target" and W.targetDead or false end
+function UnitCanAttack(_, unit) return unit == "target" and W.target and W.enemy or false end
+function UnitIsFriend(_, unit) return unit == "target" and W.target and not W.enemy or false end
+function UnitCanAssist(_, unit) return unit == "target" and W.target and not W.enemy or false end
+function UnitPlayerControlled() return false end
 function UnitCastingInfo() local c = W.casting if c then return c.name, c.name, 136085, c.startMS, c.endMS end end
 function UnitChannelInfo() local c = W.channel if c then return c.name, c.name, 136085, c.startMS, c.endMS end end
 function GetShapeshiftFormID() return W.formID end
@@ -437,7 +446,8 @@ W.spellCosts = {}
 C_Spell = {
     GetSpellPowerCost = function(id) return W.spellCosts[id] end,
     GetSpellName = function(id) return "Spell " .. tostring(id) end,
-    IsSpellInRange = function() return nil end,
+    IsSpellInRange = function(spell) return W.range[spell] end,
+    GetSpellInfo = function(spell) return { name = spell, spellID = 1 } end,
 }
 C_UnitAuras = {}
 C_AddOns = { GetAddOnMetadata = function() return nil end }

@@ -8,6 +8,5 @@ Each addon's folder has its own `README.md` with the details.
 - **[CustomDrashQuestCompleteSound](CustomDrashQuestCompleteSound/README.md)**: Plays a sound and shows a message when a quest is ready to turn in (based on Drash_QuestCompleteSound).
 - **[CustomFormBars](CustomFormBars/README.md)**: Keeps the main action bar on the right page for each druid form, so it can't desync.
 - **[CustomXToLevel](CustomXToLevel/README.md)**: XToLevelNG patched for Forever: mobs, quests and dungeons needed until your next level.
-- **[DruidBar](DruidBar/README.md)**: Druid mana bar with the 5-second rule while in forms, shading the mana a shift would cost and, in Cat Form, the energy Claw costs; also marks the 5-second rule on Blizzard's mana bars, and has its own resource display to use instead of the Personal Resource Display.
-- **[DruidRange](DruidRange/README.md)**: One form-aware range bar for druids, coloured by range to enemy, friendly and dead targets.
+- **[DruidFrame](DruidFrame/README.md)**: Druid resource display (health, mana, energy/rage, cast bar, combo points, Omen of Clarity glow) with a form-aware range bar, shift-cost shading, a Claw warning and the 5-second rule.
 - **[DruidSequence](DruidSequence/README.md)**: Windows of spell sequences that fill with colour as you gain the mana to cast them.

@@ -1,6 +1,6 @@
--- DruidBar's resource display (Resource.lua): layout in each form, text, combo points, the
+-- DruidFrame's resource display (DruidFrame/Resource.lua): layout in each form, text, combo points, the
 -- cast bar, visibility, dragging with "Keep centred", and DruidBar's overlays on its bars.
--- Run from the repo root: lua5.1 tests/DruidBarResource_test.lua
+-- Run from the repo root: lua5.1 tests/DruidFrame_test.lua
 
 package.path = "tests/?.lua;" .. package.path
 local W = require("wow")
@@ -14,8 +14,9 @@ W.spellCosts["Claw"] = W.spellCosts[1082]
 W.power[4], W.powerMax[4] = 0, 5 -- combo points
 
 local ns = {}
-W.Load("DruidBar/DruidBar.lua", "DruidBar", ns)
-W.Load("DruidBar/Resource.lua", "DruidBar", ns)
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "DruidRange.lua", "Options.lua" }) do
+    W.Load("DruidFrame/" .. file, "DruidFrame", ns)
+end
 local R = ns.Resource
 
 W.class, W.powerType, W.formID = "DRUID", 0, nil
@@ -365,8 +366,8 @@ W.Check(not Glowing(R.mana), "option off: no glow")
 s.clearcastGlow = true
 auraUp = false
 W.Fire("UNIT_AURA", "player")
-local okDebug = pcall(W.Slash, "/druidbar clearcasting")
-W.Check(okDebug, "/druidbar clearcasting runs without errors")
+local okDebug = pcall(W.Slash, "/druidframe clearcasting")
+W.Check(okDebug, "/druidframe clearcasting runs without errors")
 
 print("Shaded style, and the Claw orange still lines up after the switch")
 s.style = "shaded"
@@ -456,8 +457,8 @@ R.Refresh()
 _G.DruidBarResourceWidth:GetScript("OnValueChanged")(_G.DruidBarResourceWidth, 300)
 W.Near(R.health:GetWidth(), 300, "width slider resizes the bars")
 W.Near(R.mana:GetWidth(), 300, "all bars together")
-local ok = pcall(W.Slash, "/druidbar resource")
-W.Check(ok, "/druidbar resource runs without errors")
+local ok = pcall(W.Slash, "/druidframe debug")
+W.Check(ok, "/druidframe debug runs without errors")
 print("Options layout: the left column lines up")
 R.panel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 200, -100) -- the game places it when the options open
 local function LeftOf(name) return _G[name]:GetLeft() end

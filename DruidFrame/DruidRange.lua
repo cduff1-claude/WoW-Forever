@@ -28,6 +28,9 @@
 
 DruidRangeDB = DruidRangeDB or {}
 
+-- Part of DruidFrame (shares its namespace: ns.Resource is the frame, ns.OpenOptions the pages).
+local _, ns = ...
+
 local _, playerClass = UnitClass("player")
 local isDruid = (playerClass == "DRUID")
 
@@ -85,7 +88,12 @@ local COLOR_GREY   = { 0.5, 0.5, 0.5 }
 local function InitDefaults()
     local db = DruidRangeDB
     if db.enabled == nil then db.enabled = true end
-    if db.unlocked == nil then db.unlocked = false end
+    db.unlocked = nil -- old setting: now unlocked while DruidFrame's options are open
+    -- Position: "top"/"bottom" of DruidFrame's display, or "free" (placed by dragging).
+    if db.anchor ~= "top" and db.anchor ~= "bottom" and db.anchor ~= "free" then
+        db.anchor = "free" -- where it was before DruidFrame
+    end
+    if db.keepCentred == nil then db.keepCentred = true end
     if db.snapMelee == nil then db.snapMelee = true end
     if db.chargeEnabled == nil then db.chargeEnabled = true end
     if db.stealthNoHide == nil then db.stealthNoHide = true end
@@ -300,9 +308,7 @@ end
 local bar = CreateFrame("Frame", "DruidRangeBarFrame", UIParent, "BackdropTemplate")
 bar:SetSize(BASE_WIDTH, BASE_HEIGHT)
 bar:SetClampedToScreen(true)
-bar:SetMovable(true)
-bar:EnableMouse(false)
-bar:RegisterForDrag("LeftButton")
+bar:EnableMouse(true)
 if bar.SetBackdrop then
     bar:SetBackdrop({ edgeFile = "Interface/Tooltips/UI-Tooltip-Border", edgeSize = 8 })
     bar:SetBackdropBorderColor(0, 0, 0, 1)
@@ -313,47 +319,132 @@ bar.fill:SetPoint("BOTTOMRIGHT", -2, 2)
 bar.fill:SetColorTexture(1, 1, 1, 1)
 bar:Hide()
 
-local function SaveBarPosition()
-    if not bar:GetPoint() then return end
-    local point, _, _, x, y = bar:GetPoint()
-    DruidRangeDB.point = { point = point, x = x, y = y }
+
+-- DruidFrame's display, when the bar is attached to it.
+local function AttachFrame()
+    local R = ns.Resource
+    local anchor = DruidRangeDB.anchor
+    if R and R.frame and (anchor == "top" or anchor == "bottom") then
+        return R.frame, anchor
+    end
 end
 
 local function RefreshLayout()
     local db = DruidRangeDB
-    local swingFrame = db.snapMelee and GetSnapFrame() or nil
+    local host, side = AttachFrame()
+    local swingFrame = not host and db.snapMelee and GetSnapFrame() or nil
 
     if swingFrame and swingFrame:GetWidth() and swingFrame:GetWidth() > 0 then
         cachedSwingWidth = swingFrame:GetWidth()
     end
-    local baseWidth = cachedSwingWidth or BASE_WIDTH
-    bar:SetSize(baseWidth * ((db.width or 100) / 100), BASE_HEIGHT * ((db.height or 75) / 50))
+    local height = BASE_HEIGHT * ((db.height or 75) / 50)
+    local width
+    if host then
+        -- Attached: as wide as DruidFrame's bars (times the width setting), its padding apart.
+        width = host:GetWidth() * host:GetScale() * ((db.width or 100) / 100)
+    else
+        width = (cachedSwingWidth or BASE_WIDTH) * ((db.width or 100) / 100)
+    end
+    bar:SetSize(width, height)
     bar:SetAlpha((db.opacity or 75) / 100)
 
     bar:ClearAllPoints()
-    if swingFrame then
+    if host then
+        local gap = ((ns.Resource.Settings().padding or 4) + 1) * host:GetScale()
+        if side == "top" then
+            bar:SetPoint("BOTTOM", host, "TOP", 0, gap)
+        else
+            bar:SetPoint("TOP", host, "BOTTOM", 0, -gap)
+        end
+    elseif swingFrame then
         bar:SetPoint("BOTTOM", swingFrame, "TOP", 0, 4)
-    elseif db.point then
-        bar:SetPoint(db.point.point, UIParent, db.point.point, db.point.x, db.point.y)
     else
-        bar:SetPoint("CENTER", UIParent, "CENTER", 0, -180)
+        local p = db.point
+        local x, y = 0, -180
+        if p and p.point == "CENTER" then
+            x, y = p.x or 0, p.y or y
+        elseif p then
+            -- Older saves used other anchor points: convert once, from where it ends up.
+            bar:SetPoint(p.point, UIParent, p.point, p.x, p.y)
+            local cx, cy = bar:GetCenter()
+            local ux, uy = UIParent:GetCenter()
+            if cx and ux then
+                x, y = cx - ux, cy - uy
+                db.point = { point = "CENTER", x = x, y = y }
+            end
+            bar:ClearAllPoints()
+        end
+        if db.keepCentred then
+            x = 0
+        end
+        bar:SetPoint("CENTER", UIParent, "CENTER", x, y)
     end
 end
 
+-- Unlocked while any DruidFrame options page is open (as the display is). Only a free bar
+-- can be dragged; attached, it moves with the display. Right-click opens its options page.
+local unlocked = false
+local drag
+
+local function Cursor()
+    local cx, cy = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    return cx / scale, cy / scale
+end
+
+local function CanDrag()
+    return unlocked and not AttachFrame() and not (DruidRangeDB.snapMelee and GetSnapFrame())
+end
+
 local function UpdateDraggability()
-    local enabled = DruidRangeDB.unlocked and true or false
-    bar:EnableMouse(enabled)
-    if enabled then
-        bar:SetScript("OnDragStart", bar.StartMoving)
-        bar:SetScript("OnDragStop", function(self)
-            self:StopMovingOrSizing()
-            SaveBarPosition()
-        end)
-    else
-        bar:SetScript("OnDragStart", nil)
-        bar:SetScript("OnDragStop", nil)
+    if bar.SetPassThroughButtons then
+        if CanDrag() then
+            pcall(bar.SetPassThroughButtons, bar)
+        else
+            pcall(bar.SetPassThroughButtons, bar, "LeftButton")
+        end
     end
 end
+
+local function DragUpdate()
+    if not drag then return end
+    local cx, cy = Cursor()
+    local ux, uy = UIParent:GetCenter()
+    local x = DruidRangeDB.keepCentred and 0 or (cx + drag.dx - ux)
+    DruidRangeDB.point = { point = "CENTER", x = x, y = cy + drag.dy - uy }
+    RefreshLayout()
+end
+
+bar:SetScript("OnMouseDown", function(_, button)
+    if button == "LeftButton" and CanDrag() then
+        local bx, by = bar:GetCenter()
+        local cx, cy = Cursor()
+        drag = { dx = bx - cx, dy = by - cy }
+        if DruidRangeDB.keepCentred and ns.Resource and ns.Resource.guide then
+            ns.Resource.guide:Show()
+        end
+        bar:SetScript("OnUpdate", DragUpdate)
+    elseif button == "RightButton" then
+        bar.rightDown = { Cursor() }
+    end
+end)
+bar:SetScript("OnMouseUp", function(_, button)
+    if button == "RightButton" and bar.rightDown then
+        local x, y = Cursor()
+        local moved = math.abs(x - bar.rightDown[1]) + math.abs(y - bar.rightDown[2])
+        bar.rightDown = nil
+        if moved < 5 and ns.OpenOptions then
+            ns.OpenOptions("range")
+        end
+    elseif drag then
+        DragUpdate()
+        drag = nil
+        bar:SetScript("OnUpdate", nil)
+        if ns.Resource and ns.Resource.guide then
+            ns.Resource.guide:Hide()
+        end
+    end
+end)
 
 local function ShowColor(c)
     bar.fill:SetColorTexture(c[1], c[2], c[3], 1)
@@ -393,16 +484,12 @@ panel.name = "DruidRange"
 -- Start hidden so the "options open" preview only runs while the panel is really showing.
 panel:Hide()
 
-local settingsCategory
-
+-- Registered by Options.lua as a page under DruidFrame.
+ns.panels = ns.panels or {}
+ns.panels.range = panel
 local function OpenOptions()
-    if Settings and Settings.OpenToCategory and settingsCategory then
-        local ok = pcall(Settings.OpenToCategory, settingsCategory:GetID())
-        if not ok then
-            pcall(Settings.OpenToCategory, settingsCategory)
-        end
-    elseif InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory(panel)
+    if ns.OpenOptions then
+        ns.OpenOptions("range")
     end
 end
 
@@ -453,30 +540,60 @@ enableCB:SetScript("OnClick", function(self)
     UpdateBar()
 end)
 
-local snapCB = CreateCheck("DruidRangeSnapCheck", "Snap to Main Hand Swing Timer")
-snapCB:SetPoint("TOPLEFT", enableCB, "BOTTOMLEFT", 0, -2)
+-- Position: attached to the top or bottom of DruidFrame's display, or free.
+local posLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+posLabel:SetPoint("TOPLEFT", enableCB, "BOTTOMLEFT", 0, -10)
+posLabel:SetText("Position")
+local posButtons = {}
+local POSITIONS = {
+    { anchor = "top", label = "Above DruidFrame" },
+    { anchor = "bottom", label = "Below DruidFrame" },
+    { anchor = "free", label = "Free (drag it while the options are open)" },
+}
+local centredCB, snapCB
+local function RefreshPositionButtons()
+    local free = DruidRangeDB.anchor == "free"
+    for _, b in ipairs(posButtons) do
+        b:SetChecked(DruidRangeDB.anchor == b.anchor)
+    end
+    if centredCB then
+        centredCB:SetEnabled(free)
+        snapCB:SetEnabled(free)
+        centredCB:SetAlpha(free and 1 or 0.5)
+        snapCB:SetAlpha(free and 1 or 0.5)
+    end
+end
+local lastPos = posLabel
+for i, opt in ipairs(POSITIONS) do
+    local b = CreateCheck("DruidRangePosition" .. i, opt.label, true)
+    b:SetPoint("TOPLEFT", lastPos, "BOTTOMLEFT", 0, -4)
+    b.anchor = opt.anchor
+    b:SetScript("OnClick", function(self)
+        DruidRangeDB.anchor = self.anchor
+        RefreshPositionButtons()
+        UpdateDraggability()
+        RefreshLayout()
+    end)
+    posButtons[i] = b
+    lastPos = b
+end
 
-local unlockCB = CreateCheck("DruidRangeUnlockCheck", "Unlock (drag to move)")
-unlockCB:SetPoint("TOPLEFT", snapCB, "BOTTOMLEFT", 0, -2)
-
-snapCB:SetScript("OnClick", function(self)
-    DruidRangeDB.snapMelee = self:GetChecked() and true or false
+centredCB = CreateCheck("DruidRangeCentredCheck", "Keep centred (free only: dragging moves it up and down)", true)
+centredCB:SetPoint("TOPLEFT", lastPos, "BOTTOMLEFT", 16, -2)
+centredCB:SetScript("OnClick", function(self)
+    DruidRangeDB.keepCentred = self:GetChecked() and true or false
     RefreshLayout()
 end)
 
-unlockCB:SetScript("OnClick", function(self)
-    DruidRangeDB.unlocked = self:GetChecked() and true or false
-    if DruidRangeDB.unlocked and DruidRangeDB.snapMelee then
-        -- Dragging a snapped bar makes no sense: keep it where it is and unsnap.
-        SaveBarPosition()
-        DruidRangeDB.snapMelee = false
-        snapCB:SetChecked(false)
-    end
+snapCB = CreateCheck("DruidRangeSnapCheck", "Snap to Main Hand Swing Timer (free only)", true)
+snapCB:SetPoint("TOPLEFT", centredCB, "BOTTOMLEFT", 0, -2)
+snapCB:SetScript("OnClick", function(self)
+    DruidRangeDB.snapMelee = self:GetChecked() and true or false
     UpdateDraggability()
     RefreshLayout()
 end)
 
-local widthSlider = CreatePercentSlider("DruidRangeWidthSlider", "Bar Width", 10, 300, 10, unlockCB, -24, "width")
+local widthSlider = CreatePercentSlider("DruidRangeWidthSlider", "Bar Width", 10, 300, 10, snapCB, -24, "width")
 local heightSlider = CreatePercentSlider("DruidRangeHeightSlider", "Bar Height", 50, 300, 25, widthSlider, -26, "height")
 local opacitySlider = CreatePercentSlider("DruidRangeOpacitySlider", "Bar Opacity", 10, 100, 5, heightSlider, -26, "opacity")
 
@@ -532,7 +649,8 @@ local function RefreshOptionsUI()
     local db = DruidRangeDB
     enableCB:SetChecked(db.enabled)
     snapCB:SetChecked(db.snapMelee)
-    unlockCB:SetChecked(db.unlocked)
+    centredCB:SetChecked(db.keepCentred)
+    RefreshPositionButtons()
     widthSlider:SetValue(db.width)
     heightSlider:SetValue(db.height)
     opacitySlider:SetValue(db.opacity)
@@ -545,23 +663,28 @@ local function RefreshOptionsUI()
 end
 
 panel:SetScript("OnShow", function()
-    optionsPanelOpen = true
     RefreshOptionsUI()
+    if ns.PageShown then ns.PageShown(true) end
+end)
+panel:SetScript("OnHide", function()
+    if ns.PageShown then ns.PageShown(false) end
+end)
+
+-- Any DruidFrame options page open: unlocked, and the bar previews (green) so you can see it.
+ns.Range = {}
+function ns.Range.SetUnlocked(value)
+    unlocked = value and true or false
+    optionsPanelOpen = unlocked
+    if not unlocked and drag then
+        drag = nil
+        bar:SetScript("OnUpdate", nil)
+    end
+    UpdateDraggability()
     RefreshLayout()
     UpdateBar()
-end)
-
-panel:SetScript("OnHide", function()
-    optionsPanelOpen = false
-    UpdateBar()
-end)
-
-if Settings and Settings.RegisterCanvasLayoutCategory then
-    settingsCategory = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-    Settings.RegisterAddOnCategory(settingsCategory)
-elseif InterfaceOptionsFrame_AddCategory then
-    InterfaceOptionsFrame_AddCategory(panel)
 end
+ns.Range.RefreshLayout = RefreshLayout
+ns.Range.bar = bar
 
 --------------------------------------------------------------------------
 -- Debug
@@ -626,15 +749,15 @@ end
 --------------------------------------------------------------------------
 
 local driver = CreateFrame("Frame")
-driver:RegisterEvent("ADDON_LOADED")
+driver:RegisterEvent("PLAYER_LOGIN")
 driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
 driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 driver:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 
 driver:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" then
-        if arg1 ~= "DruidRange" then return end
+    if event == "PLAYER_LOGIN" then
+        -- Saved variables are loaded by now.
         InitDefaults()
         RefreshOptionsUI()
         UpdateDraggability()
