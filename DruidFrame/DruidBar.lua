@@ -36,6 +36,7 @@ local DEFAULTS = {
     enablePlayerFrame = false,      -- druid bar under the Player Frame + caster shading on its mana bar
     useAquaticCost = true,          -- use Aquatic Form's cost for the travel section if Travel isn't known
     clawShade = true,               -- Cat Form: energy bars turn orange when you can't afford Claw
+    rageShade = true,               -- Bear Form, in combat: rage turns orange below Swipe's cost
     energySpell = "claw",           -- what that warns for: "claw" or "shred"
     finisherSpell = "bite",         -- at full combo points instead: "none", "rip" or "bite"
     openerSpell = "ravage",         -- in Prowl instead: "none", "ravage" or "pounce"
@@ -302,6 +303,7 @@ ns.OverlaysChanged = nil
 
 local Claw = {
     POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
+    RAGE_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Rage) or 1,
     COMBO_TYPE = (Enum and Enum.PowerType and Enum.PowerType.ComboPoints) or 4,
     -- Ranks, highest first, then the name (in case Forever's rank IDs differ).
     SPELLS = {
@@ -311,6 +313,7 @@ local Claw = {
         bite = { name = "Ferocious Bite", 31018, 22829, 22828, 22827, 22568 },
         ravage = { name = "Ravage", 9867, 9866, 6787, 6785 },
         pounce = { name = "Pounce", 9827, 9823, 9005 },
+        swipe = { name = "Swipe", 9908, 9754, 769, 780, 779, rage = true },
     },
     -- The options: which spell the energy bar warns for, and the overrides.
     CHOICES = {
@@ -721,6 +724,11 @@ local function RefreshShiftCost()
     shiftCost = nil
     shiftCostSpellID = nil
     Claw.Refresh()
+    -- Newly learned spells (e.g. Swipe) can start the energy/rage warning.
+    if Claw.RefreshOverlays then
+        Claw.RefreshOverlays(false)
+        Claw.Update()
+    end
 
     if not isDruid then
         travelCost = nil
@@ -842,7 +850,11 @@ end
 --   edge : value = cost over max energy; its fill edge marks the end of the Claw section.
 -- "enough" (transparent, kept for symmetry) sits in the section left of the step bar's edge;
 -- "short" covers the whole current fill right of it, so it only shows when you're short.
-function Claw.GetCost(spell)
+function Claw.GetCost(spell, rage)
+    local wantType, wantName = Claw.POWER_TYPE, "ENERGY"
+    if rage then
+        wantType, wantName = Claw.RAGE_TYPE, "RAGE"
+    end
     if not (C_Spell and C_Spell.GetSpellPowerCost) then
         return nil
     end
@@ -854,10 +866,10 @@ function Claw.GetCost(spell)
         local powerType, powerName = costInfo.type, costInfo.name
         local isEnergy = false
         if powerType ~= nil and not IsSecretValue(powerType) then
-            isEnergy = (powerType == Claw.POWER_TYPE)
+            isEnergy = (powerType == wantType)
         end
         if not isEnergy and powerName ~= nil and not IsSecretValue(powerName) then
-            isEnergy = (powerName == "ENERGY")
+            isEnergy = (powerName == wantName)
         end
         if isEnergy and IsReadableNumber(costInfo.cost) and costInfo.cost > 0 then
             return costInfo.cost
@@ -871,7 +883,7 @@ function Claw.Learned(key)
     local list = Claw.SPELLS[key]
     -- The highest learned rank whose cost the client answers for.
     for _, spellID in ipairs(list) do
-        if PlayerKnowsSpell(spellID) and Claw.GetCost(spellID) then
+        if PlayerKnowsSpell(spellID) and Claw.GetCost(spellID, list.rage) then
             return spellID
         end
     end
@@ -913,6 +925,14 @@ end
 -- below full combo points, the spell, and the cost at full combo points.
 function Claw.Costs()
     local known = Claw.known
+    if Claw.Mode() == "rage" then
+        -- Bear: only once combat starts, so rage stays red while you get ready to pull.
+        if not (known.swipe and UnitAffectingCombat("player")) then
+            return nil
+        end
+        local cost = Claw.GetCost(known.swipe, true)
+        return cost, known.swipe, cost
+    end
     if db.openerSpell ~= "none" and known[db.openerSpell] and IsStealthed and IsStealthed() then
         local cost = Claw.GetCost(known[db.openerSpell])
         if cost then
@@ -963,19 +983,31 @@ function Claw.CreateShade(bar)
     return set
 end
 
-function Claw.ShowsEnergy()
+-- "energy" (Cat), "rage" (Bear) or nil, from the bar's power type.
+function Claw.Mode()
     local powerType = UnitPowerType("player")
     if powerType == nil or IsSecretValue(powerType) then
-        return false
+        return nil
     end
-    return powerType == Claw.POWER_TYPE
+    if powerType == Claw.POWER_TYPE then
+        return "energy"
+    elseif powerType == Claw.RAGE_TYPE then
+        return "rage"
+    end
+end
+
+function Claw.ShowsEnergy()
+    return Claw.Mode() == "energy"
 end
 
 -- Like RefreshBlizzardOverlays, for the energy bars. Called from it.
 function Claw.RefreshOverlays(reanchor)
     local wanted = {}
 
-    if isDruid and db.clawShade and Claw.BaseSpell() and Claw.ShowsEnergy() then
+    local mode = Claw.Mode()
+    local on = (mode == "energy" and db.clawShade and Claw.BaseSpell())
+        or (mode == "rage" and db.rageShade and Claw.known.swipe)
+    if isDruid and on then
         if db.enablePlayerFrame then
             local bar = GetPlayerResourceBar()
             if bar and bar.GetStatusBarTexture then
@@ -1013,8 +1045,9 @@ function Claw.Update()
     if not next(Claw.overlays) then
         return
     end
-    local maxEnergy = UnitPowerMax("player", Claw.POWER_TYPE)
-    local energy = UnitPower("player", Claw.POWER_TYPE)
+    local powerType = Claw.Mode() == "rage" and Claw.RAGE_TYPE or Claw.POWER_TYPE
+    local maxEnergy = UnitPowerMax("player", powerType)
+    local energy = UnitPower("player", powerType)
     local maxCombo = UnitPowerMax("player", Claw.COMBO_TYPE)
     if not IsReadableNumber(maxCombo) or maxCombo < 1 then
         maxCombo = 5
@@ -1500,6 +1533,8 @@ manaFrame:RegisterEvent("PLAYER_LEVEL_UP")
 manaFrame:RegisterEvent("CVAR_UPDATE")
 pcall(manaFrame.RegisterEvent, manaFrame, "PLAYER_TALENT_UPDATE")
 pcall(manaFrame.RegisterEvent, manaFrame, "UPDATE_STEALTH")
+pcall(manaFrame.RegisterEvent, manaFrame, "PLAYER_REGEN_DISABLED")
+pcall(manaFrame.RegisterEvent, manaFrame, "PLAYER_REGEN_ENABLED")
 pcall(manaFrame.RegisterEvent, manaFrame, "UNIT_AURA")
 pcall(manaFrame.RegisterEvent, manaFrame, "SPELL_UPDATE_USABLE")
 pcall(manaFrame.RegisterEvent, manaFrame, "CHARACTER_POINTS_CHANGED")
@@ -1551,7 +1586,8 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     end
 
     -- Stealth and usability changes can change the cost the energy bar warns for.
-    if event == "UPDATE_STEALTH" or event == "SPELL_UPDATE_USABLE" then
+    if event == "UPDATE_STEALTH" or event == "SPELL_UPDATE_USABLE"
+        or event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         Claw.UpdateSoon()
         return
     end
@@ -1628,13 +1664,13 @@ manaFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
         if powerType == "MANA" then
             UpdateManaBar()
-        elseif powerType == "ENERGY" or powerType == "COMBO_POINTS" then
+        elseif powerType == "ENERGY" or powerType == "RAGE" or powerType == "COMBO_POINTS" then
             Claw.UpdateSoon()
         end
     elseif event == "UNIT_MAXPOWER" then
         if powerType == nil or powerType == "MANA" then
             UpdateManaBar()
-        elseif powerType == "ENERGY" or powerType == "COMBO_POINTS" then
+        elseif powerType == "ENERGY" or powerType == "RAGE" or powerType == "COMBO_POINTS" then
             Claw.Update()
         end
     elseif event == "UNIT_AURA" then
@@ -1753,8 +1789,12 @@ do
     Claw.dropdownAnchor = Claw.dropdowns[1]
 end
 
+local rageCheckbox = CreateCheckbox("DFMPRageCheckbox", clawCheckbox,
+    "Turn rage orange in Bear Form when you can't afford Swipe (in combat only)", "rageShade")
+rageCheckbox:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -58)
+
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-fsrHeader:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -70)
+fsrHeader:SetPoint("TOPLEFT", rageCheckbox, "BOTTOMLEFT", 0, -16)
 fsrHeader:SetText("5-second rule marker (always on DruidFrame's mana bar)")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
     "Also show it on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
@@ -1785,6 +1825,7 @@ panel:SetScript("OnShow", function()
     playerFrameCheckbox:SetChecked(db.enablePlayerFrame)
     aquaticCheckbox:SetChecked(db.useAquaticCost)
     clawCheckbox:SetChecked(db.clawShade)
+    rageCheckbox:SetChecked(db.rageShade)
     for _, dropdown in ipairs(Claw.dropdowns) do
         dropdown.Refresh()
     end

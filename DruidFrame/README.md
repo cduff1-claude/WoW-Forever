@@ -40,7 +40,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Omen of Clarity (option, on): a pulsing gold glow around the mana and energy/rage bars while Clearcasting is
   up, stopping as soon as it's spent. Detected from the aura when the client shows it, otherwise from a known
   spell's cost dropping to 0. `/druidframe clearcasting` shows what each method sees.
-- Colours: health green, mana blue, energy a warm gold, rage red.
+- Colours: health green, mana blue, energy a warm gold, rage red, combo points a bold red. The combo bar's
+  segments follow the bar style (flat or shaded) like the other bars.
 - Buff reminders (option, on): out of combat, a Mark of the Wild button to the left of the health and mana
   bars while you don't have it (Gift of the Wild counts), and a Thorns button to the right. Each is as tall as
   both bars and the gap between them. Click to cast it on yourself (from a form too: it leaves the form first);
@@ -78,7 +79,9 @@ Based on *Druid Forever Manabar* by antisnake.
   
   An override only applies once its spell is learned (until then the ability counts; Shred unlearned falls back
   to Claw). Costs are read live from the game, so anything that changes them is included (Ferocity, and Forever's
-  cheaper openers at full energy in stealth). The orange covers the whole fill,
+  cheaper openers at full energy in stealth).
+- **Rage warning (Bear Form):** in combat, the rage bar turns orange while you have less rage than Swipe costs
+  (read live). Out of combat it stays red, so it doesn't nag while you get ready to pull. Its own tick box. The orange covers the whole fill,
   so while Blizzard's bar eases down after you spend energy, the part still catching up is orange too. Shown on DruidFrame's energy bar, and on the Player Frame's energy bar if
   that option is on.
 - **5-second rule on Blizzard's bars** (this used to be the separate ForeverFiveSecondRule addon): a marker

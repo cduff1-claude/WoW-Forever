@@ -31,7 +31,7 @@ local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
 local CAST_COLOUR = { 1.0, 0.7, 0.0 }
-local COMBO_COLOUR = { 0.95, 0.25, 0.1 }
+local COMBO_COLOUR = { 0.90, 0.13, 0.04 }
 -- Seconds the last spell's name stays; then the name fades, then the whole bar.
 local LINGER_TIME, LINGER_FADE = 5, 0.5
 local SEGMENT_GAP = 2                    -- between combo bar segments
@@ -346,6 +346,14 @@ function R.ApplyStyle()
         bar.gloss:SetPoint("BOTTOMRIGHT", fill, "RIGHT", 0, 0)
         bar.gloss:SetShown(s.style == "flat")
     end
+    -- The combo bar's segments follow the same style.
+    for _, seg in ipairs(R.comboSegments or {}) do
+        seg.fill:SetStatusBarTexture(texture)
+        seg.gloss:ClearAllPoints()
+        seg.gloss:SetPoint("TOPLEFT", seg.fill, "TOPLEFT", 0, 0)
+        seg.gloss:SetPoint("BOTTOMRIGHT", seg.fill:GetStatusBarTexture(), "RIGHT", 0, 0)
+        seg.gloss:SetShown(s.style == "flat")
+    end
 end
 
 -- One segment of the combo bar: a subtle border, a dark inside, and a fill that's either
@@ -370,6 +378,10 @@ local function NewSegment(parent)
     gloss:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, 0)
     gloss:SetPoint("BOTTOMRIGHT", fill:GetStatusBarTexture(), "RIGHT", 0, 0)
     seg.fill, seg.gloss = fill, gloss
+    -- Same style as the other bars (flat or shaded).
+    local style = R.Settings().style
+    fill:SetStatusBarTexture(STYLE_TEXTURE[style] or STYLE_TEXTURE.flat)
+    gloss:SetShown(style ~= "shaded")
     return seg
 end
 
@@ -1104,9 +1116,10 @@ function R.ManaBar()
         return R.mana
     end
 end
+-- The energy or rage bar (for DruidBar's warning), while shown.
 function R.EnergyBar()
     local _, token = PowerType()
-    if R.frame and R.frame:IsShown() and token == "ENERGY" then
+    if R.frame and R.frame:IsShown() and (token == "ENERGY" or token == "RAGE") then
         return R.power
     end
 end

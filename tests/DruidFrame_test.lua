@@ -207,6 +207,41 @@ W.Check(not R.combo:IsShown(), "no combo points in Bear")
 c = R.power:GetStatusBarTexture()._color
 W.Check(c and c[1] == 0.75 and c[2] == 0, "rage uses the darker red")
 
+print("Bear Form: rage orange below Swipe's cost, in combat only")
+W.spellCosts[779] = { { type = 1, name = "RAGE", cost = 20 } } -- Swipe
+W.Fire("SPELLS_CHANGED")
+W.Advance(1.1)
+local function RageOrange()
+    local total = 0
+    for _, t in ipairs(W.Textures(R.power)) do
+        local col = t._color
+        if col and col[1] == 1 and col[2] == 0.5 and col[3] == 0 and col[4] == 0.9 then
+            total = total + W.VisibleWidth(t)
+        end
+    end
+    return total
+end
+W.Check(DruidForeverManabarPlusDB.rageShade == true, "on by default")
+W.Check(RageOrange() == 0, "out of combat at 10 rage: still plain red")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Near(RageOrange(), 0.10 * s.width, "in combat at 10 rage: orange (Swipe costs 20)", 0.01)
+W.power[1] = 25
+W.Fire("UNIT_POWER_FREQUENT", "player", "RAGE")
+W.Check(RageOrange() == 0, "25 rage: enough for Swipe")
+W.power[1] = 5
+W.Fire("UNIT_POWER_FREQUENT", "player", "RAGE")
+W.Check(RageOrange() > 0, "5 rage: orange again")
+DruidForeverManabarPlusDB.rageShade = false
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(RageOrange() == 0, "option off: no orange")
+DruidForeverManabarPlusDB.rageShade = true
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Check(RageOrange() == 0, "combat over: plain red")
+W.power[1] = 10
+
 print("Caster form: cast bar while casting")
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
@@ -488,6 +523,16 @@ W.power[3] = 30
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 local orange2 = Orange(R.power)
 W.Near(orange2 and W.VisibleWidth(orange2) or -1, 0.30 * s.width, "Claw orange still matches the fill", 0.01)
+s.comboStyle = "bar"
+R.Refresh()
+W.Check(#R.comboSegments == 5 and R.comboSegments[1].fill:GetStatusBarTexture():GetTexture() == "Interface\\TargetingFrame\\UI-StatusBar"
+    and not R.comboSegments[1].gloss:IsShown(), "combo bar segments follow the shaded style")
+s.style = "flat"
+R.Refresh()
+W.Check(R.comboSegments[1].fill:GetStatusBarTexture():GetTexture() == "Interface\\Buttons\\WHITE8X8"
+    and R.comboSegments[1].gloss:IsShown(), "and the flat style")
+s.style = "shaded"
+R.Refresh()
 W.Pick(_G.DruidBarResourceStyle, "flat")
 W.Check(s.style == "flat", "style dropdown switches back to flat")
 W.powerType, W.formID = 0, nil
