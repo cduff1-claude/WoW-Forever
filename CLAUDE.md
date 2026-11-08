@@ -121,6 +121,10 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
 - The user's installed addons are in `C:/Games/Blizzard/World of Warcraft/_forever_/Interface/AddOns` on their
   Windows PC. When the session is linked to it, install updates there directly (and still commit to the repo);
   otherwise hand over a zip. Check the installed copy against the repo before changing an addon: it may differ.
+  - Installing through the bridge: copy the files to a **new** folder under `/mnt/user-data/outputs/` each time
+    (e.g. `outputs/<addon>-<timestamp>/`). Re-sending a changed file from a path used before can silently
+    deliver an old copy, even though the write reports success. After installing, list the installed folder
+    and check each file's size against the repo.
 - Hand the zip over from the scratchpad, not the repo folder. A zip left in the repo trips the
   "untracked files" stop hook.
 - **Simulation tests** live in `tests/`: `tests/wow.lua` is a small fake of the client (frames with real
