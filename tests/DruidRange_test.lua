@@ -14,7 +14,7 @@ DruidRangeDB = { enabled = true, unlocked = true, snapMelee = true, width = 100,
     point = { point = "TOPLEFT", x = 800, y = -600 } }
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "Rage.lua", "DruidRange.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 W.class, W.powerType, W.formID = "DRUID", 0, nil

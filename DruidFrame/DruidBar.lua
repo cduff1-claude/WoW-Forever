@@ -44,6 +44,8 @@ local DEFAULTS = {
     fsrPlayerFrame = false,         -- the Player Frame mana bar, while it shows mana
     fsrText = true,                 -- countdown number beside the marker
     fsrWidth = 2,                   -- marker width in pixels (1-6)
+    rageDecay = true,               -- Bear Form: after combat, a marker counts down to rage decaying
+    rageDecayDelay = 0,             -- measured seconds from leaving combat to decay (0: not yet)
     resource = {},                  -- the resource display's own settings (Resource.lua fills them in)
     settingsVersion = 0,
 }
@@ -1795,14 +1797,16 @@ rageCheckbox:SetPoint("TOPLEFT", clawCheckbox, "BOTTOMLEFT", 0, -58)
 
 local fsrHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 fsrHeader:SetPoint("TOPLEFT", rageCheckbox, "BOTTOMLEFT", 0, -16)
-fsrHeader:SetText("5-second rule marker (always on DruidFrame's mana bar)")
+fsrHeader:SetText("Markers: the 5-second rule (always on DruidFrame's mana bar) and rage decay")
 local fsrPlayerCheckbox = CreateCheckbox("DFMPFsrPlayerCheckbox", fsrHeader,
     "Also show it on the Player Frame mana bar (caster form)", "fsrPlayerFrame")
 local fsrTextCheckbox = CreateCheckbox("DFMPFsrTextCheckbox", fsrPlayerCheckbox,
     "Show the countdown number", "fsrText")
+local rageDecayCheckbox = CreateCheckbox("DFMPRageDecayCheckbox", fsrTextCheckbox,
+    "Rage decay marker: after combat in Bear Form, sweeps right to left until rage starts to decay", "rageDecay")
 
 local fsrWidthSlider = CreateFrame("Slider", "DFMPFsrWidthSlider", panel, "OptionsSliderTemplate")
-fsrWidthSlider:SetPoint("TOPLEFT", fsrTextCheckbox, "BOTTOMLEFT", 4, -26)
+fsrWidthSlider:SetPoint("TOPLEFT", rageDecayCheckbox, "BOTTOMLEFT", 4, -26)
 fsrWidthSlider:SetWidth(200)
 fsrWidthSlider:SetMinMaxValues(1, 6)
 fsrWidthSlider:SetValueStep(1)
@@ -1831,6 +1835,7 @@ panel:SetScript("OnShow", function()
     end
     fsrPlayerCheckbox:SetChecked(db.fsrPlayerFrame)
     fsrTextCheckbox:SetChecked(db.fsrText)
+    rageDecayCheckbox:SetChecked(db.rageDecay)
     fsrWidthSlider:SetValue(db.fsrWidth or 2)
 end)
 

@@ -14,7 +14,7 @@ W.spellCosts["Claw"] = W.spellCosts[1082]
 W.power[4], W.powerMax[4] = 0, 5 -- combo points
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "Rage.lua", "DruidRange.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 local R = ns.Resource
@@ -241,6 +241,54 @@ W.combat = false
 W.Fire("PLAYER_REGEN_ENABLED")
 W.Check(RageOrange() == 0, "combat over: plain red")
 W.power[1] = 10
+
+print("Bear Form: rage decay marker after combat")
+local D = ns.RageDecay
+local function DecayMarker()
+    if not (D.frame and D.frame:IsShown()) then return nil end
+    return D.marker:GetCenter() - R.power:GetLeft()
+end
+W.Check(DruidForeverManabarPlusDB.rageDecay == true, "on by default")
+D.Stop()
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(DecayMarker() == nil, "no marker in combat")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Advance(0.05)
+local x0 = DecayMarker()
+W.Check(x0 and x0 > s.width * 0.9, "combat ends: marker starts at the right")
+W.Advance(1.0)
+W.Near(DecayMarker() or -1, 1 + 0.475 * (s.width - 2), "moving left: 0.95 of the 2-second guess left", 1.5)
+W.Check(D.text._text == "0.9" or D.text._text == "1.0", "countdown shown (got " .. tostring(D.text._text) .. ")")
+W.Advance(0.3)
+W.power[1] = 9 -- rage starts to drop: decay began at 1.35s
+W.Fire("UNIT_POWER_FREQUENT", "player", "RAGE")
+W.Check(DecayMarker() == nil, "decay started: marker gone")
+W.Near(DruidForeverManabarPlusDB.rageDecayDelay, 1.35, "delay measured and saved", 0.05)
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Advance(1.4)
+W.Check(DecayMarker() == nil, "next time it uses the measured delay")
+W.Fire("UNIT_POWER_FREQUENT", "player", "RAGE")
+W.Near(DruidForeverManabarPlusDB.rageDecayDelay, 1.375, "and blends in each new measurement", 0.05)
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Advance(0.05)
+W.Fire("UNIT_POWER_FREQUENT", "player", "RAGE")
+W.Check(DecayMarker() ~= nil, "a rage change right as combat ends doesn't count")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(DecayMarker() == nil, "back in combat: gone")
+W.combat = false
+DruidForeverManabarPlusDB.rageDecay = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Advance(0.1)
+W.Check(DecayMarker() == nil, "option off: no marker")
+DruidForeverManabarPlusDB.rageDecay = true
+W.Check(pcall(W.Slash, "/druidframe rage"), "/druidframe rage runs without errors")
+D.Stop()
 
 print("Caster form: cast bar while casting")
 W.powerType, W.formID = 0, nil

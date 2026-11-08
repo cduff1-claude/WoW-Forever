@@ -49,7 +49,7 @@ for _, bar in ipairs({ pfBar, prdPower, prdAlt }) do
 end
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "Rage.lua", "DruidRange.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 

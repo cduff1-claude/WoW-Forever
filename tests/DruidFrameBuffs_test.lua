@@ -17,7 +17,7 @@ IsPlayerSpell = function(id) return learned[id] or false end
 IsSpellKnown = IsPlayerSpell
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "Rage.lua", "DruidRange.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 W.class, W.powerType, W.formID = "DRUID", 0, nil

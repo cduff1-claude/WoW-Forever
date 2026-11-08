@@ -81,7 +81,12 @@ Based on *Druid Forever Manabar* by antisnake.
   to Claw). Costs are read live from the game, so anything that changes them is included (Ferocity, and Forever's
   cheaper openers at full energy in stealth).
 - **Rage warning (Bear Form):** in combat, the rage bar turns orange while you have less rage than Swipe costs
-  (read live). Out of combat it stays red, so it doesn't nag while you get ready to pull. Its own tick box. The orange covers the whole fill,
+  (read live). Out of combat it stays red, so it doesn't nag while you get ready to pull. Its own tick box.
+- **Rage decay marker (Bear Form):** when combat ends, a marker sweeps along the rage bar from right to left
+  (the 5-second-rule marker in reverse) and reaches the left edge when rage starts to decay, with the same
+  countdown number and width settings. The game doesn't say how long that takes, so DruidFrame measures it:
+  the first rage change after combat is the decay starting. It starts with a 2-second guess and blends each
+  measurement into the delay it uses. `/druidframe rage` shows the delay and the last measurement. The orange covers the whole fill,
   so while Blizzard's bar eases down after you spend energy, the part still catching up is orange too. Shown on DruidFrame's energy bar, and on the Player Frame's energy bar if
   that option is on.
 - **5-second rule on Blizzard's bars** (this used to be the separate ForeverFiveSecondRule addon): a marker
@@ -118,6 +123,7 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - `/druidframe`, `/druidbar`, `/druidrange`: open their options pages.
 - `/druidframe debug`: the display's settings and state. `/druidframe clearcasting`: Omen of Clarity detection.
   `/druidframe buffs`: the buff buttons' view of Mark of the Wild and Thorns.
+  `/druidframe rage`: the rage decay delay in use and the last measurement.
 - `/druidbar debug`: detected shift/travel costs, the energy warning's spells and costs, text format, font and
   overlay status.
 - `/druidbar test`: shows the druid bar with a 5-second-rule test timer.
