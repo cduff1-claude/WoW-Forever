@@ -9,7 +9,8 @@ Nothing in LFG Forever's own files is changed. Needs LFG Forever installed and e
   guild or zone isn't known yet. The result is printed to chat and shown in the panel, including the zone for
   members the listing gives no zone for (the game usually only gives the leader's). Zones are kept for the session. /who needs a real click, and the
   server limits how often it answers, so it's one member per click. The server answers a /who only every few seconds, so if a click gets no answer, the
-  next click asks the same member again; after two tries with no answer (probably offline) it moves on.
+  next click asks the same member again; after two tries with no answer (probably offline) it moves on. Once everyone's done it says so rather than
+  starting again. Answers are read from the who list or, when the game only prints them, from the chat line.
 - **Remembered guilds:** guilds are also picked up from anyone you mouse over or target, and saved, so known
   players show their guild without a /who. Guilds are forgotten after 3 days, since people change guilds.
 - **%dungeon% in Ask to Join:** LFG Forever only fills %dungeon% in for its Invite whisper. Here it also works in

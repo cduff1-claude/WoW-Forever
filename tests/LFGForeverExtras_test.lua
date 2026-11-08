@@ -51,6 +51,17 @@ W.Check(sent == 'n-"Amy"' , "no answer: the same member again (got " .. tostring
 sent = nil
 row:Click("LeftButton")
 W.Check(sent == 'n-"Cid"' , "still none after two tries: moves on (got " .. tostring(sent) .. ")")
+
+print("Guildless answer printed to chat, with an empty who list")
+C_FriendList.GetNumWhoResults = function() return 0 end
+W.Fire("CHAT_MSG_SYSTEM", "|Hplayer:Cid|h[Cid]|h: Level 22 Human Rogue - Redridge Mountains")
+W.Check(LFGForeverExtras.Guild("Cid") == "" and LFGForeverExtras.WhoArea("Cid") == "Redridge Mountains", "read from the chat line: no guild, zone")
+sent = nil
+row:Click("LeftButton")
+W.Check(sent == nil, "everyone done: no /who, and no going back to the first member (got " .. tostring(sent) .. ")")
+row:Click("LeftButton")
+W.Check(sent == 'n-"Amy"', "then the unanswered member gets another round (got " .. tostring(sent) .. ")")
+C_FriendList.GetNumWhoResults = function() return 1 end
 LFGForeverExtras.pending = { key = "cid", name = "Cid", sent = GetTime() }
 W.Fire("WHO_LIST_UPDATE")
 LFGBrowseSearchEntryTooltip_UpdateAndShow(LFGBrowseSearchEntryTooltip, 5)

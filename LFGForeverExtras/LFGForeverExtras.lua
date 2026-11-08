@@ -328,9 +328,22 @@ function E.WhoNext(resultID)
         end
     end
     if not pick then
-        -- Everyone known (or just asked): refresh them in turn instead.
-        E.cycle = (E.cycle or 0) % #members + 1
-        pick = members[E.cycle]
+        -- Everyone answered, or gave no answer twice (probably offline). Don't start again from
+        -- the top: say so. A fresh round of tries for the unanswered ones starts next click.
+        local offline = {}
+        for _, m in ipairs(members) do
+            if not answered[Key(m.name)] and (unanswered[Key(m.name)] or 0) >= MAX_TRIES then
+                offline[#offline + 1] = ShortName(m.name)
+                unanswered[Key(m.name)] = nil
+            end
+        end
+        if #offline > 0 then
+            print(PREFIX, "everyone else is looked up; no answer for " .. table.concat(offline, ", ")
+                .. " (probably offline). Click again to try them once more.")
+        else
+            print(PREFIX, "everyone in this group has been looked up.")
+        end
+        return
     end
     local name = ShortName(pick.name)
     unanswered[Key(pick.name)] = (unanswered[Key(pick.name)] or 0) + 1
@@ -355,6 +368,33 @@ function E.WhoNext(resultID)
     end)
 end
 
+-- /who answered for the member we asked about.
+function E.Answered(name, guild, area)
+    E.RememberGuild(name, guild or "", area)
+    E.pending = nil
+    unanswered[Key(name)] = nil
+    answered[Key(name)] = true
+    print(PREFIX, ShortName(name) .. ((guild or "") ~= "" and (" <" .. guild .. ">") or " (no guild)")
+        .. (area and area ~= "" and (" - " .. area) or ""))
+    E.RefreshPanel()
+end
+
+-- When the game prints a /who answer to chat, the who list may stay empty, so read the line:
+-- "|Hplayer:Name|h[Name]|h: Level 40 Night Elf Druid <Guild> - Zone" (no <Guild> when guildless).
+function E.ReadWhoLine(message)
+    local pending = E.pending
+    if not (pending and Readable(message) and type(message) == "string") then
+        return
+    end
+    local name, rest = message:match("|Hplayer:[^|]*|h%[([^%]]+)%]|h:%s*(.*)$")
+    if not name or Key(name) ~= pending.key then
+        return
+    end
+    local guild = rest:match("<([^>]*)>") or ""
+    local area = rest:match("%s%-%s(.+)$")
+    E.Answered(name, guild, area)
+end
+
 function E.ReadWho()
     local count = C_FriendList.GetNumWhoResults and C_FriendList.GetNumWhoResults()
     if not Readable(count) or count == 0 then
@@ -372,13 +412,8 @@ function E.ReadWho()
         end
     end
     if found then
-        E.pending = nil
-        unanswered[Key(found.fullName)] = nil
-        answered[Key(found.fullName)] = true
-        local guild = Readable(found.fullGuildName) and found.fullGuildName or ""
-        print(PREFIX, ShortName(found.fullName) .. (guild ~= "" and (" <" .. guild .. ">") or " (no guild)")
-            .. (Readable(found.area) and found.area and (" - " .. found.area) or ""))
-        E.RefreshPanel()
+        E.Answered(found.fullName, Readable(found.fullGuildName) and found.fullGuildName or "",
+            Readable(found.area) and found.area or nil)
     end
 end
 
@@ -500,7 +535,7 @@ for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "WHO_LIST_UPDATE", "CHA
     "UPDATE_MOUSEOVER_UNIT", "PLAYER_TARGET_CHANGED" }) do
     pcall(events.RegisterEvent, events, event)
 end
-events:SetScript("OnEvent", function(_, event)
+events:SetScript("OnEvent", function(_, event, message)
     if event == "PLAYER_LOGIN" then
         -- Zones from earlier sessions are out of date, and guilds after a few days.
         local guilds = DB().guilds
@@ -522,6 +557,7 @@ events:SetScript("OnEvent", function(_, event)
     elseif event == "CHAT_MSG_SYSTEM" then
         -- With a single result the game prints it to chat; the list is filled in too.
         if E.pending then
+            E.ReadWhoLine(message)
             C_Timer.After(0.1, E.ReadWho)
         end
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
