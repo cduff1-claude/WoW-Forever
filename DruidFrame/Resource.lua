@@ -31,7 +31,8 @@ local STYLE_TEXTURE = {
 local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
-local CAST_COLOUR = { 1.0, 0.7, 0.0 }
+-- Purple, so it doesn't look like the gold energy bar.
+local CAST_COLOUR = { 0.58, 0.32, 0.90 }
 local COMBO_COLOUR = { 0.90, 0.13, 0.04 }
 -- Seconds the last spell's name stays; then the name fades, then the whole bar.
 local LINGER_TIME, LINGER_FADE = 3, 0.5
@@ -49,6 +50,11 @@ R.VISIBILITY = {
 R.STYLE = {
     { key = "flat", label = "Flat (like the Personal Resource Display)" },
     { key = "shaded", label = "Shaded" },
+}
+R.CASTER_ENERGY = {
+    { key = "never", label = "Never" },
+    { key = "combat", label = "In combat" },
+    { key = "always", label = "Always" },
 }
 R.COMBO = {
     { key = "hide", label = "Hide" },
@@ -80,7 +86,7 @@ R.DEFAULTS = {
     castBar = true,
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
-    casterEnergy = false, -- show the energy bar in caster form too (to watch Furor's energy regen)
+    casterEnergy = "combat", -- energy bar in caster form too (Furor's regen): "never", "combat" or "always"
     buffButtons = true, -- out of combat: Mark of the Wild / Thorns buttons beside the display when missing
     buffButtonsPvP = false, -- ...in battlegrounds and arenas too (off: buffs get purged there)
     comboStyle = "circles",
@@ -122,6 +128,10 @@ function R.Settings()
             s.comboStyle = "hide"
         end
         s.comboPoints = nil
+    end
+    -- The caster-form energy option was briefly a tick box.
+    if type(s.casterEnergy) ~= "string" then
+        s.casterEnergy = R.DEFAULTS.casterEnergy
     end
     return s
 end
@@ -309,7 +319,12 @@ function R.BarPower()
     if powerType ~= nil and powerType ~= POWER.MANA then
         return powerType, token
     end
-    if powerType == POWER.MANA and R.Settings().casterEnergy then
+    local when = R.Settings().casterEnergy
+    local inCombat = R.inCombat
+    if inCombat == nil then
+        inCombat = UnitAffectingCombat("player") and true or false
+    end
+    if powerType == POWER.MANA and (when == "always" or (when == "combat" and inCombat)) then
         local max = UnitPowerMax("player", POWER.ENERGY)
         if not IsSecret(max) and max and max > 0 then
             return POWER.ENERGY, "ENERGY"
@@ -481,7 +496,8 @@ end
 
 -- A gold edge just outside a frame plus a soft gold flash over it, pulsing like
 -- DruidSequence's glow. Returns a table with Show/Hide.
-function R.EdgeGlow(target)
+-- pulseTime: seconds per fade (default 0.35, Omen of Clarity's urgent pulse).
+function R.EdgeGlow(target, pulseTime)
     local holder = CreateFrame("Frame", nil, target)
     holder:SetPoint("TOPLEFT", target, "TOPLEFT", -GLOW_SIZE, GLOW_SIZE)
     holder:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", GLOW_SIZE, -GLOW_SIZE)
@@ -520,7 +536,7 @@ function R.EdgeGlow(target)
     local fade = pulse:CreateAnimation("Alpha")
     fade:SetFromAlpha(1)
     fade:SetToAlpha(0.3)
-    fade:SetDuration(0.35)
+    fade:SetDuration(pulseTime or 0.35)
     holder:Hide()
     local glow = { frame = holder, pulse = pulse, flash = flash }
     function glow.Show()
@@ -1236,6 +1252,15 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
         return
     end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_TARGET_CHANGED" then
+        if event ~= "PLAYER_TARGET_CHANGED" then
+            R.inCombat = (event == "PLAYER_REGEN_DISABLED")
+            -- The caster-form energy bar can come and go with combat.
+            if R.Settings().casterEnergy == "combat" then
+                R.Layout()
+                R.ApplyColours()
+                R.UpdatePower()
+            end
+        end
         R.UpdateVisibility()
         return
     end
@@ -1476,6 +1501,8 @@ PlaceDropdown(Dropdown("DruidBarResourceVisibility", enabledBox, "Visibility", "
 PlaceDropdown(Dropdown("DruidBarResourceText", enabledBox, "Text", "text", R.TEXT))
 PlaceDropdown(Dropdown("DruidBarResourceStyle", enabledBox, "Bar style", "style", R.STYLE))
 PlaceDropdown(Dropdown("DruidBarResourceCombo", enabledBox, "Combo points (Cat Form)", "comboStyle", R.COMBO))
+PlaceDropdown(Dropdown("DruidBarResourceCasterEnergy", enabledBox, "Energy bar in caster form (e.g. Furor's regen)",
+    "casterEnergy", R.CASTER_ENERGY))
 columnY = columnY - 4
 Place(Checkbox("DruidBarResourceCentred", enabledBox, "Keep centred (dragging only moves it up and down)",
     "keepCentred"), 28)
@@ -1485,29 +1512,31 @@ Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
     "Keep the cast bar's row in place (not just while casting)", "castLocked"), 28)
 Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
     "Show the last spell's name and cost for 3 seconds (instant spells too)", "castLinger"), 28)
-Place(Checkbox("DruidBarResourceCasterEnergy", enabledBox,
-    "Show the energy bar in caster form too (e.g. Furor's energy regen)", "casterEnergy"), 28)
 Place(Checkbox("DruidBarResourceBuffs", enabledBox,
     "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 28)
 Place(Checkbox("DruidBarResourceBuffsPvP", enabledBox,
     "Also in battlegrounds and arenas", "buffButtonsPvP"), 36, 20)
 
-local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
-resetButton:SetSize(200, 22)
-Place(resetButton, 30, 4)
-resetButton:SetText("Reset to default position")
-resetButton:SetScript("OnClick", function() R.ResetPosition() end)
-
-local moveNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-Place(moveNote, 20, 4)
-moveNote:SetText("While DruidFrame's options are open, drag the display to move it. Right-click it to come back here.")
 
 local sizeSlider = Slider("DruidBarResourceScale", subtitle, "Size", "scale", 0.5, 2.0, 0.05, true, 340, -40)
 local widthSlider = Slider("DruidBarResourceWidth", sizeSlider, "Bar width", "width", 80, 400, 5)
 local healthSlider = Slider("DruidBarResourceHealthHeight", widthSlider, "Health bar height", "healthHeight", 4, 40, 1)
 local powerSlider = Slider("DruidBarResourcePowerHeight", healthSlider, "Power bar height", "powerHeight", 4, 40, 1)
 local paddingSlider = Slider("DruidBarResourcePadding", powerSlider, "Padding", "padding", 0, 10, 1)
-Slider("DruidBarResourceOpacity", paddingSlider, "Opacity", "opacity", 0.1, 1.0, 0.05, true)
+local opacitySlider = Slider("DruidBarResourceOpacity", paddingSlider, "Opacity", "opacity", 0.1, 1.0, 0.05, true)
+
+-- Moving it: in the right column, under the sliders (the left column is full).
+local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
+resetButton:SetSize(200, 22)
+resetButton:SetPoint("TOPLEFT", opacitySlider, "BOTTOMLEFT", 0, -30)
+resetButton:SetText("Reset to default position")
+resetButton:SetScript("OnClick", function() R.ResetPosition() end)
+
+local moveNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+moveNote:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -10)
+moveNote:SetWidth(250)
+moveNote:SetJustifyH("LEFT")
+moveNote:SetText("While DruidFrame's options are open, drag the display to move it. Right-click it to come back here.")
 
 panel:SetScript("OnShow", function()
     for _, refresh in ipairs(widgets) do

@@ -183,7 +183,7 @@ function B.Create()
         end)
         -- The same pulsing gold glow as Omen of Clarity on the bars.
         if ns.Resource and ns.Resource.EdgeGlow then
-            button.glow = ns.Resource.EdgeGlow(button)
+            button.glow = ns.Resource.EdgeGlow(button, 1.05) -- a third of Omen's pace: a gentle reminder
         end
         button.buff = buff
         button:Hide()

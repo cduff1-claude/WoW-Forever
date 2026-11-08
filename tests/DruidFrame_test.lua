@@ -260,14 +260,13 @@ W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "half full after 
 local sx = R.cast.spark:GetCenter()
 W.Near(sx, R.cast:GetLeft() + 0.5 * s.width, "spark rides the fill's edge", 1)
 
-print("Energy in caster form (option)")
-W.Check(s.casterEnergy == false, "off by default")
-W.Check(not Shown(R.power), "caster form: no energy bar")
+print("Energy in caster form (Never / In combat / Always)")
+W.Check(s.casterEnergy == "combat", "default: in combat")
+W.Check(not Shown(R.power), "caster form, out of combat: no energy bar")
 W.power[3], W.powerMax[3] = 40, 100
-_G.DruidBarResourceCasterEnergy:SetChecked(true)
-_G.DruidBarResourceCasterEnergy:Click()
-W.Check(s.casterEnergy == true and Shown(R.power), "ticked: energy bar shown in caster form")
-W.Check(R.power:GetValue() == 40, "showing energy")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(Shown(R.power) and R.power:GetValue() == 40, "in combat: energy bar shown")
 local er, eg = R.power:GetStatusBarColor()
 W.Check(er == 0.95 and eg == 0.80, "in the energy colour")
 W.Check(R.power:GetTop() > R.cast:GetTop(), "above the cast bar row")
@@ -275,9 +274,20 @@ W.Near(R.power:GetTop(), R.mana:GetBottom() - s.padding, "right under the mana b
 W.power[3] = 55
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 W.Check(R.power:GetValue() == 55, "follows energy regen")
-_G.DruidBarResourceCasterEnergy:SetChecked(false)
-_G.DruidBarResourceCasterEnergy:Click()
-W.Check(not Shown(R.power), "unticked: gone")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Check(not Shown(R.power), "combat over: gone")
+W.Check(W.Pick(_G.DruidBarResourceCasterEnergy, "always") and s.casterEnergy == "always", "Always picked")
+W.Check(Shown(R.power), "always: shown out of combat")
+W.Check(W.Pick(_G.DruidBarResourceCasterEnergy, "never"), "Never picked")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(not Shown(R.power), "never: not even in combat")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+s.casterEnergy = "combat"
+local cr, cg, cb = R.cast:GetStatusBarColor()
+W.Check(cr == 0.58 and cg == 0.32 and cb == 0.90, "cast bar is purple")
 
 print("Spell goes off: name and cost stay for 3 seconds, then fade")
 local plays = R.cast.flashAnim._plays
@@ -643,11 +653,15 @@ for _, name in ipairs({ "DruidBarResourceText", "DruidBarResourceStyle", "DruidB
 end
 local tops = {}
 for _, name in ipairs({ "DruidBarResourceEnabled", "DruidBarResourceVisibility", "DruidBarResourceText",
-    "DruidBarResourceStyle", "DruidBarResourceCombo", "DruidBarResourceCentred", "DruidBarResourceReset" }) do
+    "DruidBarResourceStyle", "DruidBarResourceCombo", "DruidBarResourceCasterEnergy", "DruidBarResourceCentred",
+    "DruidBarResourceBuffs", "DruidBarResourceBuffsPvP" }) do
     tops[#tops + 1] = _G[name]:GetTop()
 end
 local ordered = true
 for i = 2, #tops do if not (tops[i] < tops[i - 1]) then ordered = false end end
 W.Check(ordered, "rows run top to bottom without overlapping")
+W.Check(_G.DruidBarResourceBuffsPvP:GetBottom() > R.panel:GetBottom(), "left column fits on the page")
+W.Check(_G.DruidBarResourceReset:GetLeft() > _G.DruidBarResourceBuffs:GetLeft() + 200
+    and _G.DruidBarResourceReset:GetBottom() > R.panel:GetBottom(), "reset button in the right column, on the page")
 
 W.Done()

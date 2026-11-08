@@ -25,12 +25,12 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   Cat: Hide, Circles, or Bar (five bordered segments the size of a power bar, one filled per combo point,
   glowing gold when all five are full). The frame hangs from its top edge, so health and mana never move when you shift.
 - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
-  ("Healing Touch (55)"), a spark riding its edge while casting and a flash when the spell goes off. Options (both
+  ("Healing Touch (55)"), a purple bar with a spark riding its edge while casting and a flash when the spell goes off. Options (both
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
   3 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
   held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
-- Energy in caster form (option, off): shows the energy bar under the mana bar in caster form too, above the
-  cast bar, e.g. to watch Furor's energy regen.
+- Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
+  bar, e.g. to watch Furor's energy regen.
 - Text: current amount centred (default), or current on the left and max on the right (energy and rage just
   current), current only, percent, current and percent, or none.
 - Visibility: always, in combat, in combat or with a target, or hidden.
@@ -47,8 +47,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Buff reminders (option, on): out of combat, a Mark of the Wild button to the left of the health and mana
   bars while you don't have it (Gift of the Wild counts), and a Thorns button to the right. Each is as tall as
   both bars and the gap between them. Click to cast it on yourself (from a form too: it leaves the form first);
-  the button fades out. While a buff is missing, out of combat, its button has the same pulsing gold glow as
-  Omen of Clarity. Only checked out of combat, and only once the spell is learned. Both show while the
+  the button fades out. While a buff is missing, out of combat, its button has the same gold glow as Omen of
+  Clarity, pulsing at a third of the speed (a gentle reminder). Only checked out of combat, and only once the spell is learned. Both show while the
   options are open, so you can see where they go. Not shown in battlegrounds or arenas (buffs get purged
   there) unless "Also in battlegrounds and arenas" is ticked. Macro-clickable as `DruidFrameMarkButton` /
   `DruidFrameThornsButton`. `/druidframe buffs` shows what it sees.
