@@ -37,11 +37,14 @@ under the Player Frame while in Cat, Bear, Travel or Aquatic Form, and shades th
   `/druidbar resource`): DruidBar's own replacement for Blizzard's Personal Resource Display. Turn Blizzard's off so
   there aren't two.
   - Rows, all the same width: health, mana (in every form), then energy or rage in Cat/Bear, then combo points in
-    Cat. The frame hangs from its top edge, so health and mana never move when you shift.
-  - In caster form, an optional cast bar takes the energy/rage row while you're casting, with the spell's name and
-    mana cost centred on it ("Healing Touch (55)").
-  - Text: current amount on the left and max on the right for health and mana; energy and rage show just the
-    current amount. Other choices: current only, percent, current and percent, or none.
+    Cat: Hide, Circles, or Bar (five bordered segments the size of a power bar, one filled per combo point,
+    glowing gold when all five are full). The frame hangs from its top edge, so health and mana never move when you shift.
+  - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
+    ("Healing Touch (55)"), a spark riding its edge while casting and a flash when the spell goes off. Options (both
+    on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
+    5 seconds after it goes off, instant spells included, then fade. A new spell or a shift replaces it.
+  - Text: current amount centred (default), or current on the left and max on the right (energy and rage just
+    current), current only, percent, current and percent, or none.
   - Visibility: always, in combat, in combat or with a target, or hidden.
   - Bar style: flat (like the Personal Resource Display: a plain fill with a lighter top half, the default) or
     shaded (Blizzard's classic bar texture).

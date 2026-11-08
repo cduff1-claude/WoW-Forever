@@ -225,6 +225,8 @@ function Frame:UnregisterAllEvents() self._events = {} end
 function Frame:IsEventRegistered(e) return self._events[e] == true end
 
 function Frame:SetFrameLevel(n) self._level = n end
+function Frame:SetAlpha(a) self._alpha = a end
+function Frame:GetAlpha() return self._alpha or 1 end
 function Frame:GetFrameLevel() return self._level end
 function Frame:GetFrameStrata() return self._strata or "MEDIUM" end
 function Frame:SetFrameStrata(s) self._strata = s end
@@ -263,6 +265,23 @@ function Frame:GetStatusBarColor()
     return c[1], c[2], c[3], c[4]
 end
 function Frame:SetClipsChildren(v) self._clips = v and true or false end
+
+-- Animation groups: record whether they're playing; their animations accept any setting.
+local function Anything()
+    return setmetatable({}, { __index = function() return noop end })
+end
+function Frame:CreateAnimationGroup()
+    local group = { _playing = false, _anims = {}, _plays = 0 }
+    function group:Play() self._playing = true; self._plays = (self._plays or 0) + 1 end
+    function group:Stop() self._playing = false end
+    function group:IsPlaying() return self._playing end
+    function group:CreateAnimation(kind)
+        local a = Anything()
+        table.insert(self._anims, a)
+        return a
+    end
+    return setmetatable(group, { __index = function() return noop end })
+end
 
 -- Regions (textures, font strings) share the frame methods.
 function Frame:CreateTexture(name)
@@ -460,6 +479,27 @@ strlower, strupper, strfind, strsub, format = string.lower, string.upper, string
 tinsert, tremove = table.insert, table.remove
 SlashCmdList = {}
 StaticPopupDialogs = {}
+
+-- Blizzard's old dropdown menus: tests can open one with W.OpenDropdown(frame) and pick from W.menu.
+W.menu = {}
+function UIDropDownMenu_Initialize(frame, init) frame._init = init end
+function UIDropDownMenu_CreateInfo() return {} end
+function UIDropDownMenu_AddButton(info) table.insert(W.menu, info) end
+function UIDropDownMenu_SetText(frame, text) frame._ddText = text end
+function UIDropDownMenu_GetText(frame) return frame._ddText end
+function UIDropDownMenu_SetWidth() end
+function UIDropDownMenu_SetSelectedValue(frame, v) frame._ddValue = v end
+function W.OpenDropdown(frame)
+    W.menu = {}
+    frame._init(frame, 1)
+    return W.menu
+end
+function W.Pick(frame, value)
+    for _, info in ipairs(W.OpenDropdown(frame)) do
+        if info.value == value then info.func(info) return true end
+    end
+    return false
+end
 function StaticPopup_Show() end
 function StaticPopup_Hide() end
 UISpecialFrames = {}

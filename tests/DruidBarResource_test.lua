@@ -39,15 +39,15 @@ print("Caster form")
 W.Check(f:IsShown(), "frame shown")
 W.Near(Top(R.health), f:GetTop(), "health at the top")
 W.Near(Top(R.mana), f:GetTop() - s.healthHeight - s.padding, "mana right below health")
-W.Check(not Shown(R.power) and not Shown(R.cast), "no third row in caster form when not casting")
+W.Check(Shown(R.cast) and not Shown(R.power), "caster form: the cast row is held in place")
+W.Check((R.cast.centre._text or "") == "" and R.cast:GetStatusBarTexture():GetWidth() == 0, "and empty until a spell goes off")
 W.Check(not R.combo:IsShown(), "no combo points in caster form")
 W.Near(R.health:GetWidth(), s.width, "health is the full width")
 W.Near(R.mana:GetWidth(), s.width, "mana is the full width")
-W.Near(f:GetHeight(), s.healthHeight + s.padding + s.powerHeight, "frame fits two rows")
-W.Check(R.health.left._text == "989" and R.health.right._text == "989", "health: current left, max right")
-W.Check(R.mana.left._text == "847" and R.mana.right._text == "847", "mana: current left, max right")
-W.Near(select(1, R.health.left:GetPoint()) == "LEFT" and select(4, R.health.left:GetPoint()), 4, "health text indented from the left")
-W.Near(select(4, R.health.right:GetPoint()), -4, "max text indented from the right")
+W.Near(f:GetHeight(), s.healthHeight + 2 * s.padding + 2 * s.powerHeight, "frame fits three rows")
+W.Check(s.text == "centre", "text set to current, centred")
+W.Check(R.health.centre._text == "989" and R.health.left._text == "" and R.health.right._text == "", "health: current, centred")
+W.Check(R.mana.centre._text == "847", "mana: current, centred")
 local healthTop, manaTop = Top(R.health), Top(R.mana)
 
 print("Cat Form: energy below mana, combo points at the bottom")
@@ -60,7 +60,7 @@ W.Near(Top(R.mana), manaTop, "mana hasn't moved")
 W.Check(Shown(R.power), "energy bar shown")
 W.Near(Top(R.power), manaTop - s.powerHeight - s.padding, "energy right below mana")
 W.Near(R.power:GetWidth(), s.width, "energy is the full width")
-W.Check(R.power.left._text == "100" and R.power.right._text == "", "energy: current only")
+W.Check(R.power.centre._text == "100", "energy: current, centred")
 W.Check(R.combo:IsShown(), "combo points shown")
 W.Check(R.combo:GetTop() < R.power:GetBottom(), "combo points below the energy bar")
 W.Check(#R.comboPoints == 5, "five combo points")
@@ -100,7 +100,7 @@ W.power[1], W.powerMax[1] = 10, 100
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
 W.Near(Top(R.mana), manaTop, "mana still hasn't moved")
-W.Check(Shown(R.power) and R.power.left._text == "10", "rage bar shows 10")
+W.Check(Shown(R.power) and R.power.centre._text == "10", "rage bar shows 10")
 W.Check(not R.combo:IsShown(), "no combo points in Bear")
 c = R.power:GetStatusBarTexture()._color
 W.Check(c and c[1] == 0.75 and c[2] == 0, "rage uses the darker red")
@@ -117,12 +117,76 @@ W.Near(R.cast:GetWidth(), s.width, "cast bar is the full width")
 W.Check(R.cast.centre._text == "Healing Touch (55)", "spell name and mana cost, centred (got " .. tostring(R.cast.centre._text) .. ")")
 W.Check(select(1, R.cast.centre:GetPoint()) == "CENTER", "cast text anchored in the centre")
 W.Check(R.cast.left._text == "" and R.cast.right._text == "", "nothing at the sides")
+W.Check(R.cast.spark:IsShown(), "spark shown while casting")
 W.Advance(1.0)
 W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "half full after 1 of 2 seconds", 1)
+local sx = R.cast.spark:GetCenter()
+W.Near(sx, R.cast:GetLeft() + 0.5 * s.width, "spark rides the fill's edge", 1)
+
+print("Spell goes off: name and cost stay for 5 seconds, then fade")
+local plays = R.cast.flashAnim._plays
 W.casting = nil
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", HEALING_TOUCH)
 W.Fire("UNIT_SPELLCAST_STOP", "player", "cast-1", HEALING_TOUCH)
-W.Check(not Shown(R.cast), "cast bar gone when the cast ends")
+W.Check(Shown(R.cast) and R.cast.centre._text == "Healing Touch (55)", "name and cost still showing after the cast")
+W.Near(R.cast:GetStatusBarTexture():GetWidth(), s.width, "bar shown full")
+W.Check(R.cast.flashAnim._plays == plays + 1, "finish flash played")
+W.Check(not R.cast.spark:IsShown(), "spark gone")
+W.Advance(4.9)
+W.Check(R.cast.centre:GetAlpha() == 1, "still fully shown just before 5 seconds")
+W.Advance(0.35)
+W.Check(R.cast.centre._alpha and R.cast.centre._alpha < 1 and R.cast.centre._alpha > 0, "fading after 5 seconds")
+W.Advance(0.3)
+W.Check(R.cast.centre._text == "" and R.linger == nil, "gone after the fade")
+W.Check(Shown(R.cast), "row stays in place")
+W.Near(f:GetHeight(), s.healthHeight + 2 * s.padding + 2 * s.powerHeight, "frame still three rows")
+
+print("Instant spells, replacing, shifting, interrupts, channels")
+local REJUV = 774
+W.spellCosts[REJUV] = { { type = 0, name = "MANA", cost = 25 } }
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-1", REJUV)
+W.Check(R.cast.centre._text == "Spell 774 (25)", "instant spell shown with its cost (got " .. tostring(R.cast.centre._text) .. ")")
+W.Advance(2)
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-2", HEALING_TOUCH)
+W.Check(R.cast.centre._text == "Spell 5185 (55)", "a new spell replaces it")
+W.Advance(4.9)
+W.Check(R.cast.centre._text ~= "", "and gets its own 5 seconds")
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-3", REJUV)
+W.powerType, W.formID = 3, 1
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(R.cast.centre._text == "" and R.linger == nil, "shifting forms clears it")
+W.casting = { name = "Healing Touch", startMS = W.time * 1000, endMS = W.time * 1000 + 2000 }
+W.Fire("UNIT_SPELLCAST_START", "player", "cast-5", HEALING_TOUCH)
+W.casting = nil
+W.Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "cast-5", HEALING_TOUCH)
+W.Check(R.cast.centre._text == "" and R.linger == nil, "interrupted: nothing lingers")
+W.channel = { name = "Tranquility", startMS = W.time * 1000, endMS = W.time * 1000 + 3000 }
+W.Fire("UNIT_SPELLCAST_CHANNEL_START", "player", "chan-1", 740)
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "chan-1", 740) -- channels report this at the start
+W.Check(R.casting and R.casting.channel, "still channelling after its SUCCEEDED")
+W.Advance(1.5)
+W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "channel drains: half left at halfway", 1)
+W.channel = nil
+W.Fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "chan-1", 740)
+W.Check(R.cast.centre._text == "Tranquility", "channel's name lingers after it ends")
+s.castLinger = false
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-4", REJUV)
+W.Check(R.cast.centre._text == "", "linger option off: nothing shown after a spell")
+s.castLinger = true
+s.castLocked = false
+R.ClearCast()
+W.Check(not Shown(R.cast), "row not held in place with that option off")
 W.Near(f:GetHeight(), s.healthHeight + s.padding + s.powerHeight, "frame back to two rows")
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-5", REJUV)
+W.Check(Shown(R.cast), "but appears for a lingering instant")
+W.Advance(5.6)
+W.Check(not Shown(R.cast), "and goes when it fades")
+s.castLocked = true
+R.Refresh()
 s.castBar = false
 W.casting = { name = "Healing Touch", startMS = W.time * 1000, endMS = W.time * 1000 + 2000 }
 W.Fire("UNIT_SPELLCAST_START", "player", "cast-2", HEALING_TOUCH)
@@ -144,6 +208,11 @@ end
 W.Check(marker ~= nil, "marker on the resource display's mana bar")
 
 print("Text options")
+s.text = "values"
+R.Refresh()
+W.Check(R.health.left._text == "989" and R.health.right._text == "989", "values: current left, max right")
+W.Near(select(4, R.health.left:GetPoint()), 4, "current indented from the left")
+W.Near(select(4, R.health.right:GetPoint()), -4, "max indented from the right")
 s.text = "percent"
 CurveConstants = { ScaleTo100 = 1 }
 UnitHealthPercent = function() return 52 end
@@ -160,7 +229,7 @@ W.Check(R.health.left._text == "989" and R.health.right._text == "", "current: n
 s.text = "none"
 R.Refresh()
 W.Check(R.health.left._text == "" and R.health.right._text == "", "none: no text")
-s.text = "values"
+s.text = "centre"
 R.Refresh()
 
 print("Visibility")
@@ -235,7 +304,6 @@ W.Check(not R.unlockTint:IsShown(), "locked again")
 
 print("Shaded style, and the Claw orange still lines up after the switch")
 s.style = "shaded"
-_G.DruidBarResourceStyle:GetScript("OnShow")
 R.Refresh()
 if ns.OverlaysChanged then ns.OverlaysChanged() end
 W.Check(R.health:GetStatusBarTexture():GetTexture() == "Interface\\TargetingFrame\\UI-StatusBar", "shaded: Blizzard's bar texture")
@@ -247,17 +315,61 @@ W.power[3] = 30
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 local orange2 = Orange(R.power)
 W.Near(orange2 and W.VisibleWidth(orange2) or -1, 0.30 * s.width, "Claw orange still matches the fill", 0.01)
-_G.DruidBarResourceStyle:Click()
-W.Check(s.style == "flat", "style button switches back to flat")
+W.Pick(_G.DruidBarResourceStyle, "flat")
+W.Check(s.style == "flat", "style dropdown switches back to flat")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+
+print("Combo points as a bar")
+W.Pick(_G.DruidBarResourceCombo, "bar")
+W.Check(s.comboStyle == "bar", "combo style set to bar")
+W.powerType, W.formID = 3, 1
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(R.comboBar:IsShown() and not R.combo:IsShown(), "bar shown instead of circles")
+W.Near(R.comboBar:GetTop(), R.power:GetBottom() - s.padding, "below energy, with the usual padding")
+W.Near(R.comboBar:GetWidth(), s.width, "full width")
+W.Near(R.comboBar:GetHeight(), s.powerHeight, "power bar height")
+local segs = R.comboSegments
+W.Check(#segs == 5, "five segments")
+W.Near(segs[1]:GetLeft(), R.comboBar:GetLeft(), "first segment starts at the bar's left edge")
+W.Near(segs[5]:GetRight(), R.comboBar:GetRight(), "last segment ends at the bar's right edge (borders included)")
+W.Near(segs[2]:GetLeft() - segs[1]:GetRight(), 2, "small gap between segments")
+W.Near(segs[1]:GetWidth(), (s.width - 4 * 2) / 5, "equal widths")
+W.Near(segs[1].fill:GetLeft() - segs[1]:GetLeft(), 1, "fill sits inside the 1-pixel border")
+W.power[4] = 3
+W.Fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+local filled = 0
+for _, seg in ipairs(segs) do
+    if seg.fill:GetStatusBarTexture():GetWidth() > 0 then filled = filled + 1 end
+end
+W.Check(filled == 3, "three segments filled (got " .. filled .. ")")
+local glowFlash = R.glow.pieces[1][5]
+W.Near(W.VisibleWidth(glowFlash), 0, "no glow at 3 combo points")
+W.power[4] = 5
+W.Fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+W.Check(W.VisibleWidth(glowFlash) > 0, "glow at 5 combo points")
+W.Check(W.VisibleWidth(R.glow.pieces[5][4]) > 0, "glow around the last segment too")
+W.Check(R.glow.pulse:IsPlaying(), "glow pulsing")
+W.power[4] = 4
+W.Fire("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+W.Near(W.VisibleWidth(glowFlash), 0, "glow gone after spending one")
+W.Pick(_G.DruidBarResourceCombo, "hide")
+W.Check(not R.comboBar:IsShown() and not R.combo:IsShown(), "Hide: no combo points")
+W.Pick(_G.DruidBarResourceCombo, "circles")
+W.Check(R.combo:IsShown() and not R.comboBar:IsShown(), "Circles: back to circles")
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
 
 print("Upgrading old settings")
-DruidForeverManabarPlusDB.resource = { padding = 1, style = "shaded" }
+DruidForeverManabarPlusDB.resource = { padding = 1, style = "shaded", comboPoints = false, text = "values" }
 local up = R.Settings()
 W.Near(up.padding, 4, "old 1-pixel padding moves to the PRD's gap")
-W.Check(up.style == "flat" and up.version == 2, "switched to flat once")
+W.Check(up.style == "flat" and up.version == 3, "switched to flat once")
+W.Check(up.text == "centre", "text switched to current, centred once")
+W.Check(up.comboStyle == "hide" and up.comboPoints == nil, "old 'no combo points' becomes Hide")
 up.style = "shaded"
 W.Check(R.Settings().style == "shaded", "after that, your choice sticks")
 DruidForeverManabarPlusDB.resource = s
@@ -265,9 +377,14 @@ DruidForeverManabarPlusDB.resource = s
 print("Options page")
 local okShow = pcall(R.panel:GetScript("OnShow"), R.panel)
 W.Check(okShow, "options page opens without errors")
-_G.DruidBarResourceVisibility:Click()
-W.Check(s.visibility == "combat", "visibility button steps to the next choice (got " .. tostring(s.visibility) .. ")")
-W.Check(_G.DruidBarResourceVisibility:GetText() == "Visibility: In combat", "button label follows")
+local choices = W.OpenDropdown(_G.DruidBarResourceVisibility)
+W.Check(#choices == 4 and choices[1].checked, "visibility dropdown lists 4 choices, current one ticked")
+W.Pick(_G.DruidBarResourceVisibility, "combat")
+W.Check(s.visibility == "combat", "picking a choice sets it (got " .. tostring(s.visibility) .. ")")
+W.Check(_G.DruidBarResourceVisibility._ddText == "In combat", "dropdown shows the choice")
+local comboChoices = W.OpenDropdown(_G.DruidBarResourceCombo)
+W.Check(#comboChoices == 3 and comboChoices[1].text == "Hide" and comboChoices[2].text == "Circles"
+    and comboChoices[3].text == "Bar", "combo dropdown: Hide, Circles, Bar")
 s.visibility = "always"
 R.Refresh()
 _G.DruidBarResourceWidth:GetScript("OnValueChanged")(_G.DruidBarResourceWidth, 300)

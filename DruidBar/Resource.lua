@@ -32,6 +32,10 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidBar\\"
 local CAST_COLOUR = { 1.0, 0.7, 0.0 }
 local COMBO_COLOUR = { 0.95, 0.25, 0.1 }
+local LINGER_TIME, LINGER_FADE = 5, 0.5 -- seconds the last spell's name stays, then fades
+local SEGMENT_GAP = 2                    -- between combo bar segments
+local GLOW_SIZE = 2                      -- full-combo glow, drawn just outside each segment
+local GLOW_COLOUR = { 1.0, 0.85, 0.2 }   -- DruidSequence's glow colour
 
 R.VISIBILITY = {
     { key = "always", label = "Always" },
@@ -43,7 +47,13 @@ R.STYLE = {
     { key = "flat", label = "Flat (like the Personal Resource Display)" },
     { key = "shaded", label = "Shaded" },
 }
+R.COMBO = {
+    { key = "hide", label = "Hide" },
+    { key = "circles", label = "Circles" },
+    { key = "bar", label = "Bar" },
+}
 R.TEXT = {
+    { key = "centre", label = "Current, centred" },
     { key = "values", label = "Current and max" },
     { key = "current", label = "Current" },
     { key = "percent", label = "Percent" },
@@ -65,7 +75,9 @@ R.DEFAULTS = {
     keepCentred = true,
     unlocked = false,
     castBar = true,
-    comboPoints = true,
+    castLocked = true,  -- keep the cast row in place in caster form, not just while casting
+    castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
+    comboStyle = "circles",
     x = nil, -- position of the frame's top centre, in UIParent units (nil: default spot)
     y = nil,
 }
@@ -94,6 +106,15 @@ function R.Settings()
             s.padding = R.DEFAULTS.padding
         end
         s.style = "flat"
+    end
+    -- Version 3: centred current text (asked for), combo points became a choice.
+    if s.version < 3 then
+        s.version = 3
+        s.text = "centre"
+        if s.comboPoints == false then
+            s.comboStyle = "hide"
+        end
+        s.comboPoints = nil
     end
     return s
 end
@@ -180,6 +201,30 @@ function R.Build()
     R.cast = NewBar()
     R.cast:SetStatusBarColor(CAST_COLOUR[1], CAST_COLOUR[2], CAST_COLOUR[3], 1)
 
+    -- Cast bar animation (our own: Blizzard's cast bar code can't run for us without taint):
+    -- a spark riding the fill's edge while casting, and a flash when a spell goes off.
+    local spark = R.cast.textFrame:CreateTexture(nil, "ARTWORK")
+    spark:SetTexture(ART .. "CastSpark")
+    spark:SetBlendMode("ADD")
+    spark:Hide()
+    R.cast.spark = spark
+    local flash = R.cast.textFrame:CreateTexture(nil, "ARTWORK")
+    flash:SetAllPoints(R.cast)
+    flash:SetColorTexture(1, 1, 1, 1)
+    flash:SetBlendMode("ADD")
+    flash:SetAlpha(0)
+    R.cast.flash = flash
+    local flashAnim = R.cast.textFrame:CreateAnimationGroup()
+    local flashIn = flashAnim:CreateAnimation("Alpha")
+    flashIn:SetTarget(flash)
+    flashIn:SetFromAlpha(0.6)
+    flashIn:SetToAlpha(0)
+    flashIn:SetDuration(0.4)
+    R.cast.flashAnim = flashAnim
+
+    R.comboBar = CreateFrame("Frame", nil, f)
+    R.comboSegments = {}
+
     R.combo = CreateFrame("Frame", nil, f)
     R.comboPoints = {}
 
@@ -221,6 +266,8 @@ function R.Build()
     R.cast:SetScript("OnUpdate", function(bar)
         if R.casting then
             bar:SetValue(R.CastValue())
+        elseif R.linger then
+            R.UpdateLinger()
         end
     end)
 end
@@ -236,7 +283,7 @@ function R.ThirdRow()
     if powerType ~= nil and powerType ~= POWER.MANA then
         return R.power
     end
-    if s.castBar and R.casting then
+    if s.castBar and (s.castLocked or R.casting or R.linger) then
         return R.cast
     end
     return nil
@@ -245,7 +292,7 @@ end
 function R.ShowsCombo()
     local s = R.Settings()
     local _, token = PowerType()
-    return s.comboPoints and token == "ENERGY"
+    return s.comboStyle ~= "hide" and token == "ENERGY"
 end
 
 local function FontSize(height)
@@ -260,6 +307,7 @@ local function PlaceBar(bar, y, height)
     local size = FontSize(height)
     bar.left:SetFont(FONT, size, "OUTLINE")
     bar.right:SetFont(FONT, size, "OUTLINE")
+    bar.centre:SetFont(FONT, size, "OUTLINE")
     bar:Show()
     return y + height + s.padding
 end
@@ -275,6 +323,147 @@ function R.ApplyStyle()
         bar.gloss:SetPoint("BOTTOMRIGHT", fill, "RIGHT", 0, 0)
         bar.gloss:SetShown(s.style == "flat")
     end
+end
+
+-- One segment of the combo bar: a subtle border, a dark inside, and a fill that's either
+-- empty or full (range [i-1, i], value = combo points). Border and fill sit inside the
+-- segment's size, so the bar never exceeds the width/height settings.
+local function NewSegment(parent)
+    local seg = CreateFrame("Frame", nil, parent)
+    local border = seg:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints(seg)
+    border:SetColorTexture(0.55, 0.55, 0.55, 0.6)
+    local inside = seg:CreateTexture(nil, "BORDER")
+    inside:SetPoint("TOPLEFT", seg, "TOPLEFT", 1, -1)
+    inside:SetPoint("BOTTOMRIGHT", seg, "BOTTOMRIGHT", -1, 1)
+    inside:SetColorTexture(0, 0, 0, 0.75)
+    local fill = CreateFrame("StatusBar", nil, seg)
+    fill:SetPoint("TOPLEFT", seg, "TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", seg, "BOTTOMRIGHT", -1, 1)
+    fill:SetStatusBarTexture(STYLE_TEXTURE.flat)
+    fill:SetStatusBarColor(COMBO_COLOUR[1], COMBO_COLOUR[2], COMBO_COLOUR[3], 1)
+    local gloss = fill:CreateTexture(nil, "OVERLAY")
+    gloss:SetColorTexture(1, 1, 1, GLOSS_ALPHA)
+    gloss:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, 0)
+    gloss:SetPoint("BOTTOMRIGHT", fill:GetStatusBarTexture(), "RIGHT", 0, 0)
+    seg.fill, seg.gloss = fill, gloss
+    return seg
+end
+
+-- The full-combo glow: a switch bar that's full only at max combo points, and a clip frame
+-- that's as wide as the switch's fill, so the glow inside is only drawn when you're full.
+-- Inside: a gold edge around each segment and a soft gold flash, pulsing (as DruidSequence).
+local function BuildGlow()
+    local area = CreateFrame("Frame", nil, R.comboBar)
+    area:SetPoint("TOPLEFT", R.comboBar, "TOPLEFT", -GLOW_SIZE, GLOW_SIZE)
+    area:SetPoint("BOTTOMRIGHT", R.comboBar, "BOTTOMRIGHT", GLOW_SIZE, -GLOW_SIZE)
+    local switch = CreateFrame("StatusBar", nil, R.comboBar)
+    switch:SetAllPoints(area)
+    switch:SetStatusBarTexture(STYLE_TEXTURE.flat)
+    switch:SetStatusBarColor(0, 0, 0, 0)
+    switch:SetMinMaxValues(0, 1)
+    switch:SetValue(0)
+    local clip = CreateFrame("Frame", nil, R.comboBar)
+    clip:SetClipsChildren(true)
+    clip:SetPoint("TOPLEFT", switch, "TOPLEFT", 0, 0)
+    clip:SetPoint("BOTTOMRIGHT", switch:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    clip:SetFrameLevel(R.comboBar:GetFrameLevel() + 10)
+    local glow = CreateFrame("Frame", nil, clip)
+    glow:SetAllPoints(area)
+    local pulse = glow:CreateAnimationGroup()
+    pulse:SetLooping("BOUNCE")
+    local fade = pulse:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(0.3)
+    fade:SetDuration(0.35)
+    pulse:Play()
+    R.glow = { area = area, switch = switch, clip = clip, frame = glow, pulse = pulse, pieces = {} }
+end
+
+-- Gold edges and flash around segment i (reusing textures between layouts).
+local function GlowAround(i, seg)
+    local pieces = R.glow.pieces[i]
+    if not pieces then
+        pieces = {}
+        local r, g, b = GLOW_COLOUR[1], GLOW_COLOUR[2], GLOW_COLOUR[3]
+        for e = 1, 4 do
+            local t = R.glow.frame:CreateTexture(nil, "OVERLAY")
+            t:SetColorTexture(r, g, b, 1)
+            pieces[e] = t
+        end
+        local flash = R.glow.frame:CreateTexture(nil, "OVERLAY")
+        flash:SetColorTexture(r, g, b, 0.35)
+        flash:SetBlendMode("ADD")
+        pieces[5] = flash
+        R.glow.pieces[i] = pieces
+    end
+    -- Top and bottom edges span the corners; left and right fill in between.
+    local G = GLOW_SIZE
+    pieces[1]:ClearAllPoints()
+    pieces[1]:SetPoint("BOTTOMLEFT", seg, "TOPLEFT", -G, 0)
+    pieces[1]:SetPoint("TOPRIGHT", seg, "TOPRIGHT", G, G)
+    pieces[1]:Show()
+    pieces[2]:ClearAllPoints()
+    pieces[2]:SetPoint("TOPLEFT", seg, "BOTTOMLEFT", -G, 0)
+    pieces[2]:SetPoint("BOTTOMRIGHT", seg, "BOTTOMRIGHT", G, -G)
+    pieces[2]:Show()
+    pieces[3]:ClearAllPoints()
+    pieces[3]:SetPoint("TOPRIGHT", seg, "TOPLEFT", 0, 0)
+    pieces[3]:SetPoint("BOTTOMLEFT", seg, "BOTTOMLEFT", -G, 0)
+    pieces[3]:Show()
+    pieces[4]:ClearAllPoints()
+    pieces[4]:SetPoint("TOPLEFT", seg, "TOPRIGHT", 0, 0)
+    pieces[4]:SetPoint("BOTTOMRIGHT", seg, "BOTTOMRIGHT", G, 0)
+    pieces[4]:Show()
+    pieces[5]:ClearAllPoints()
+    pieces[5]:SetAllPoints(seg)
+    pieces[5]:Show()
+end
+
+local function ComboCount()
+    local count = UnitPowerMax("player", POWER.COMBO)
+    if type(count) ~= "number" or IsSecret(count) or count < 1 or count > 10 then
+        count = 5
+    end
+    return count
+end
+
+-- Returns the new y.
+local function LayoutComboBar(y)
+    local s = R.Settings()
+    local count = ComboCount()
+    local height = s.powerHeight
+    local segWidth = (s.width - (count - 1) * SEGMENT_GAP) / count
+    R.comboBar:ClearAllPoints()
+    R.comboBar:SetPoint("TOPLEFT", R.frame, "TOPLEFT", 0, -y)
+    R.comboBar:SetSize(s.width, height)
+    if not R.glow then
+        BuildGlow()
+    end
+    local texture = STYLE_TEXTURE[s.style] or STYLE_TEXTURE.flat
+    for i = 1, math.max(count, #R.comboSegments) do
+        local seg = R.comboSegments[i]
+        if i <= count then
+            seg = seg or NewSegment(R.comboBar)
+            R.comboSegments[i] = seg
+            seg:ClearAllPoints()
+            seg:SetSize(segWidth, height)
+            seg:SetPoint("TOPLEFT", R.comboBar, "TOPLEFT", (i - 1) * (segWidth + SEGMENT_GAP), 0)
+            seg.fill:SetStatusBarTexture(texture)
+            seg.fill:SetMinMaxValues(i - 1, i)
+            seg.gloss:SetShown(s.style == "flat")
+            seg:Show()
+            GlowAround(i, seg)
+        elseif seg then
+            seg:Hide()
+            for _, t in ipairs(R.glow.pieces[i] or {}) do
+                t:Hide()
+            end
+        end
+    end
+    R.glow.switch:SetMinMaxValues(count - 1, count)
+    R.comboBar:Show()
+    return y + height
 end
 
 function R.Layout()
@@ -293,11 +482,12 @@ function R.Layout()
         y = PlaceBar(third, y, s.powerHeight)
     end
 
-    if R.ShowsCombo() then
-        local count = UnitPowerMax("player", POWER.COMBO)
-        if type(count) ~= "number" or IsSecret(count) or count < 1 or count > 10 then
-            count = 5
-        end
+    R.comboBar:Hide()
+    if R.ShowsCombo() and s.comboStyle == "bar" then
+        R.combo:Hide()
+        y = LayoutComboBar(y)
+    elseif R.ShowsCombo() then
+        local count = ComboCount()
         local size = math.max(10, math.min(24, s.powerHeight + 4))
         local gap = math.max(2, math.floor(size / 3))
         local total = count * size + (count - 1) * gap
@@ -323,6 +513,9 @@ function R.Layout()
     else
         R.combo:Hide()
         y = y - s.padding
+    end
+    if R.cast:IsShown() then
+        R.UpdateSpark()
     end
 
     R.frame:SetSize(s.width, math.max(1, y))
@@ -443,7 +636,12 @@ local function SetBarText(bar, current, max, kind, powerType, showMax)
     local mode = R.Settings().text
     bar.left:SetText("")
     bar.right:SetText("")
+    bar.centre:SetText("")
     if mode == "none" then
+        return
+    end
+    if mode == "centre" then
+        bar.centre:SetFormattedText("%s", current)
         return
     end
     if mode == "percent" then
@@ -509,6 +707,12 @@ function R.UpdateCombo()
     for _, point in ipairs(R.comboPoints) do
         point.fill:SetValue(value)
     end
+    for _, seg in ipairs(R.comboSegments) do
+        seg.fill:SetValue(value)
+    end
+    if R.glow then
+        R.glow.switch:SetValue(value)
+    end
 end
 
 -- Colours: DruidBar's measured Player Frame colours (ns.COLOURS), by power.
@@ -559,6 +763,96 @@ local function ManaCost(spellID)
     end
 end
 
+function R.UpdateSpark()
+    local spark = R.cast.spark
+    if R.casting then
+        local h = R.cast:GetHeight()
+        spark:SetSize(math.max(8, h * 0.9), h * 2.2)
+        spark:ClearAllPoints()
+        spark:SetPoint("CENTER", R.cast:GetStatusBarTexture(), "RIGHT", 0, 0)
+        spark:Show()
+    else
+        spark:Hide()
+    end
+end
+
+local function SetCastText(name, spellID)
+    R.cast.left:SetText("")
+    R.cast.right:SetText("")
+    local cost = ManaCost(spellID)
+    if cost then
+        R.cast.centre:SetFormattedText("%s (%d)", name, cost)
+    else
+        R.cast.centre:SetFormattedText("%s", name)
+    end
+end
+
+local function SetCastAlpha(alpha)
+    R.cast:GetStatusBarTexture():SetAlpha(alpha)
+    R.cast.centre:SetAlpha(alpha)
+    R.cast.gloss:SetAlpha(alpha)
+end
+
+-- The empty cast row (locked in place, nothing to show).
+function R.ClearCast()
+    R.casting = nil
+    R.linger = nil
+    R.cast:SetMinMaxValues(0, 1)
+    R.cast:SetValue(0)
+    R.cast.centre:SetText("")
+    SetCastAlpha(1)
+    R.UpdateSpark()
+    R.Layout()
+end
+
+-- After a spell goes off (a finished cast or channel, or an instant): show it full, with
+-- its name and cost, for LINGER_TIME seconds, then fade. A new spell or a shift replaces it.
+function R.StartLinger(name, spellID)
+    local s = R.Settings()
+    R.casting = nil
+    if not (s.castLinger and name) then
+        R.ClearCast()
+        return
+    end
+    R.linger = { start = GetTime() }
+    R.cast:SetMinMaxValues(0, 1)
+    R.cast:SetValue(1)
+    SetCastText(name, spellID)
+    SetCastAlpha(1)
+    R.cast.flashAnim:Stop()
+    R.cast.flashAnim:Play()
+    R.UpdateSpark()
+    R.Layout()
+end
+
+function R.UpdateLinger()
+    local t = GetTime() - R.linger.start
+    if t >= LINGER_TIME + LINGER_FADE then
+        R.ClearCast()
+    elseif t > LINGER_TIME then
+        SetCastAlpha(1 - (t - LINGER_TIME) / LINGER_FADE)
+    end
+end
+
+-- UNIT_SPELLCAST_SUCCEEDED: an instant (or a cast that just finished; STOP follows it).
+-- Channels report SUCCEEDED when they start, so those wait for CHANNEL_STOP instead.
+function R.SpellSucceeded(spellID)
+    local powerType = PowerType()
+    if powerType ~= POWER.MANA or not R.Settings().castBar then
+        return
+    end
+    if R.casting and R.casting.channel then
+        return
+    end
+    local name = R.casting and R.casting.name
+    if not name and C_Spell and C_Spell.GetSpellName and spellID ~= nil and not IsSecret(spellID) then
+        name = C_Spell.GetSpellName(spellID)
+    end
+    if name then
+        R.StartLinger(name, spellID)
+    end
+end
+
 function R.StartCast(channel, spellID)
     local name, text, texture, startMS, endMS
     if channel then
@@ -570,25 +864,29 @@ function R.StartCast(channel, spellID)
         R.StopCast()
         return
     end
-    R.casting = { channel = channel, startMS = startMS, endMS = endMS }
+    R.linger = nil
+    R.casting = { channel = channel, startMS = startMS, endMS = endMS, name = name, spellID = spellID }
     R.cast:SetMinMaxValues(startMS, endMS)
     R.cast:SetValue(R.CastValue())
+    SetCastAlpha(1)
     -- Centred: the spell's name, with its mana cost in brackets.
-    R.cast.left:SetText("")
-    R.cast.right:SetText("")
-    local cost = ManaCost(spellID)
-    if cost then
-        R.cast.centre:SetFormattedText("%s (%d)", name, cost)
-    else
-        R.cast.centre:SetFormattedText("%s", name)
-    end
+    SetCastText(name, spellID)
     R.Layout()
+    R.UpdateSpark()
 end
 
+-- A channel ended (finished or cut short): show it as gone off.
+function R.ChannelStopped()
+    local c = R.casting
+    if c and c.channel then
+        R.StartLinger(c.name, c.spellID)
+    end
+end
+
+-- Cancelled, failed or interrupted: nothing to show.
 function R.StopCast()
-    if R.casting then
-        R.casting = nil
-        R.Layout()
+    if R.casting or R.linger then
+        R.ClearCast()
     end
 end
 
@@ -649,6 +947,14 @@ function R.Refresh()
         return
     end
     R.Build()
+    local form = GetShapeshiftFormID()
+    if form ~= R.lastForm then
+        R.lastForm = form
+        R.casting, R.linger = nil, nil
+        R.cast:SetMinMaxValues(0, 1)
+        R.cast:SetValue(0)
+        R.cast.centre:SetText("")
+    end
     R.ApplyStyle()
     R.Layout()
     R.ApplyPosition()
@@ -665,7 +971,8 @@ for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "UNIT_HEALTH",
     "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "PLAYER_TARGET_CHANGED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
     "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
-    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP" }) do
+    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_CHANNEL_STOP",
+    "UNIT_SPELLCAST_SUCCEEDED" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
@@ -702,9 +1009,19 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
         R.StartCast(false, spellID) -- (unit, castGUID, spellID): powerToken holds the castGUID here
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
         R.StartCast(true, spellID)
-    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
-        or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        R.StopCast()
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        R.SpellSucceeded(spellID)
+    elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+        R.ChannelStopped()
+    elseif event == "UNIT_SPELLCAST_STOP" then
+        -- After SUCCEEDED this is just the cast ending (already showing as gone off).
+        if R.casting and not R.casting.channel then
+            R.StopCast()
+        end
+    elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
+        if R.casting then
+            R.StopCast()
+        end
     end
 end)
 
@@ -715,7 +1032,8 @@ function R.Debug()
         tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(s.unlocked))
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",
-        "| combo points:", tostring(R.ShowsCombo()), "| casting:", tostring(R.casting ~= nil))
+        "| combo points:", s.comboStyle, tostring(R.ShowsCombo()), "| casting:", tostring(R.casting ~= nil),
+        "| lingering:", tostring(R.linger ~= nil))
     print("  size:", s.width, "x", s.healthHeight, "/", s.powerHeight, "padding", s.padding, "scale", s.scale,
         "opacity", s.opacity, "| position:", tostring(s.x), tostring(s.y), "keep centred:", tostring(s.keepCentred))
     print("  health secret:", tostring(IsSecret(UnitHealth("player"))), "| combo points secret:",
@@ -729,7 +1047,7 @@ end
 local panel = CreateFrame("Frame", "DruidBarResourceOptionsPanel", UIParent)
 panel.name = "Resource display"
 panel.parent = "DruidBar"
-panel:SetSize(620, 470)
+panel:SetSize(620, 600)
 panel:Hide()
 R.panel = panel
 
@@ -795,6 +1113,43 @@ local function Cycle(name, anchor, label, key, choices)
     return button
 end
 
+-- A dropdown of choices, with its label above. Uses Blizzard's UIDropDownMenu (works on
+-- Forever, see CustomBuffwatch); falls back to the stepping button without it.
+local function Dropdown(name, anchor, label, key, choices)
+    if not (UIDropDownMenu_Initialize and UIDropDownMenu_AddButton) then
+        return Cycle(name, anchor, label, key, choices)
+    end
+    local caption = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    caption:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 4, -12)
+    caption:SetText(label)
+    local dd = CreateFrame("Frame", name, panel, "UIDropDownMenuTemplate")
+    dd:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", -18, -2)
+    UIDropDownMenu_SetWidth(dd, 230)
+    local function LabelFor(value)
+        for _, choice in ipairs(choices) do
+            if choice.key == value then return choice.label end
+        end
+        return ""
+    end
+    UIDropDownMenu_Initialize(dd, function()
+        for _, choice in ipairs(choices) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = choice.label
+            info.value = choice.key
+            info.checked = (R.Settings()[key] == choice.key)
+            info.func = function()
+                R.Settings()[key] = choice.key
+                UIDropDownMenu_SetText(dd, choice.label)
+                Changed()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    widgets[#widgets + 1] = function() UIDropDownMenu_SetText(dd, LabelFor(R.Settings()[key])) end
+    dd.caption = caption
+    return dd
+end
+
 local function Slider(name, anchor, label, key, minV, maxV, step, asPercent, x, y)
     local slider = CreateFrame("Slider", name, panel, "OptionsSliderTemplate")
     if x then
@@ -822,20 +1177,23 @@ local function Slider(name, anchor, label, key, minV, maxV, step, asPercent, x, 
 end
 
 local enabledBox = Checkbox("DruidBarResourceEnabled", subtitle, "Show the resource display", "enabled")
-local visibilityButton = Cycle("DruidBarResourceVisibility", enabledBox, "Visibility", "visibility", R.VISIBILITY)
-local textButton = Cycle("DruidBarResourceText", visibilityButton, "Text", "text", R.TEXT)
-local styleButton = Cycle("DruidBarResourceStyle", textButton, "Bar style", "style", R.STYLE)
-styleButton:SetPoint("TOPLEFT", textButton, "BOTTOMLEFT", 0, -10)
-local centredBox = Checkbox("DruidBarResourceCentred", styleButton, "Keep centred (dragging only moves it up and down)",
+local visibilityDrop = Dropdown("DruidBarResourceVisibility", enabledBox, "Visibility", "visibility", R.VISIBILITY)
+local textDrop = Dropdown("DruidBarResourceText", visibilityDrop, "Text", "text", R.TEXT)
+local styleDrop = Dropdown("DruidBarResourceStyle", textDrop, "Bar style", "style", R.STYLE)
+local comboDrop = Dropdown("DruidBarResourceCombo", styleDrop, "Combo points (Cat Form)", "comboStyle", R.COMBO)
+local centredBox = Checkbox("DruidBarResourceCentred", comboDrop, "Keep centred (dragging only moves it up and down)",
     "keepCentred")
-centredBox:SetPoint("TOPLEFT", styleButton, "BOTTOMLEFT", -4, -8)
+centredBox:SetPoint("TOPLEFT", comboDrop, "BOTTOMLEFT", 14, -6)
 local unlockBox = Checkbox("DruidBarResourceUnlocked", centredBox, "Unlock to move (drag it)", "unlocked")
-local castBox = Checkbox("DruidBarResourceCast", unlockBox, "Cast bar below mana in caster form, while casting", "castBar")
-local comboBox = Checkbox("DruidBarResourceCombo", castBox, "Combo points in Cat Form", "comboPoints")
+local castBox = Checkbox("DruidBarResourceCast", unlockBox, "Cast bar below mana in caster form", "castBar")
+local castLockedBox = Checkbox("DruidBarResourceCastLocked", castBox,
+    "Keep the cast bar's row in place (not just while casting)", "castLocked")
+local castLingerBox = Checkbox("DruidBarResourceCastLinger", castLockedBox,
+    "Show the last spell's name and cost for 5 seconds (instant spells too)", "castLinger")
 
 local resetButton = CreateFrame("Button", "DruidBarResourceReset", panel, "UIPanelButtonTemplate")
 resetButton:SetSize(200, 22)
-resetButton:SetPoint("TOPLEFT", comboBox, "BOTTOMLEFT", 4, -12)
+resetButton:SetPoint("TOPLEFT", castLingerBox, "BOTTOMLEFT", 4, -12)
 resetButton:SetText("Reset to default position")
 resetButton:SetScript("OnClick", function() R.ResetPosition() end)
 

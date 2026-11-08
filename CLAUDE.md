@@ -70,6 +70,8 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   `HealthBarsContainer.healthBar`, `PowerBar` (primary power) and `AlternatePowerBar` (the druid's mana bar in
   Cat/Bear). Hook its `UpdatePowerBar` / `UpdateAlternatePowerBar` methods with `hooksecurefunc` to react
   when Blizzard repaints them. It only draws when the `nameplateShowSelf` CVar is on.
+- **New files in an existing addon** (a new `.lua` added to its TOC, new textures) are picked up by `/reload`
+  on Forever's client; no restart needed (confirmed in game).
 - **SavedVariables** load *after* the addon's Lua runs. Re-read the settings table at `PLAYER_LOGIN`, and
   refresh options-panel widgets in the panel's `OnShow`. Otherwise settings never persist.
 - **Frame positions:** the client's own memory of dragged frames (layout cache / `SetUserPlaced`) survives
