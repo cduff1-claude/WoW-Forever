@@ -26,6 +26,11 @@ end
 
 -- which: "frame", "bar" or "range".
 function ns.OpenOptions(which)
+    -- The client blocks opening the settings in combat.
+    if InCombatLockdown and InCombatLockdown() then
+        print("|cff55ff55DruidFrame|r: options can't be opened in combat.")
+        return
+    end
     local category = ns.categories[which] or ns.categories.frame
     if not (Settings and Settings.OpenToCategory and category) then
         return
@@ -62,4 +67,35 @@ SlashCmdList["DRUIDFRAME"] = function(msg)
     else
         ns.OpenOptions("frame")
     end
+end
+
+-- In combat the display, the range bar and the druid bar ignore the mouse entirely: clicks go
+-- through to the world, and nothing tries to open the options (which the client blocks).
+do
+    local function SetInteractive(on)
+        local frames = {
+            ns.Resource and ns.Resource.frame,
+            ns.Range and ns.Range.bar,
+            _G.DruidForeverManabarPlusMainFrame,
+        }
+        for _, frame in pairs(frames) do
+            if frame and frame.EnableMouse then
+                frame:EnableMouse(on)
+            end
+        end
+    end
+    ns.SetInteractive = SetInteractive
+    local events = CreateFrame("Frame")
+    for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
+        events:RegisterEvent(event)
+    end
+    events:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            SetInteractive(false)
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            SetInteractive(true)
+        else
+            SetInteractive(not (InCombatLockdown and InCombatLockdown()))
+        end
+    end)
 end

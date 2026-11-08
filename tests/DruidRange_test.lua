@@ -160,6 +160,15 @@ W.Slash("/druidframe")
 W.Check(opened == "DruidFrame", "/druidframe opens the DruidFrame page")
 W.Slash("/druidbar")
 W.Check(opened == "DruidBar", "/druidbar opens the DruidBar page")
+opened = nil
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+f:GetScript("OnMouseDown")(f, "RightButton")
+f:GetScript("OnMouseUp")(f, "RightButton")
+W.Slash("/druidframe")
+W.Check(opened == nil, "in combat: no options (the client blocks them)")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
 Settings.OpenToCategory = realOpen
 local ok = pcall(W.Slash, "/druidrange debug")
 W.Check(ok, "/druidrange debug runs without errors")

@@ -12,7 +12,7 @@ options page under Esc > Options > AddOns > DruidFrame:
 
 While any of the three pages is open, the display and the range bar are unlocked (highlighted) and left-drag moves
 them; closing the options locks them, and left clicks then pass through to the world. Right-click either one to
-open its page.
+open its page. In combat they ignore the mouse completely (the client won't open the options then).
 
 DruidFrame was made from three addons: DruidBar, DruidRange and ForeverFiveSecondRule. Its saved variables are the
 old ones (`DruidForeverManabarPlusDB`, `DruidRangeDB`), so settings carry over, except that the Player Frame
