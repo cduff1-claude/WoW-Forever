@@ -86,6 +86,10 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   on change. The default action bar suffers the same bug. The user runs CustomFormBars (in this repo) for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
+- **Blocked in combat** (ADDON_ACTION_BLOCKED): `Frame:SetPassThroughButtons` (even on the addon's own frames),
+  and opening the settings (`Settings.OpenToCategory`). Only call them when the value changes, and defer to
+  `PLAYER_REGEN_ENABLED`; see `ns.SetPassThrough` in `DruidFrame/Resource.lua`. `tests/wow.lua` errors on
+  `SetPassThroughButtons` in combat.
 - **"Script ran too long"** comes from creating too many frames in one go. Frames can't be deleted, so
   hiding old ones and making new ones on every rebuild piles them up and slows every later `CreateFrame`.
   Pool and reuse frames instead; after `SetParent`, set frame levels explicitly.

@@ -122,6 +122,24 @@ bar:GetScript("OnMouseUp")(bar, "LeftButton")
 W.Near(select(1, bar:GetCenter()), bx - 150, "moves sideways freely")
 db.keepCentred = true
 
+print("Combat: no protected calls")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+local okShift = pcall(function()
+    W.powerType, W.formID = 1, 5
+    W.Fire("UPDATE_SHAPESHIFT_FORM")
+    W.Advance(0.2)
+    R.Refresh()
+    ns.Range.RefreshLayout()
+    W.powerType, W.formID = 0, nil
+    W.Fire("UPDATE_SHAPESHIFT_FORM")
+    W.Advance(0.2)
+end)
+W.Check(okShift, "shifting and refreshing in combat doesn't touch SetPassThroughButtons")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Check(f._passThrough == (not R.unlocked), "pass-through matches the lock state after combat")
+
 print("Moving between options pages keeps it unlocked")
 ns.panels.frame:GetScript("OnShow")(ns.panels.frame)
 ns.panels.range:GetScript("OnHide")(ns.panels.range)

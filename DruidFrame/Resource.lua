@@ -754,17 +754,47 @@ function R.ResetPosition()
     R.ApplyPosition()
 end
 
+-- Locked frames let left clicks through to the world. SetPassThroughButtons is blocked in
+-- combat (ADDON_ACTION_BLOCKED), so it's only called when the setting actually changes, and
+-- in combat it waits until combat ends. (The frames ignore the mouse in combat anyway.)
+do
+    local applied, waiting = {}, {}
+    local function Apply(frame, passLeft)
+        if applied[frame] == passLeft then
+            return
+        end
+        if InCombatLockdown() then
+            waiting[frame] = passLeft
+            return
+        end
+        applied[frame] = passLeft
+        if passLeft then
+            pcall(frame.SetPassThroughButtons, frame, "LeftButton")
+        else
+            pcall(frame.SetPassThroughButtons, frame)
+        end
+    end
+    function ns.SetPassThrough(frame, passLeft)
+        if frame and frame.SetPassThroughButtons then
+            waiting[frame] = nil
+            Apply(frame, passLeft and true or false)
+        end
+    end
+    local events = CreateFrame("Frame")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:SetScript("OnEvent", function()
+        for frame, passLeft in pairs(waiting) do
+            waiting[frame] = nil
+            Apply(frame, passLeft)
+        end
+    end)
+end
+
 -- Unlocked while the options page is open (not saved).
 function R.SetUnlocked(unlocked)
     R.unlocked = unlocked and true or false
     if R.frame then
-        if R.frame.SetPassThroughButtons then
-            if R.unlocked then
-                pcall(R.frame.SetPassThroughButtons, R.frame)
-            else
-                pcall(R.frame.SetPassThroughButtons, R.frame, "LeftButton")
-            end
-        end
+        ns.SetPassThrough(R.frame, not R.unlocked)
         R.unlockTint:SetShown(R.unlocked)
         R.unlockLabel:SetShown(R.unlocked)
         R.UpdateIdleCast()

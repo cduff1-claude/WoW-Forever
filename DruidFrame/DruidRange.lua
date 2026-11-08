@@ -379,12 +379,9 @@ local function CanDrag()
 end
 
 local function UpdateDraggability()
-    if bar.SetPassThroughButtons then
-        if CanDrag() then
-            pcall(bar.SetPassThroughButtons, bar)
-        else
-            pcall(bar.SetPassThroughButtons, bar, "LeftButton")
-        end
+    -- Combat-safe: see ns.SetPassThrough in Resource.lua.
+    if ns.SetPassThrough then
+        ns.SetPassThrough(bar, not CanDrag())
     end
 end
 

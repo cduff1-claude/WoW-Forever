@@ -399,6 +399,11 @@ end
 
 function GetTime() return W.time end
 function InCombatLockdown() return W.combat end
+-- Protected in combat on the real client (ADDON_ACTION_BLOCKED): an error here.
+function Frame:SetPassThroughButtons(...)
+    if W.combat then error("ADDON_ACTION_BLOCKED: SetPassThroughButtons in combat") end
+    self._passThrough = select("#", ...) > 0
+end
 function UnitAffectingCombat() return W.combat end
 function UnitClass() return W.class:sub(1, 1) .. W.class:sub(2):lower(), W.class end
 function UnitName(unit) return unit == "player" and "Roam" or unit end
