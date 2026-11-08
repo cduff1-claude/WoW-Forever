@@ -8,6 +8,5 @@
 DruidBar.lua
 Resource.lua
 Buffs.lua
-Rage.lua
 DruidRange.lua
 Options.lua

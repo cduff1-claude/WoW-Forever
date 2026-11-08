@@ -59,8 +59,6 @@ SlashCmdList["DRUIDFRAME"] = function(msg)
         ns.Resource.DebugClearcasting()
     elseif msg == "buffs" and ns.Buffs then
         ns.Buffs.Debug()
-    elseif msg == "rage" and ns.RageDecay then
-        ns.RageDecay.Debug()
     else
         ns.OpenOptions("frame")
     end
