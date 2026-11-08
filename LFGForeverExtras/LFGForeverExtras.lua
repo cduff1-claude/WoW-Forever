@@ -303,7 +303,11 @@ end
 -- /who on a click
 -------------------------------------------------------------------------------
 
-local asked = {} -- key -> GetTime() of the last /who sent for them
+-- key -> /who sent for them without an answer. The server only answers one /who every few
+-- seconds (whatever its message says), so a member with no answer is asked once more on the
+-- next click before moving on.
+local unanswered = {}
+local MAX_TRIES = 2
 
 function E.WhoNext(resultID)
     local members = E.Members(resultID)
@@ -313,7 +317,7 @@ function E.WhoNext(resultID)
     end
     local pick
     for _, m in ipairs(members) do
-        if (E.Guild(m.name) == nil or (not m.area and not E.WhoArea(m.name))) and not (asked[Key(m.name)] and GetTime() - asked[Key(m.name)] < 30) then
+        if (E.Guild(m.name) == nil or (not m.area and not E.WhoArea(m.name))) and (unanswered[Key(m.name)] or 0) < MAX_TRIES then
             pick = m
             break
         end
@@ -324,7 +328,7 @@ function E.WhoNext(resultID)
         pick = members[E.cycle]
     end
     local name = ShortName(pick.name)
-    asked[Key(pick.name)] = GetTime()
+    unanswered[Key(pick.name)] = (unanswered[Key(pick.name)] or 0) + 1
     E.pending = { name = name, key = Key(pick.name), sent = GetTime() }
     local ok = pcall(C_FriendList.SendWho, 'n-"' .. name .. '"')
     if not ok then
@@ -337,7 +341,11 @@ function E.WhoNext(resultID)
         local pending = E.pending
         if pending and pending.key == Key(pick.name) and GetTime() - pending.sent >= WHO_TIMEOUT - 0.1 then
             E.pending = nil
-            print(PREFIX, "no answer for " .. name .. " (offline, or the server only allows a /who every few seconds).")
+            if (unanswered[Key(pick.name)] or 0) < MAX_TRIES then
+                print(PREFIX, "no answer for " .. name .. " yet (the server only answers a /who every few seconds): click again to retry.")
+            else
+                print(PREFIX, "no answer for " .. name .. " (probably offline): the next click moves on.")
+            end
         end
     end)
 end
@@ -360,6 +368,7 @@ function E.ReadWho()
     end
     if found then
         E.pending = nil
+        unanswered[Key(found.fullName)] = nil
         local guild = Readable(found.fullGuildName) and found.fullGuildName or ""
         print(PREFIX, ShortName(found.fullName) .. (guild ~= "" and (" <" .. guild .. ">") or " (no guild)")
             .. (Readable(found.area) and found.area and (" - " .. found.area) or ""))

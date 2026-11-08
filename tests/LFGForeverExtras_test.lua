@@ -44,6 +44,12 @@ LFGForeverExtrasDB.guilds.bob.seen = time()
 C_FriendList.GetWhoInfo = function() return { fullName = "Cid", fullGuildName = "", area = "Westfall" } end
 row:Click("LeftButton")
 W.Check(sent == 'n-"Amy"' , "next click: the next member (got " .. tostring(sent) .. ")")
+sent = nil
+row:Click("LeftButton")
+W.Check(sent == 'n-"Amy"' , "no answer: the same member again (got " .. tostring(sent) .. ")")
+sent = nil
+row:Click("LeftButton")
+W.Check(sent == 'n-"Cid"' , "still none after two tries: moves on (got " .. tostring(sent) .. ")")
 LFGForeverExtras.pending = { key = "cid", name = "Cid", sent = GetTime() }
 W.Fire("WHO_LIST_UPDATE")
 LFGBrowseSearchEntryTooltip_UpdateAndShow(LFGBrowseSearchEntryTooltip, 5)
