@@ -12,6 +12,8 @@ BUFFWATCHADDON._T = {
         for i, v in ipairs(order) do Current_Order[i] = v end
         BuffwatchPlayerBuffs, BuffwatchPlayerTempEnch, maxnamewidth = buffs, tempEnch, nameWidth
     end,
+    Queue = function() return InCombat_Events end,
+    Info = function() return Player_Info end,
 }
 ]]
 
@@ -122,5 +124,30 @@ B.Process_InCombat_Events()
 W.Check(not B.layoutPending, "pending layout applied after combat")
 W.Near(frame(3):GetTop(), container:GetTop() - 2 * 18, "single column restored after combat")
 W.Near(select(1, window:GetCenter()), centre, "still centred after combat")
+
+print("After combat: buffs still unreadable doesn't loop forever")
+local player = B._T.Info().Niuniu
+-- Locked row (the path from the bug report): its buffs are re-read, and re-queued if unreadable.
+local lockName = "BuffwatchFrame_PlayerFrame" .. player.ID .. "_Lock"
+local lock = _G[lockName] or CreateFrame("CheckButton", lockName, UIParent)
+lock:SetChecked(true)
+local realRead = B.ReadBuff
+local reads = 0
+B.ReadBuff = function() reads = reads + 1; return false end
+B.Add_InCombat_Events({ "GetBuffs", player })
+local okRun = pcall(B.Process_InCombat_Events)
+W.Check(okRun and reads < 5, "queue runs once and returns (read " .. reads .. " times)")
+W.Check(#B._T.Queue() == 1, "the job waits for a retry")
+W.Advance(1.1)
+W.Check(reads >= 2, "retried a second later")
+W.Advance(20)
+local after = reads
+W.Advance(5)
+W.Check(reads == after, "gives up after a few retries")
+B.ReadBuff = function() return true, nil end -- readable now: no buffs
+B.Process_InCombat_Events()
+W.Check(#B._T.Queue() == 0, "readable again: queue empties")
+B.ReadBuff = realRead
+lock:SetChecked(false)
 
 W.Done()

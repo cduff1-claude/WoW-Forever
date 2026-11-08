@@ -20,3 +20,5 @@ Forever changes:
 
   Both are applied out of combat only: the rows hold secure buttons, which can't move mid-fight, so a change during
   combat waits until it ends.
+- After combat, rows whose buffs still can't be read are retried a second later (up to 10 times) instead of being
+  re-run in the same loop, which froze the client ("script ran too long").

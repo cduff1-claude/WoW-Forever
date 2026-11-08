@@ -2523,10 +2523,23 @@ function BUFFWATCHADDON.Add_InCombat_Events(value)
 
 end
 
--- Combat lockdown is over, process any queued events
-function BUFFWATCHADDON.Process_InCombat_Events()
+-- Combat lockdown is over, process any queued events.
+-- Only the jobs queued so far are run: a job whose buffs still can't be read queues itself
+-- again, and running those in the same loop never ended ("script ran too long", a frozen
+-- client). Re-queued jobs are retried a second later, a few times at most.
+local INCOMBAT_RETRY_DELAY, INCOMBAT_MAX_RETRIES = 1, 10
+local inCombatRetries = 0
 
-    local t = table.remove(InCombat_Events, 1);
+function BUFFWATCHADDON.Process_InCombat_Events(isRetry)
+
+    if not isRetry then
+        inCombatRetries = 0;
+    end
+
+    local queue = InCombat_Events;
+    InCombat_Events = { };
+
+    local t = table.remove(queue, 1);
 
     local eventfired;
 
@@ -2550,10 +2563,21 @@ function BUFFWATCHADDON.Process_InCombat_Events()
 
         end
 
-        t = table.remove(InCombat_Events, 1);
+        t = table.remove(queue, 1);
 
         eventfired = true;
 
+    end
+
+    -- Anything that queued itself again: try later, unless combat has started again (then
+    -- PLAYER_REGEN_ENABLED runs the queue).
+    if #InCombat_Events > 0 and not InCombatLockdown() and inCombatRetries < INCOMBAT_MAX_RETRIES then
+        inCombatRetries = inCombatRetries + 1;
+        C_Timer.After(INCOMBAT_RETRY_DELAY, function()
+            if not InCombatLockdown() then
+                BUFFWATCHADDON.Process_InCombat_Events(true);
+            end
+        end);
     end
 
     if eventfired or BUFFWATCHADDON.layoutPending then
