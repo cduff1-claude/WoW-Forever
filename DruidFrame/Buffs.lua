@@ -136,6 +136,7 @@ local function StartFade(button)
     if button.fade then
         return
     end
+    B.SetGlow(button, false)
     button.fade = 0
     button:SetScript("OnUpdate", FadeUpdate)
 end
@@ -180,6 +181,10 @@ function B.Create()
         button:SetScript("OnLeave", function()
             if GameTooltip then GameTooltip:Hide() end
         end)
+        -- The same pulsing gold glow as Omen of Clarity on the bars.
+        if ns.Resource and ns.Resource.EdgeGlow then
+            button.glow = ns.Resource.EdgeGlow(button)
+        end
         button.buff = buff
         button:Hide()
         B.buttons[buff.key] = button
@@ -212,10 +217,22 @@ function B.Layout()
     end
 end
 
+-- The glow is only for out of combat (and not for the options preview).
+function B.SetGlow(button, on)
+    if button.glow then
+        if on then button.glow.Show() else button.glow.Hide() end
+    end
+end
+
 -- Show the button for each missing buff. Out of combat only: in combat nothing changes.
 function B.Check()
     if InCombatLockdown() then
         B.dirty = true
+        if B.buttons then
+            for _, button in pairs(B.buttons) do
+                B.SetGlow(button, false)
+            end
+        end
         return
     end
     B.dirty = false
@@ -250,6 +267,8 @@ function B.Check()
             end
             button:SetAlpha(1)
             button:SetShown(show)
+            -- Glow when it's really missing (not just shown as a preview).
+            B.SetGlow(button, show and not preview)
         end
     end
 end
@@ -261,11 +280,18 @@ end
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "UNIT_AURA",
-    "SPELLS_CHANGED", "PLAYER_UNGHOST", "PLAYER_ALIVE", "PLAYER_CONTROL_GAINED", "ZONE_CHANGED_NEW_AREA" }) do
+    "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE", "PLAYER_CONTROL_GAINED", "ZONE_CHANGED_NEW_AREA" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_AURA" and unit ~= "player" then
+        return
+    end
+    if event == "PLAYER_REGEN_DISABLED" then
+        -- Entering combat (lockdown may not have started yet): just drop the glows.
+        for _, button in pairs(B.buttons or {}) do
+            B.SetGlow(button, false)
+        end
         return
     end
     B.Check()

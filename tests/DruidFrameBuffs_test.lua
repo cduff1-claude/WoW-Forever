@@ -43,6 +43,14 @@ W.Check(mark:GetRight() < R.health:GetLeft(), "Mark of the Wild on the left")
 W.Check(thorns:GetLeft() > R.health:GetRight(), "Thorns on the right")
 W.Near(R.health:GetLeft() - mark:GetRight(), s.padding + 1, "a padding's gap from the bars")
 
+print("Glow while missing, out of combat")
+local function Glowing(b) return b.glow and b.glow.frame:IsShown() end
+W.Check(Glowing(mark) and Glowing(thorns), "both glow")
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(not Glowing(mark) and not Glowing(thorns), "combat: no glow")
+W.Fire("PLAYER_REGEN_ENABLED")
+W.Check(Glowing(mark), "out of combat again: glowing")
+
 print("Clicking: fades out")
 mark:GetScript("PostClick")(mark, "LeftButton", false)
 W.Advance(0.25)
@@ -84,6 +92,7 @@ learned[467] = true
 print("Unlocked: both shown so you can see where they go")
 ns.panels.frame:GetScript("OnShow")(ns.panels.frame)
 W.Check(mark:IsShown() and thorns:IsShown(), "both shown while the options are open")
+W.Check(not Glowing(mark), "no glow on the preview")
 local before = mark:GetTop()
 _G.DruidBarResourceHealthHeight:GetScript("OnValueChanged")(_G.DruidBarResourceHealthHeight, 24)
 W.Near(mark:GetHeight(), R.health:GetTop() - R.mana:GetBottom(), "follows the bars' height")

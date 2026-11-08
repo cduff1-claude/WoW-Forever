@@ -45,7 +45,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Buff reminders (option, on): out of combat, a Mark of the Wild button to the left of the health and mana
   bars while you don't have it (Gift of the Wild counts), and a Thorns button to the right. Each is as tall as
   both bars and the gap between them. Click to cast it on yourself (from a form too: it leaves the form first);
-  the button fades out. Only checked out of combat, and only once the spell is learned. Both show while the
+  the button fades out. While a buff is missing, out of combat, its button has the same pulsing gold glow as
+  Omen of Clarity. Only checked out of combat, and only once the spell is learned. Both show while the
   options are open, so you can see where they go. Not shown in battlegrounds or arenas (buffs get purged
   there) unless "Also in battlegrounds and arenas" is ticked. Macro-clickable as `DruidFrameMarkButton` /
   `DruidFrameThornsButton`. `/druidframe buffs` shows what it sees.
