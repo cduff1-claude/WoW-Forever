@@ -238,7 +238,14 @@ function Frame:GetAttribute(k) return self._attrs[k] end
 
 function Frame:SetChecked(v) self._checked = v and true or false end
 function Frame:GetChecked() return self._checked end
-function Frame:Click(button) local fn = self._scripts.OnClick if fn then fn(self, button or "LeftButton", false) end end
+-- As the client does: PreClick, OnClick, then PostClick.
+function Frame:Click(button)
+    button = button or "LeftButton"
+    for _, name in ipairs({ "PreClick", "OnClick", "PostClick" }) do
+        local fn = self._scripts[name]
+        if fn then fn(self, button, false) end
+    end
+end
 
 -- Status bars
 function Frame:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
@@ -306,6 +313,8 @@ function Frame:SetText(t) self._text = t end
 function Frame:SetFormattedText(fmt, ...) self._text = string.format(fmt, ...) end
 function Frame:GetText() return self._text end
 function Frame:GetStringWidth() return #(tostring(self._text or "")) * 6 end
+time = time or os.time
+function Frame:GetStringHeight() return 12 end
 function Frame:GetFont() return "Fonts\\ARIALN.TTF", 10, "" end
 
 function CreateFrame(kind, name, parent, template)

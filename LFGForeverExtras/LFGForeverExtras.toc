@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: LFG Forever Extras
+## Notes: Additions to LFG Forever: member locations and guilds on group tooltips, click a group to /who its members, and %dungeon% in the Ask to Join whisper.
+## Author: modified for personal use
+## Version: 1.0.0
+## Dependencies: LFGForever
+## SavedVariables: LFGForeverExtrasDB
+
+LFGForeverExtras.lua

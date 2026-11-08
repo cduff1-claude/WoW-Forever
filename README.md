@@ -10,3 +10,4 @@ Each addon's folder has its own `README.md` with the details.
 - **[CustomXToLevel](CustomXToLevel/README.md)**: XToLevelNG patched for Forever: mobs, quests and dungeons needed until your next level.
 - **[DruidFrame](DruidFrame/README.md)**: Druid resource display (health, mana, energy/rage, cast bar, combo points, Omen of Clarity glow) with a form-aware range bar, Mark of the Wild / Thorns reminders, shift-cost shading, energy and rage warnings and the 5-second rule.
 - **[DruidSequence](DruidSequence/README.md)**: Windows of spell sequences that fill with colour as you gain the mana to cast them.
+- **[LFGForeverExtras](LFGForeverExtras/README.md)**: Additions to LFG Forever: member zones and guilds on group tooltips, click a group to /who its members, and %dungeon% in Ask to Join.
