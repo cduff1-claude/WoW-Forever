@@ -4,7 +4,7 @@ package.path = "tests/?.lua;" .. package.path
 local W = require("wow")
 C_LFGList = {
   GetSearchResultInfo = function(id) return { numMembers = 3, leaderName = "Bob", activityIDs = { 7, 8 } } end,
-  GetSearchResultPlayerInfo = function(id, i) return ({ { name = "Bob", areaName = "Darkshore", classFilename = "DRUID" },
+  GetSearchResultPlayerInfo = function(id, i) return ({ { name = "Bob", classFilename = "DRUID" },
     { name = "Amy-Realm", areaName = "Ashenvale", classFilename = "MAGE" }, { name = "Cid", classFilename = "ROGUE" } })[i] end,
   GetActivityInfoTable = function(id) return { fullName = ({ [7] = "The Deadmines", [8] = "Wailing Caverns", [9] = "Gnomeregan" })[id] } end,
 }
@@ -36,6 +36,7 @@ for _, r in ipairs(LFGForeverExtrasPanel._regions or {}) do if r._text and r._te
 W.Check(found, "zone listed")
 row:Click("LeftButton")
 W.Check(sent == 'n-"Bob"', "click: /who the first unknown member (got " .. tostring(sent) .. ")")
+C_FriendList.GetWhoInfo = function() return { fullName = "Bob", fullGuildName = "Moonglade" } end -- no zone given
 W.Fire("WHO_LIST_UPDATE")
 W.Check(LFGForeverExtras.Guild("Bob") == "Moonglade", "guild remembered")
 LFGForeverExtrasDB.guilds.bob.seen = time() - 4 * 86400

@@ -308,6 +308,9 @@ end
 -- next click before moving on.
 local unanswered = {}
 local MAX_TRIES = 2
+-- key -> true once /who has answered for them this session: they're done, even if the
+-- answer had no zone (otherwise they'd be asked again and again).
+local answered = {}
 
 function E.WhoNext(resultID)
     local members = E.Members(resultID)
@@ -317,7 +320,9 @@ function E.WhoNext(resultID)
     end
     local pick
     for _, m in ipairs(members) do
-        if (E.Guild(m.name) == nil or (not m.area and not E.WhoArea(m.name))) and (unanswered[Key(m.name)] or 0) < MAX_TRIES then
+        local key = Key(m.name)
+        local needed = E.Guild(m.name) == nil or (not m.area and not E.WhoArea(m.name))
+        if needed and not answered[key] and (unanswered[key] or 0) < MAX_TRIES then
             pick = m
             break
         end
@@ -369,6 +374,7 @@ function E.ReadWho()
     if found then
         E.pending = nil
         unanswered[Key(found.fullName)] = nil
+        answered[Key(found.fullName)] = true
         local guild = Readable(found.fullGuildName) and found.fullGuildName or ""
         print(PREFIX, ShortName(found.fullName) .. (guild ~= "" and (" <" .. guild .. ">") or " (no guild)")
             .. (Readable(found.area) and found.area and (" - " .. found.area) or ""))
