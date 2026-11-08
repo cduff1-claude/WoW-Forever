@@ -20,6 +20,7 @@ _G.LFGForeverExtras = E
 
 local PREFIX = "|cff55ff55LFG Forever Extras|r:"
 local WHO_TIMEOUT = 4
+local GUILD_KEEP_DAYS = 3 -- people change guilds, so remembered guilds are forgotten after this
 
 -------------------------------------------------------------------------------
 -- Secret-safe reads
@@ -83,6 +84,9 @@ end
 -- The guild name, "" for none, or nil when unknown.
 function E.Guild(name)
     local entry = DB().guilds[Key(name)]
+    if entry and (entry.seen or 0) < time() - GUILD_KEEP_DAYS * 86400 then
+        return nil
+    end
     return entry and entry.guild
 end
 
@@ -483,9 +487,15 @@ for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "WHO_LIST_UPDATE", "CHA
 end
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
-        -- Zones from earlier sessions are out of date.
-        for _, entry in pairs(DB().guilds) do
-            entry.area, entry.areaSeen = nil, nil
+        -- Zones from earlier sessions are out of date, and guilds after a few days.
+        local guilds = DB().guilds
+        local cutoff = time() - GUILD_KEEP_DAYS * 86400
+        for key, entry in pairs(guilds) do
+            if (entry.seen or 0) < cutoff then
+                guilds[key] = nil
+            else
+                entry.area, entry.areaSeen = nil, nil
+            end
         end
     end
     if event == "ADDON_LOADED" or event == "PLAYER_LOGIN" then

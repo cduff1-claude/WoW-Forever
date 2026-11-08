@@ -38,6 +38,9 @@ row:Click("LeftButton")
 W.Check(sent == 'n-"Bob"', "click: /who the first unknown member (got " .. tostring(sent) .. ")")
 W.Fire("WHO_LIST_UPDATE")
 W.Check(LFGForeverExtras.Guild("Bob") == "Moonglade", "guild remembered")
+LFGForeverExtrasDB.guilds.bob.seen = time() - 4 * 86400
+W.Check(LFGForeverExtras.Guild("Bob") == nil, "forgotten after 3 days")
+LFGForeverExtrasDB.guilds.bob.seen = time()
 C_FriendList.GetWhoInfo = function() return { fullName = "Cid", fullGuildName = "", area = "Westfall" } end
 row:Click("LeftButton")
 W.Check(sent == 'n-"Amy"' , "next click: the next member (got " .. tostring(sent) .. ")")
