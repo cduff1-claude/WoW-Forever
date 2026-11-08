@@ -56,15 +56,28 @@ local function DB()
     return LFGForeverExtrasDB
 end
 
--- guild: the name, or "" for someone known to have no guild.
-function E.RememberGuild(name, guild)
+-- guild: the name, or "" for someone known to have no guild. area: where /who last saw them.
+function E.RememberGuild(name, guild, area)
     if not (Readable(name) and type(name) == "string" and name ~= "") then
         return
     end
     if not Readable(guild) then
         return
     end
-    DB().guilds[Key(name)] = { guild = guild or "", seen = time() }
+    local old = DB().guilds[Key(name)]
+    local entry = { guild = guild or "", seen = time(), area = old and old.area, areaSeen = old and old.areaSeen }
+    if area and Readable(area) and area ~= "" then
+        entry.area, entry.areaSeen = area, GetTime()
+    end
+    DB().guilds[Key(name)] = entry
+end
+
+-- Where /who last saw them, this session (zones go stale fast, so not across sessions).
+function E.WhoArea(name)
+    local entry = DB().guilds[Key(name)]
+    if entry and entry.area then
+        return entry.area
+    end
 end
 
 -- The guild name, "" for none, or nil when unknown.
@@ -234,19 +247,21 @@ function E.ShowPanel(tooltip, resultID)
     for _, m in ipairs(members) do
         local text = "|c" .. ClassColour(m.class) .. ShortName(m.name) .. "|r"
         local guild = E.Guild(m.name)
-        if guild == nil then
+        if guild == nil or not (m.area or E.WhoArea(m.name)) then
             unknown = true
+        end
+        if guild == nil then
         elseif guild ~= "" then
             text = text .. " |cff40ff40<" .. guild .. ">|r"
         end
         if m.leader then
             text = text .. " |cffaaaaaa(leader)|r"
         end
-        text = text .. "  |cffaaaaaa" .. (m.area or "zone unknown") .. "|r"
+        text = text .. "  |cffaaaaaa" .. (m.area or E.WhoArea(m.name) or "zone unknown") .. "|r"
         texts[#texts + 1] = text
     end
     if unknown then
-        texts[#texts + 1] = "|cff888888Click the group to /who the next member for their guild.|r"
+        texts[#texts + 1] = "|cff888888Click the group to /who the next member for their guild and zone.|r"
     end
     local width = 0
     for i, text in ipairs(texts) do
@@ -294,7 +309,7 @@ function E.WhoNext(resultID)
     end
     local pick
     for _, m in ipairs(members) do
-        if E.Guild(m.name) == nil and not (asked[Key(m.name)] and GetTime() - asked[Key(m.name)] < 30) then
+        if (E.Guild(m.name) == nil or (not m.area and not E.WhoArea(m.name))) and not (asked[Key(m.name)] and GetTime() - asked[Key(m.name)] < 30) then
             pick = m
             break
         end
@@ -332,7 +347,8 @@ function E.ReadWho()
     for i = 1, count do
         local info = C_FriendList.GetWhoInfo(i)
         if info and Readable(info.fullName) then
-            E.RememberGuild(info.fullName, Readable(info.fullGuildName) and info.fullGuildName or "")
+            E.RememberGuild(info.fullName, Readable(info.fullGuildName) and info.fullGuildName or "",
+                Readable(info.area) and info.area or nil)
             if E.pending and Key(info.fullName) == E.pending.key then
                 found = info
             end
@@ -466,6 +482,12 @@ for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "WHO_LIST_UPDATE", "CHA
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
+        -- Zones from earlier sessions are out of date.
+        for _, entry in pairs(DB().guilds) do
+            entry.area, entry.areaSeen = nil, nil
+        end
+    end
     if event == "ADDON_LOADED" or event == "PLAYER_LOGIN" then
         DB()
         TryHookTooltip()

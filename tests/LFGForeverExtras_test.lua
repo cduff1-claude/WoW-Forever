@@ -38,6 +38,15 @@ row:Click("LeftButton")
 W.Check(sent == 'n-"Bob"', "click: /who the first unknown member (got " .. tostring(sent) .. ")")
 W.Fire("WHO_LIST_UPDATE")
 W.Check(LFGForeverExtras.Guild("Bob") == "Moonglade", "guild remembered")
+C_FriendList.GetWhoInfo = function() return { fullName = "Cid", fullGuildName = "", area = "Westfall" } end
+row:Click("LeftButton")
+W.Check(sent == 'n-"Amy"' , "next click: the next member (got " .. tostring(sent) .. ")")
+LFGForeverExtras.pending = { key = "cid", name = "Cid", sent = GetTime() }
+W.Fire("WHO_LIST_UPDATE")
+LFGBrowseSearchEntryTooltip_UpdateAndShow(LFGBrowseSearchEntryTooltip, 5)
+local westfall = false
+for _, r in ipairs(LFGForeverExtrasPanel._regions or {}) do if r._text and r._text:find("Cid") and r._text:find("Westfall") then westfall = true end end
+W.Check(westfall, "/who's zone shown for a member the listing gave no zone")
 ask:Click()
 W.Check(whispered == "LF The Deadmines, Wailing Caverns, %class%", "nothing ticked: the group's dungeons (got " .. tostring(whispered) .. ")")
 ticked = { 8 }

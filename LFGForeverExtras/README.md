@@ -6,7 +6,8 @@ Nothing in LFG Forever's own files is changed. Needs LFG Forever installed and e
 - **Member locations:** hovering a group in LFG Forever adds a panel under the tooltip listing each member
   (class-coloured, the leader marked) with the zone they're in, and their guild when it's known.
 - **Guilds by /who:** left-click a group row (LFG Forever gives left-click no job) to /who the next member whose
-  guild isn't known yet. The result is printed to chat and shown in the panel. /who needs a real click, and the
+  guild or zone isn't known yet. The result is printed to chat and shown in the panel, including the zone for
+  members the listing gives no zone for (the game usually only gives the leader's). Zones are kept for the session. /who needs a real click, and the
   server limits how often it answers, so it's one member per click.
 - **Remembered guilds:** guilds are also picked up from anyone you mouse over or target, and saved, so known
   players show their guild without a /who.
