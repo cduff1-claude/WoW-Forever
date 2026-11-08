@@ -20,6 +20,7 @@ ns.Resource = R
 local POWER = {
     MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0,
     COMBO = (Enum and Enum.PowerType and Enum.PowerType.ComboPoints) or 4,
+    ENERGY = (Enum and Enum.PowerType and Enum.PowerType.Energy) or 3,
 }
 -- Bar styles: "flat" copies Blizzard's Personal Resource Display (a plain fill with a lighter
 -- top half, measured as about 15% white); "shaded" is Blizzard's classic bar texture.
@@ -79,6 +80,7 @@ R.DEFAULTS = {
     castBar = true,
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
+    casterEnergy = false, -- show the energy bar in caster form too (to watch Furor's energy regen)
     buffButtons = true, -- out of combat: Mark of the Wild / Thorns buttons beside the display when missing
     buffButtonsPvP = false, -- ...in battlegrounds and arenas too (off: buffs get purged there)
     comboStyle = "circles",
@@ -300,10 +302,32 @@ end
 ----------------------------------------------------------------------------------------------
 
 -- The row under mana: the energy/rage bar in Cat/Bear, else the cast bar while casting.
+-- What the energy/rage bar (R.power) shows: the form's power in Cat/Bear, or energy in caster
+-- form when "Show energy in caster form" is on (Furor's regen). nil when it's not shown.
+function R.BarPower()
+    local powerType, token = PowerType()
+    if powerType ~= nil and powerType ~= POWER.MANA then
+        return powerType, token
+    end
+    if powerType == POWER.MANA and R.Settings().casterEnergy then
+        local max = UnitPowerMax("player", POWER.ENERGY)
+        if not IsSecret(max) and max and max > 0 then
+            return POWER.ENERGY, "ENERGY"
+        end
+    end
+    return nil, nil
+end
+
+-- The cast bar's row (caster form only).
+function R.CastRowShown()
+    local s = R.Settings()
+    return PowerType() == POWER.MANA and s.castBar and (s.castLocked or R.casting or R.linger) and true or false
+end
+
 function R.ThirdRow()
     local s = R.Settings()
     local powerType = PowerType()
-    if powerType ~= nil and powerType ~= POWER.MANA then
+    if R.BarPower() then
         return R.power
     end
     if s.castBar and (s.castLocked or R.casting or R.linger) then
@@ -630,11 +654,13 @@ function R.Layout()
     y = PlaceBar(R.health, y, s.healthHeight)
     y = PlaceBar(R.mana, y, s.powerHeight)
 
-    local third = R.ThirdRow()
     R.power:Hide()
     R.cast:Hide()
-    if third then
-        y = PlaceBar(third, y, s.powerHeight)
+    if R.BarPower() then
+        y = PlaceBar(R.power, y, s.powerHeight)
+    end
+    if R.CastRowShown() then
+        y = PlaceBar(R.cast, y, s.powerHeight)
     end
 
     R.comboBar:Hide()
@@ -890,8 +916,8 @@ function R.UpdatePower()
     if not R.frame then
         return
     end
-    local powerType = PowerType()
-    if powerType == nil or powerType == POWER.MANA then
+    local powerType = R.BarPower()
+    if powerType == nil then
         return
     end
     local current, max = UnitPower("player", powerType), UnitPowerMax("player", powerType)
@@ -928,7 +954,7 @@ function R.ApplyColours()
     end
     Paint(R.health, "HEALTH", { 0.4, 0.73, 0.17 })
     Paint(R.mana, "MANA", { 0, 0.34, 0.73 })
-    local _, token = PowerType()
+    local _, token = R.BarPower()
     Paint(R.power, token or "", { 1, 1, 1 })
 end
 
@@ -1459,6 +1485,8 @@ Place(Checkbox("DruidBarResourceCastLocked", enabledBox,
     "Keep the cast bar's row in place (not just while casting)", "castLocked"), 28)
 Place(Checkbox("DruidBarResourceCastLinger", enabledBox,
     "Show the last spell's name and cost for 3 seconds (instant spells too)", "castLinger"), 28)
+Place(Checkbox("DruidBarResourceCasterEnergy", enabledBox,
+    "Show the energy bar in caster form too (e.g. Furor's energy regen)", "casterEnergy"), 28)
 Place(Checkbox("DruidBarResourceBuffs", enabledBox,
     "Mark of the Wild (left) and Thorns (right) buttons when missing (out of combat)", "buffButtons"), 28)
 Place(Checkbox("DruidBarResourceBuffsPvP", enabledBox,

@@ -260,6 +260,25 @@ W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "half full after 
 local sx = R.cast.spark:GetCenter()
 W.Near(sx, R.cast:GetLeft() + 0.5 * s.width, "spark rides the fill's edge", 1)
 
+print("Energy in caster form (option)")
+W.Check(s.casterEnergy == false, "off by default")
+W.Check(not Shown(R.power), "caster form: no energy bar")
+W.power[3], W.powerMax[3] = 40, 100
+_G.DruidBarResourceCasterEnergy:SetChecked(true)
+_G.DruidBarResourceCasterEnergy:Click()
+W.Check(s.casterEnergy == true and Shown(R.power), "ticked: energy bar shown in caster form")
+W.Check(R.power:GetValue() == 40, "showing energy")
+local er, eg = R.power:GetStatusBarColor()
+W.Check(er == 0.95 and eg == 0.80, "in the energy colour")
+W.Check(R.power:GetTop() > R.cast:GetTop(), "above the cast bar row")
+W.Near(R.power:GetTop(), R.mana:GetBottom() - s.padding, "right under the mana bar")
+W.power[3] = 55
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Check(R.power:GetValue() == 55, "follows energy regen")
+_G.DruidBarResourceCasterEnergy:SetChecked(false)
+_G.DruidBarResourceCasterEnergy:Click()
+W.Check(not Shown(R.power), "unticked: gone")
+
 print("Spell goes off: name and cost stay for 3 seconds, then fade")
 local plays = R.cast.flashAnim._plays
 W.casting = nil
