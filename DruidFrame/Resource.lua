@@ -1058,14 +1058,29 @@ end
 -- Cast bar (caster form)
 ----------------------------------------------------------------------------------------------
 
-function R.CastValue()
-    local now = GetTime() * 1000
-    local c = R.casting
-    -- Channels drain from full. If the times are secret, just fill instead.
-    if c.channel and not IsSecret(c.startMS) and not IsSecret(c.endMS) then
-        return c.startMS + c.endMS - now
+-- The bar runs from 0 to the cast's length in seconds, like Blizzard's. (It used to take the
+-- game's clock in milliseconds, around 470 million: status bars keep values at single
+-- precision, which at that size only moves in ~32 ms steps, and the bar looked jerky.)
+function R.CastRange(c)
+    if not IsSecret(c.startMS) and not IsSecret(c.endMS) and c.startMS and c.endMS then
+        c.relative = true
+        return 0, math.max(0.001, (c.endMS - c.startMS) / 1000)
     end
-    return now
+    -- Secret times: no arithmetic, so the absolute times as they are.
+    c.relative = false
+    return c.startMS, c.endMS
+end
+
+function R.CastValue()
+    local c = R.casting
+    if c.relative then
+        local elapsed = GetTime() - c.startMS / 1000
+        local length = (c.endMS - c.startMS) / 1000
+        if elapsed < 0 then elapsed = 0 elseif elapsed > length then elapsed = length end
+        -- Channels drain from full.
+        return c.channel and (length - elapsed) or elapsed
+    end
+    return GetTime() * 1000
 end
 
 -- A spell's mana cost, if it has a readable one.
@@ -1208,7 +1223,7 @@ function R.StartCast(channel, spellID)
     end
     R.linger = nil
     R.casting = { channel = channel, startMS = startMS, endMS = endMS, name = name, spellID = spellID }
-    R.cast:SetMinMaxValues(startMS, endMS)
+    R.cast:SetMinMaxValues(R.CastRange(R.casting))
     R.cast:SetValue(R.CastValue())
     SetCastAlpha(1)
     R.cast:SetAlpha(1)
