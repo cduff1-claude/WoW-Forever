@@ -346,9 +346,17 @@ function R.BarPower()
 end
 
 -- The cast bar's row (caster form only).
+-- The cast bar's row. In caster form it can hold its place; in Cat/Bear it shows only while
+-- something with a cast time is going (skinning, opening, gathering...), below the energy/rage bar.
 function R.CastRowShown()
     local s = R.Settings()
-    return PowerType() == POWER.MANA and s.castBar and (s.castLocked or R.casting or R.linger) and true or false
+    if not s.castBar then
+        return false
+    end
+    if PowerType() == POWER.MANA then
+        return (s.castLocked or R.casting or R.linger) and true or false
+    end
+    return (R.casting or R.linger) and true or false
 end
 
 function R.ThirdRow()
@@ -942,12 +950,7 @@ end
 
 -- Incoming heals on the player (may be secret), and where the number came from.
 function R.IncomingHeals()
-    if UnitGetIncomingHeals then
-        local ok, amount = pcall(UnitGetIncomingHeals, "player")
-        if ok and amount ~= nil then
-            return amount, "UnitGetIncomingHeals"
-        end
-    end
+    -- Midnight: the heal prediction calculator.
     if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
         R.healCalculator = R.healCalculator or CreateUnitHealPredictionCalculator()
         local calc = R.healCalculator
@@ -956,6 +959,13 @@ function R.IncomingHeals()
             if ok and amount ~= nil then
                 return amount, "heal prediction calculator"
             end
+        end
+    end
+    -- Older clients.
+    if UnitGetIncomingHeals then
+        local ok, amount = pcall(UnitGetIncomingHeals, "player")
+        if ok and amount ~= nil then
+            return amount, "UnitGetIncomingHeals"
         end
     end
     return nil, "none"
@@ -1165,10 +1175,14 @@ end
 -- Channels report SUCCEEDED when they start, so those wait for CHANNEL_STOP instead.
 function R.SpellSucceeded(spellID)
     local powerType = PowerType()
-    if powerType ~= POWER.MANA or not R.Settings().castBar then
+    if not R.Settings().castBar then
         return
     end
     if R.casting and R.casting.channel then
+        return
+    end
+    -- In Cat/Bear only casts with a cast time linger (not every Claw).
+    if powerType ~= POWER.MANA and not R.casting then
         return
     end
     local name = R.casting and R.casting.name

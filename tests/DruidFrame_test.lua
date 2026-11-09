@@ -393,6 +393,28 @@ W.Advance(4.1)
 W.Check(not Shown(R.cast), "and goes when it fades")
 s.castLocked = true
 R.Refresh()
+
+print("Cat Form: casts with a cast time (skinning, opening) show too")
+W.powerType, W.formID = 3, 1
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(not Shown(R.cast), "no cast row in Cat Form normally")
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "claw-1", 1082)
+W.Check(not Shown(R.cast), "instant abilities (Claw) don't show")
+W.casting = { name = "Skinning", startMS = W.time * 1000, endMS = W.time * 1000 + 2000 }
+W.Fire("UNIT_SPELLCAST_START", "player", "skin-1", 8613)
+W.Check(Shown(R.cast) and R.cast.centre._text == "Skinning", "skinning shows (got " .. tostring(R.cast.centre._text) .. ")")
+W.Check(R.cast:GetTop() < R.power:GetBottom(), "below the energy bar")
+W.Advance(2)
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "skin-1", 8613)
+W.casting = nil
+W.Fire("UNIT_SPELLCAST_STOP", "player", "skin-1", 8613)
+W.Check(Shown(R.cast) and R.cast.centre._text == "Skinning", "lingers after it finishes")
+W.Advance(4.1)
+W.Check(not Shown(R.cast), "then goes")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
 s.castBar = false
 W.casting = { name = "Healing Touch", startMS = W.time * 1000, endMS = W.time * 1000 + 2000 }
 W.Fire("UNIT_SPELLCAST_START", "player", "cast-2", HEALING_TOUCH)
