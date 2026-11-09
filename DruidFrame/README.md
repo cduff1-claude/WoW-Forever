@@ -23,7 +23,7 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 
 - Rows, all the same width: health, mana (in every form), then energy or rage in Cat/Bear, then combo points in
   Cat: Hide, Circles, or Bar (five bordered segments the size of a power bar, one filled per combo point,
-  glowing gold when all five are full). The frame hangs from its top edge, so health and mana never move when you shift.
+  glowing gold when all five are full), shown only in combat (and while the options are open). The frame hangs from its top edge, so health and mana never move when you shift.
 - In caster form, an optional cast bar takes the energy/rage row, with the spell's name and mana cost centred on it
   ("Healing Touch (55)"), a purple bar (the range bar's purple) with a spark riding its edge while casting and a flash when the spell goes off. Options (both
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for

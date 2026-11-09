@@ -56,6 +56,11 @@ W.Check(R.health.centre._text == "989" and R.health.left._text == "" and R.healt
 W.Check(R.mana.centre._text == "847", "mana: current, centred")
 local healthTop, manaTop = Top(R.health), Top(R.mana)
 
+local function Combat(on)
+    W.combat = on
+    W.Fire(on and "PLAYER_REGEN_DISABLED" or "PLAYER_REGEN_ENABLED")
+end
+
 print("Cat Form: energy below mana, combo points at the bottom")
 W.powerType, W.formID = 3, 1
 W.power[3], W.powerMax[3] = 100, 100
@@ -67,7 +72,12 @@ W.Check(Shown(R.power), "energy bar shown")
 W.Near(Top(R.power), manaTop - s.powerHeight - s.padding, "energy right below mana")
 W.Near(R.power:GetWidth(), s.width, "energy is the full width")
 W.Check(R.power.centre._text == "100", "energy: current, centred")
-W.Check(R.combo:IsShown(), "combo points shown")
+W.Check(not R.combo:IsShown(), "out of combat: no combo points")
+local bottomOOC = R.frame:GetBottom()
+Combat(true)
+W.Check(R.combo:IsShown(), "in combat: combo points shown")
+W.Check(R.frame:GetBottom() < bottomOOC, "the frame grows down for them")
+W.Near(Top(R.mana), manaTop, "mana still hasn't moved")
 W.Check(R.combo:GetTop() < R.power:GetBottom(), "combo points below the energy bar")
 W.Check(#R.comboPoints == 5, "five combo points")
 W.power[4] = 3
@@ -195,6 +205,13 @@ IsPlayerSpell, IsSpellKnown, IsStealthed = realKnows, realKnows, realStealth
 db.energySpell, db.finisherSpell = "claw", "none"
 W.Fire("SPELLS_CHANGED")
 W.Check(Energy(80) == 0, "back to Claw: 80 is enough")
+
+Combat(false)
+W.Check(not R.combo:IsShown(), "combat over: combo points gone")
+ns.panels.frame:GetScript("OnShow")(ns.panels.frame)
+W.Check(R.combo:IsShown(), "shown while the options are open, to see the layout")
+ns.panels.frame:GetScript("OnHide")(ns.panels.frame)
+W.Check(not R.combo:IsShown(), "and gone again when they close")
 
 print("Bear Form: rage below mana, no combo points")
 W.powerType, W.formID = 1, 5
@@ -539,6 +556,7 @@ W.Fire("UNIT_AURA", "player")
 local okDebug = pcall(W.Slash, "/druidframe clearcasting")
 W.Check(okDebug, "/druidframe clearcasting runs without errors")
 
+Combat(true)
 print("Shaded style, and the Claw orange still lines up after the switch")
 s.style = "shaded"
 R.Refresh()
@@ -610,6 +628,7 @@ W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
 
+Combat(false)
 print("Upgrading old settings")
 DruidForeverManabarPlusDB.resource = { padding = 1, style = "shaded", comboPoints = false, text = "values" }
 local up = R.Settings()

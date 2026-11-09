@@ -320,10 +320,7 @@ function R.BarPower()
         return powerType, token
     end
     local when = R.Settings().casterEnergy
-    local inCombat = R.inCombat
-    if inCombat == nil then
-        inCombat = UnitAffectingCombat("player") and true or false
-    end
+    local inCombat = R.InCombat()
     if powerType == POWER.MANA and (when == "always" or (when == "combat" and inCombat)) then
         local max = UnitPowerMax("player", POWER.ENERGY)
         if not IsSecret(max) and max and max > 0 then
@@ -351,10 +348,19 @@ function R.ThirdRow()
     return nil
 end
 
+-- In combat, from the combat events (falls back to asking the game before the first one).
+function R.InCombat()
+    if R.inCombat == nil then
+        return UnitAffectingCombat("player") and true or false
+    end
+    return R.inCombat
+end
+
+-- Combo points: Cat Form, in combat only (and while the options are open, to see the layout).
 function R.ShowsCombo()
     local s = R.Settings()
     local _, token = PowerType()
-    return s.comboStyle ~= "hide" and token == "ENERGY"
+    return s.comboStyle ~= "hide" and token == "ENERGY" and (R.InCombat() or R.unlocked) and true or false
 end
 
 local function FontSize(height)
@@ -840,6 +846,11 @@ function R.SetUnlocked(unlocked)
         R.unlockTint:SetShown(R.unlocked)
         R.unlockLabel:SetShown(R.unlocked)
         R.UpdateIdleCast()
+        -- Combo points show while unlocked (to see the layout), otherwise only in combat.
+        if R.health then
+            R.Layout()
+            R.UpdateCombo()
+        end
         if ns.Buffs then
             ns.Buffs.Refresh()
         end
@@ -1254,12 +1265,11 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_TARGET_CHANGED" then
         if event ~= "PLAYER_TARGET_CHANGED" then
             R.inCombat = (event == "PLAYER_REGEN_DISABLED")
-            -- The caster-form energy bar can come and go with combat.
-            if R.Settings().casterEnergy == "combat" then
-                R.Layout()
-                R.ApplyColours()
-                R.UpdatePower()
-            end
+            -- Combo points and the caster-form energy bar come and go with combat.
+            R.Layout()
+            R.ApplyColours()
+            R.UpdatePower()
+            if R.UpdateCombo then R.UpdateCombo() end
         end
         R.UpdateVisibility()
         return
