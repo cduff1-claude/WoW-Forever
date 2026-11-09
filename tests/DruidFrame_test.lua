@@ -370,6 +370,7 @@ W.Fire("UNIT_SPELLCAST_START", "player", "cast-5", HEALING_TOUCH)
 W.casting = nil
 W.Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "cast-5", HEALING_TOUCH)
 W.Check(R.cast.centre._text == "" and R.linger == nil, "interrupted: nothing lingers")
+W.spellCosts[740] = { { type = 0, name = "MANA", cost = 375 } }
 W.channel = { name = "Tranquility", startMS = W.time * 1000, endMS = W.time * 1000 + 3000 }
 W.Fire("UNIT_SPELLCAST_CHANNEL_START", "player", "chan-1", 740)
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "chan-1", 740) -- channels report this at the start
@@ -378,7 +379,7 @@ W.Advance(1.5)
 W.Near(R.cast:GetStatusBarTexture():GetWidth(), 0.5 * s.width, "channel drains: half left at halfway", 1)
 W.channel = nil
 W.Fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "chan-1", 740)
-W.Check(R.cast.centre._text == "Tranquility", "channel's name lingers after it ends")
+W.Check(R.cast.centre._text == "Tranquility (375)", "channel's name lingers after it ends")
 s.castLinger = false
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant-4", REJUV)
 W.Check(R.cast.centre._text == "", "linger option off: nothing shown after a spell")
@@ -409,9 +410,17 @@ W.Advance(2)
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "skin-1", 8613)
 W.casting = nil
 W.Fire("UNIT_SPELLCAST_STOP", "player", "skin-1", 8613)
-W.Check(Shown(R.cast) and R.cast.centre._text == "Skinning", "lingers after it finishes")
-W.Advance(4.1)
-W.Check(not Shown(R.cast), "then goes")
+W.Check(not Shown(R.cast), "no mana cost: gone as soon as it finishes")
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.casting = { name = "Opening", startMS = W.time * 1000, endMS = W.time * 1000 + 1000 }
+W.Fire("UNIT_SPELLCAST_START", "player", "open-1", 3365)
+W.Advance(1)
+W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "open-1", 3365)
+W.casting = nil
+W.Fire("UNIT_SPELLCAST_STOP", "player", "open-1", 3365)
+W.Check(R.cast.centre._text == "" and R.linger == nil, "caster form too: opening something doesn't linger")
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)

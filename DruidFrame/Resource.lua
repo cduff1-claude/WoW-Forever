@@ -1142,7 +1142,8 @@ end
 function R.StartLinger(name, spellID)
     local s = R.Settings()
     R.casting = nil
-    if not (s.castLinger and name) then
+    -- Only spells that cost mana linger: skinning, opening, gathering and the like just end.
+    if not (s.castLinger and name and ManaCost(spellID)) then
         R.ClearCast()
         return
     end

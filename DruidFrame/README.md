@@ -34,7 +34,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
   bar, e.g. to watch Furor's energy regen.
 - In Cat/Bear the cast bar shows (below the energy/rage bar) for anything with a cast time, like skinning,
-  gathering or opening things, but not for instant abilities.
+  gathering or opening things, but not for instant abilities. Only spells that cost mana linger afterwards; the
+  rest disappear as soon as they finish.
 - Text: current amount centred (default), or current on the left and max on the right (energy and rage just
   current), current only, percent, current and percent, or none.
 - Visibility: always, in combat, in combat or with a target, or hidden.
