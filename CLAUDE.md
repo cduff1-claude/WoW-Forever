@@ -48,6 +48,8 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
     hundreds of times). Colours (`SetStatusBarColor`) and overlays on top are fine. `tests/DruidBar_test.lua` checks this.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
+- **Status bars keep values at single precision.** Feeding them the game clock in milliseconds (~10^8) makes
+  them move in ~32 ms steps (a jerky cast bar). Use small numbers: seconds since the start, 0 to the length.
 - **Mana regen** on Forever is smooth (a steady flow), not Classic's 2-second ticks.
 - **Range checks** (`C_Spell.IsSpellInRange`) return `true` / `false` / `nil`:
   - `nil` means no answer. Treat it as "unknown", never as "in range".
