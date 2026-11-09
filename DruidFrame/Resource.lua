@@ -32,6 +32,8 @@ local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
 -- The range bar's purple (DruidRange's COLOR_PURPLE), bold and clear of the gold energy bar.
+-- The Player Frame's incoming-heal teal.
+local HEAL_COLOUR = { 0.0, 0.63, 0.56 }
 local CAST_COLOUR = { 0.6, 0.2, 0.9 }
 local COMBO_COLOUR = { 0.90, 0.13, 0.04 }
 -- Seconds the last spell's name stays; then the name fades, then the whole bar.
@@ -213,6 +215,19 @@ function R.Build()
     f:Hide()
 
     R.health = NewBar()
+    -- Incoming heals, like the Player Frame's: a teal bar running on from the end of the health
+    -- fill, as long as the heals are big, clipped to the bar so it never overflows. Values can be
+    -- secret: status bars take them as they are.
+    local healClip = CreateFrame("Frame", nil, R.health)
+    healClip:SetAllPoints(R.health)
+    healClip:SetClipsChildren(true)
+    healClip:SetFrameLevel(R.health:GetFrameLevel() + 1)
+    local heal = CreateFrame("StatusBar", nil, healClip)
+    heal:SetStatusBarTexture(STYLE_TEXTURE.flat)
+    heal:SetStatusBarColor(HEAL_COLOUR[1], HEAL_COLOUR[2], HEAL_COLOUR[3], 1)
+    heal:SetMinMaxValues(0, 1)
+    heal:SetValue(0)
+    R.heal = heal
     R.mana = NewBar()
     R.power = NewBar()
     R.cast = NewBar()
@@ -383,6 +398,10 @@ end
 function R.ApplyStyle()
     local s = R.Settings()
     local texture = STYLE_TEXTURE[s.style] or STYLE_TEXTURE.flat
+    if R.heal then
+        R.heal:SetStatusBarTexture(texture)
+        R.heal:SetStatusBarColor(HEAL_COLOUR[1], HEAL_COLOUR[2], HEAL_COLOUR[3], 1)
+    end
     for _, bar in ipairs({ R.health, R.mana, R.power, R.cast }) do
         bar:SetStatusBarTexture(texture)
         local fill = bar:GetStatusBarTexture()
@@ -391,6 +410,7 @@ function R.ApplyStyle()
         bar.gloss:SetPoint("BOTTOMRIGHT", fill, "RIGHT", 0, 0)
         bar.gloss:SetShown(s.style == "flat")
     end
+    R.AnchorHeal()
     -- The combo bar's segments follow the same style.
     for _, seg in ipairs(R.comboSegments or {}) do
         seg.fill:SetStatusBarTexture(texture)
@@ -674,6 +694,7 @@ function R.Layout()
     local s = R.Settings()
     local y = 0
     y = PlaceBar(R.health, y, s.healthHeight)
+    R.AnchorHeal()
     y = PlaceBar(R.mana, y, s.powerHeight)
 
     R.power:Hide()
@@ -919,6 +940,39 @@ local function SetBarText(bar, current, max, kind, powerType, showMax)
     end
 end
 
+-- Incoming heals on the player (may be secret), and where the number came from.
+function R.IncomingHeals()
+    if UnitGetIncomingHeals then
+        local ok, amount = pcall(UnitGetIncomingHeals, "player")
+        if ok and amount ~= nil then
+            return amount, "UnitGetIncomingHeals"
+        end
+    end
+    if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
+        R.healCalculator = R.healCalculator or CreateUnitHealPredictionCalculator()
+        local calc = R.healCalculator
+        if calc and pcall(UnitGetDetailedHealPrediction, "player", nil, calc) and calc.GetIncomingHeals then
+            local ok, amount = pcall(calc.GetIncomingHeals, calc)
+            if ok and amount ~= nil then
+                return amount, "heal prediction calculator"
+            end
+        end
+    end
+    return nil, "none"
+end
+
+-- The heal bar starts at the end of the health fill and is as wide as the whole bar.
+function R.AnchorHeal()
+    if not R.heal then
+        return
+    end
+    local fill = R.health:GetStatusBarTexture()
+    R.heal:ClearAllPoints()
+    R.heal:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
+    R.heal:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+    R.heal:SetWidth(math.max(1, R.health:GetWidth() or 1))
+end
+
 function R.UpdateHealth()
     if not R.frame then
         return
@@ -927,6 +981,11 @@ function R.UpdateHealth()
     R.health:SetMinMaxValues(0, max)
     R.health:SetValue(current)
     SetBarText(R.health, current, max, "health", nil, true)
+    if R.heal then
+        local incoming = R.IncomingHeals()
+        R.heal:SetMinMaxValues(0, max)
+        R.heal:SetValue(incoming or 0)
+    end
 end
 
 function R.UpdateMana()
@@ -1246,7 +1305,7 @@ function R.Refresh()
 end
 
 local events = CreateFrame("Frame")
-for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "UNIT_HEALTH", "UNIT_MAXHEALTH",
+for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_HEAL_PREDICTION",
     "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "PLAYER_TARGET_CHANGED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
     "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
@@ -1283,7 +1342,7 @@ events:SetScript("OnEvent", function(_, event, unit, powerToken, spellID)
     end
     if event == "UNIT_AURA" then
         R.UpdateClearcasting()
-    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+    elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" or event == "UNIT_HEAL_PREDICTION" then
         R.UpdateHealth()
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER" then
         if powerToken == "MANA" then
@@ -1340,6 +1399,8 @@ function R.Debug()
     local powerType, token = PowerType()
     print("|cff55ff55DruidFrame display|r enabled:", tostring(s.enabled), "shown:",
         tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(R.unlocked))
+    local incoming, source = R.IncomingHeals()
+    print("  incoming heals:", IsSecret(incoming) and "(secret)" or tostring(incoming), "from", source)
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",
         "| combo points:", s.comboStyle, tostring(R.ShowsCombo()), "| casting:", tostring(R.casting ~= nil),

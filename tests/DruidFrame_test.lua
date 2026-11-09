@@ -259,6 +259,24 @@ W.Fire("PLAYER_REGEN_ENABLED")
 W.Check(RageOrange() == 0, "combat over: plain red")
 W.power[1] = 10
 
+print("Incoming heals on the health bar")
+local savedHealth, savedMax = W.health, W.healthMax
+W.health, W.healthMax = 600, 1000
+W.incomingHeals = 200
+W.Fire("UNIT_HEAL_PREDICTION", "player")
+local hr, hg, hb = R.heal:GetStatusBarColor()
+W.Check(hr == 0.0 and hg == 0.63 and hb == 0.56, "teal")
+W.Near(R.heal:GetLeft(), R.health:GetLeft() + 0.6 * s.width, "starts where the health ends")
+W.Near(W.VisibleWidth(R.heal:GetStatusBarTexture()), 0.2 * s.width, "as long as the heals", 0.5)
+W.incomingHeals = 800
+W.Fire("UNIT_HEAL_PREDICTION", "player")
+W.Near(W.VisibleWidth(R.heal:GetStatusBarTexture()), 0.4 * s.width, "clipped at the end of the bar", 0.5)
+W.incomingHeals = nil
+W.Fire("UNIT_HEAL_PREDICTION", "player")
+W.Near(W.VisibleWidth(R.heal:GetStatusBarTexture()), 0, "no heals: nothing")
+W.health, W.healthMax = savedHealth, savedMax
+W.Fire("UNIT_HEALTH", "player")
+
 print("Caster form: cast bar while casting")
 W.powerType, W.formID = 0, nil
 W.Fire("UPDATE_SHAPESHIFT_FORM")

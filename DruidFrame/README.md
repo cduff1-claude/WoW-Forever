@@ -29,6 +29,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
   3 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
   held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
+- Incoming heals: a teal bar on the health bar after your current health, like the Player Frame's. `/druidframe
+  debug` shows what the game reports for incoming heals.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
   bar, e.g. to watch Furor's energy regen.
 - Text: current amount centred (default), or current on the left and max on the right (energy and rage just

@@ -417,6 +417,7 @@ W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
 function UnitExists(unit) if unit == "target" then return W.target end return true end
 function UnitHealth() return W.health end
 function UnitHealthMax() return W.healthMax end
+function UnitGetIncomingHeals() return W.incomingHeals end
 -- The target: W.target is true/false; W.enemy picks hostile or friendly; W.range[spell] is the
 -- game's range answer (true / false / nil) for that spell name on the target.
 W.enemy, W.targetDead, W.range = true, false, {}
