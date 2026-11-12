@@ -1,7 +1,7 @@
 -- DruidFrame: target of target. A small frame of its own (not tied to Blizzard's target frame),
 -- so it can sit by DruidFrame's bars and the Player and Target frames can go elsewhere.
 --
---   * Their portrait, overhanging the bar's left end: circle, square or off.
+--   * Their portrait, round, overhanging the bar's left end (option).
 --   * Health bar (with DruidFrame's health colour gradient if that's on) and the unit's name,
 --     class-coloured for players, reaction-coloured for NPCs; "You" when it's you.
 --   * Aggro border, when your target is an enemy: in Bear Form green while it's on you and red
@@ -25,16 +25,10 @@ T.DEFAULTS = {
     totShow = "always", -- "always" or "combat"
     totGroup = false,   -- only while in a party or raid
     totAggro = true,
-    totPortrait = "circle", -- their picture, left of the bar: "circle", "square" or "none"
+    totPortrait = true, -- their picture, round, left of the bar
     totWidth = 120,
     totHeight = 18,
     -- totX / totY: its centre, in UIParent coordinates (nil: next to DruidFrame)
-}
-
-T.PORTRAIT = {
-    { key = "circle", label = "Circle" },
-    { key = "square", label = "Square" },
-    { key = "none", label = "Off" },
 }
 
 T.SHOW = {
@@ -61,7 +55,8 @@ end
 function T.Settings()
     local s = ns.Resource and ns.Resource.Settings() or {}
     -- The portrait option was briefly on/off.
-    if s.totPortrait == true then s.totPortrait = "circle" elseif s.totPortrait == false then s.totPortrait = "none" end
+    -- The portrait was briefly a circle / square / off choice.
+    if type(s.totPortrait) == "string" then s.totPortrait = (s.totPortrait ~= "none") end
     for key, value in pairs(T.DEFAULTS) do
         if s[key] == nil then
             s[key] = value
@@ -120,12 +115,14 @@ function T.Build()
     local ringMask = f:CreateMaskTexture()
     ringMask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     ringMask:SetAllPoints(ring)
+    ring:AddMaskTexture(ringMask)
     local portrait = f:CreateTexture(nil, "ARTWORK")
     portrait:SetPoint("TOPLEFT", ring, "TOPLEFT", 2, -2)
     portrait:SetPoint("BOTTOMRIGHT", ring, "BOTTOMRIGHT", -2, 2)
     local mask = f:CreateMaskTexture()
     mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     mask:SetAllPoints(portrait)
+    portrait:AddMaskTexture(mask)
     T.ring, T.portrait, T.ringMask, T.portraitMask = ring, portrait, ringMask, mask
 
     T.frame, T.health, T.name, T.label = f, health, name, label
@@ -187,7 +184,8 @@ function T.ApplyPosition()
     T.ring:SetSize(size, size)
     T.ring:ClearAllPoints()
     T.ring:SetPoint("RIGHT", f, "LEFT", 6, 0)
-    T.ApplyPortraitShape(s.totPortrait)
+    T.ring:SetShown(s.totPortrait)
+    T.portrait:SetShown(s.totPortrait)
     f:ClearAllPoints()
     if s.totX and s.totY then
         f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", s.totX, s.totY)
@@ -199,7 +197,7 @@ function T.ApplyPosition()
     if right and top and R.mana and R.mana:GetBottom() then
         local scale = R.frame:GetScale() or 1
         local tall = (top - R.mana:GetBottom()) * scale
-        local overhang = s.totPortrait ~= "none" and (s.totHeight + 8) or 0
+        local overhang = s.totPortrait and (s.totHeight + 8) or 0
         f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", right * scale + tall + 16 + overhang, top * scale)
     else
         f:SetPoint("CENTER", UIParent, "CENTER", 200, -150)
@@ -322,9 +320,6 @@ function T.Update()
         T.name:SetText("Target of target")
         T.name:SetTextColor(1, 1, 1)
         T.portrait:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-        if T.Settings().totPortrait == "square" then
-            T.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        end
         f:SetBackdropBorderColor(0, 0, 0, 1)
         return
     end
@@ -355,30 +350,9 @@ end
 
 -- The portrait is redrawn when the target of target may have changed (not on every poll).
 function T.UpdatePortrait()
-    if T.portrait and T.frame and T.Settings().totPortrait ~= "none" and Ask(UnitExists, UNIT) then
+    if T.portrait and T.frame and T.Settings().totPortrait and Ask(UnitExists, UNIT) then
         SetPortraitTexture(T.portrait, UNIT)
-        T.portrait:SetTexCoord(0, 1, 0, 1)
     end
-end
-
--- Circle: both cut by the round mask. Square: no mask, a square dark edge. Off: hidden.
-function T.ApplyPortraitShape(shape)
-    if not T.ring then
-        return
-    end
-    local round = shape == "circle"
-    if round ~= T.round then
-        T.round = round
-        if round then
-            T.ring:AddMaskTexture(T.ringMask)
-            T.portrait:AddMaskTexture(T.portraitMask)
-        else
-            T.ring:RemoveMaskTexture(T.ringMask)
-            T.portrait:RemoveMaskTexture(T.portraitMask)
-        end
-    end
-    T.ring:SetShown(shape ~= "none")
-    T.portrait:SetShown(shape ~= "none")
 end
 
 -- Target of target has no events of its own, so it's polled while shown (only then).
@@ -438,34 +412,13 @@ local aggroBox = Check("DruidFrameToTAggro", enabledBox,
 
 local groupBox = Check("DruidFrameToTGroup", aggroBox, "Only when in a group (party or raid)", "totGroup")
 
-local portraitButton = CreateFrame("Button", "DruidFrameToTPortrait", panel, "UIPanelButtonTemplate")
-portraitButton:SetSize(300, 22)
-portraitButton:SetPoint("TOPLEFT", groupBox, "BOTTOMLEFT", 4, -12)
-local function PortraitLabel()
-    for _, choice in ipairs(T.PORTRAIT) do
-        if choice.key == T.Settings().totPortrait then
-            return "Portrait: " .. choice.label
-        end
-    end
-    return "Portrait: " .. T.PORTRAIT[1].label
-end
-portraitButton:SetScript("OnClick", function(self)
-    local s = T.Settings()
-    local index = 1
-    for i, choice in ipairs(T.PORTRAIT) do
-        if choice.key == s.totPortrait then index = i end
-    end
-    s.totPortrait = T.PORTRAIT[index % #T.PORTRAIT + 1].key
-    self:SetText(PortraitLabel())
-    Changed()
-    T.UpdatePortrait()
-end)
-widgets[#widgets + 1] = function() portraitButton:SetText(PortraitLabel()) end
-local portraitBox = portraitButton
+local portraitBox = Check("DruidFrameToTPortrait", groupBox, "Show their portrait (round, left of the bar)", "totPortrait")
+local function PortraitRefresh() T.UpdatePortrait() end
+portraitBox:HookScript("OnClick", PortraitRefresh)
 
 local showButton = CreateFrame("Button", "DruidFrameToTShow", panel, "UIPanelButtonTemplate")
 showButton:SetSize(300, 22)
-showButton:SetPoint("TOPLEFT", portraitBox, "BOTTOMLEFT", 0, -10)
+showButton:SetPoint("TOPLEFT", portraitBox, "BOTTOMLEFT", 4, -12)
 local function ShowLabel()
     for _, choice in ipairs(T.SHOW) do
         if choice.key == T.Settings().totShow then
