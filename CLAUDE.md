@@ -46,6 +46,10 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
     Blizzard's own `OnValueChanged` text code then runs tainted by the addon and errors comparing the secret
     value ("Blizzard_TextStatusBar ... attempt to compare a secret number value (execution tainted by ...)",
     hundreds of times). Colours (`SetStatusBarColor`) and overlays on top are fine. `tests/DruidBar_test.lua` checks this.
+  - Colouring by secret health works with a colour curve (confirmed in game, in combat):
+    `C_CurveUtil.CreateColorCurve()` (optionally `SetType(Enum.LuaCurveType.Step)`), `AddPoint(fraction, CreateColor(...))`,
+    then `UnitHealthPercent("player", false, curve)` returns a colour whose `GetRGB()` goes straight into
+    `SetStatusBarColor`. See `R.HealthGradient` in `DruidFrame/Resource.lua`.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
 - **Status bars keep values at single precision.** Feeding them the game clock in milliseconds (~10^8) makes
