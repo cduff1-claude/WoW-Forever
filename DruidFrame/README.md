@@ -29,6 +29,9 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   on by default): keep the row in place (not just while casting), and show the last spell's name and cost for
   3 seconds after it goes off, instant spells included. Then the name fades, then the bar itself; an empty
   held row isn't drawn (except while unlocked). A new spell or a shift replaces it.
+- Health colour (option, on): green at 80% and above, red at 20% and below, shifting through yellow and orange in
+  between in 2% steps. Health is secret in combat, so it uses Midnight's colour curve (the game works out the colour),
+  falling back to reading health directly when that's possible. `/druidframe debug` shows which.
 - Incoming heals: a teal bar on the health bar after your current health, like the Player Frame's (Midnight's heal prediction,
   with the older call as a fallback). `/druidframe debug` shows what the game reports for incoming heals.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast

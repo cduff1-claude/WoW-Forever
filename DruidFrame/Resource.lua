@@ -88,6 +88,7 @@ R.DEFAULTS = {
     castBar = true,
     castLocked = true,  -- keep the cast row in place in caster form, not just while casting
     castLinger = true,  -- after a spell goes off (instants too), show its name and cost for a while
+    healthGradient = true, -- health bar shifts green > yellow > orange > red between 80% and 20%
     casterEnergy = "combat", -- energy bar in caster form too (Furor's regen): "never", "combat" or "always"
     buffButtons = true, -- out of combat: Mark of the Wild / Thorns buttons beside the display when missing
     buffButtonsPvP = false, -- ...in battlegrounds and arenas too (off: buffs get purged there)
@@ -983,6 +984,103 @@ function R.AnchorHeal()
     R.heal:SetWidth(math.max(1, R.health:GetWidth() or 1))
 end
 
+-- Health colour gradient: green at 80% and above, red at 20% and below, and through yellow and
+-- orange in between, in 2% steps. Health is secret in combat, so the Midnight way is a colour
+-- curve that the game evaluates itself (UnitHealthPercent with a curve gives back a colour the
+-- bar can take as it is). With no curve API, health is read directly when it's readable.
+do
+    local STEP = 0.02
+    local YELLOW, ORANGE, RED = { 0.90, 0.80, 0.15 }, { 0.95, 0.50, 0.10 }, { 0.80, 0.10, 0.08 }
+
+    local function Green()
+        local c = ns.COLOURS and ns.COLOURS.HEALTH
+        return c or { 0.40, 0.73, 0.17 }
+    end
+
+    local function Lerp(a, b, t)
+        return a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t
+    end
+
+    -- The colour for a health fraction (0-1), in steps.
+    function R.GradientColour(fraction)
+        local green = Green()
+        if fraction >= 0.8 then
+            return green[1], green[2], green[3]
+        elseif fraction <= 0.2 then
+            return RED[1], RED[2], RED[3]
+        end
+        local p = math.floor(fraction / STEP + 1e-6) * STEP
+        if p >= 0.6 then
+            return Lerp(YELLOW, green, (p - 0.6) / 0.2)
+        elseif p >= 0.4 then
+            return Lerp(ORANGE, YELLOW, (p - 0.4) / 0.2)
+        end
+        return Lerp(RED, ORANGE, (p - 0.2) / 0.2)
+    end
+
+    local curve
+    local function Curve()
+        if curve ~= nil then
+            return curve or nil
+        end
+        curve = false
+        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then
+            return nil
+        end
+        local ok, made = pcall(C_CurveUtil.CreateColorCurve)
+        if not ok or not made then
+            return nil
+        end
+        if made.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step then
+            pcall(made.SetType, made, Enum.LuaCurveType.Step)
+        end
+        local function Add(x)
+            local r, g, b = R.GradientColour(x)
+            made:AddPoint(x, CreateColor(r, g, b, 1))
+        end
+        local okAdd = pcall(function()
+            Add(0)
+            for i = 10, 40 do Add(i * STEP) end -- 0.20 to 0.80
+            Add(1)
+        end)
+        curve = okAdd and made or false
+        return curve or nil
+    end
+
+    -- The colour for the current health, and how it was found.
+    function R.HealthGradient()
+        local c = Curve()
+        if c and UnitHealthPercent then
+            local ok, colour = pcall(UnitHealthPercent, "player", false, c)
+            if ok and colour and colour.GetRGB then
+                local r, g, b = colour:GetRGB()
+                return r, g, b, "colour curve"
+            end
+        end
+        local current, max = UnitHealth("player"), UnitHealthMax("player")
+        if not IsSecret(current) and not IsSecret(max) and current and max and max > 0 then
+            local r, g, b = R.GradientColour(current / max)
+            return r, g, b, "readable health"
+        end
+        return nil, nil, nil, "none (health secret, no colour curve)"
+    end
+
+    function R.UpdateHealthColour()
+        if not R.health then
+            return
+        end
+        if R.Settings().healthGradient then
+            local r, g, b = R.HealthGradient()
+            if r ~= nil then
+                R.health:SetStatusBarColor(r, g, b, 1)
+                return
+            end
+        end
+        local green = Green()
+        R.health:SetStatusBarColor(green[1], green[2], green[3], 1)
+    end
+end
+
 function R.UpdateHealth()
     if not R.frame then
         return
@@ -991,6 +1089,7 @@ function R.UpdateHealth()
     R.health:SetMinMaxValues(0, max)
     R.health:SetValue(current)
     SetBarText(R.health, current, max, "health", nil, true)
+    R.UpdateHealthColour()
     if R.heal then
         local incoming = R.IncomingHeals()
         R.heal:SetMinMaxValues(0, max)
@@ -1048,7 +1147,7 @@ function R.ApplyColours()
         local c = colours[key] or fallback
         bar:SetStatusBarColor(c[1], c[2], c[3], 1)
     end
-    Paint(R.health, "HEALTH", { 0.4, 0.73, 0.17 })
+    R.UpdateHealthColour()
     Paint(R.mana, "MANA", { 0, 0.34, 0.73 })
     local _, token = R.BarPower()
     Paint(R.power, token or "", { 1, 1, 1 })
@@ -1429,6 +1528,8 @@ function R.Debug()
     local powerType, token = PowerType()
     print("|cff55ff55DruidFrame display|r enabled:", tostring(s.enabled), "shown:",
         tostring(R.frame and R.frame:IsShown()), "visibility:", s.visibility, "unlocked:", tostring(R.unlocked))
+    local _, _, _, gradientSource = R.HealthGradient()
+    print("  health colour:", R.Settings().healthGradient and ("gradient, from " .. gradientSource) or "plain green")
     local incoming, source = R.IncomingHeals()
     print("  incoming heals:", IsSecret(incoming) and "(secret)" or tostring(incoming), "from", source)
     print("  power:", tostring(powerType), tostring(token), "| third row:",
@@ -1638,6 +1739,13 @@ moveNote:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -10)
 moveNote:SetWidth(250)
 moveNote:SetJustifyH("LEFT")
 moveNote:SetText("While DruidFrame's options are open, drag the display to move it. Right-click it to come back here.")
+
+local gradientBox = Checkbox("DruidBarResourceHealthGradient", moveNote,
+    "Health colour: green to red as it drops", "healthGradient")
+gradientBox:ClearAllPoints()
+gradientBox:SetPoint("TOPLEFT", opacitySlider, "BOTTOMLEFT", -4, -24)
+resetButton:ClearAllPoints()
+resetButton:SetPoint("TOPLEFT", gradientBox, "BOTTOMLEFT", 4, -10)
 
 panel:SetScript("OnShow", function()
     for _, refresh in ipairs(widgets) do

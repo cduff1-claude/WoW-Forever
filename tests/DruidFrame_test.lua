@@ -259,6 +259,36 @@ W.Fire("PLAYER_REGEN_ENABLED")
 W.Check(RageOrange() == 0, "combat over: plain red")
 W.power[1] = 10
 
+print("Health colour gradient")
+W.Check(s.healthGradient == true, "on by default")
+local savedH, savedM = W.health, W.healthMax
+W.healthMax = 1000
+local function HealthColour(h)
+    W.health = h
+    W.Fire("UNIT_HEALTH", "player")
+    return { R.health:GetStatusBarColor() }
+end
+local c90, c80, c70, c50, c30, c20, c10 = HealthColour(900), HealthColour(800), HealthColour(700), HealthColour(500),
+    HealthColour(300), HealthColour(200), HealthColour(100)
+W.Check(c90[1] == 0.40 and c90[2] == 0.73, "90%: the usual green")
+W.Check(c80[1] == 0.40 and c80[2] == 0.73, "80%: still green")
+W.Check(c70[1] > 0.5 and c70[2] > 0.7, "70%: green turning yellow")
+W.Check(c50[1] > 0.9 and c50[2] > 0.6 and c50[2] < 0.8, "50%: yellow turning orange")
+W.Check(c30[1] > 0.85 and c30[2] < 0.35, "30%: orange turning red")
+W.Check(c20[1] == 0.80 and c20[2] == 0.10, "20%: red")
+W.Check(c10[1] == 0.80 and c10[2] == 0.10, "10%: red")
+local a1, a2 = HealthColour(611), HealthColour(619)
+W.Check(a1[1] == a2[1] and a1[2] == a2[2], "steps every 2%: 61.1% and 61.9% match")
+local b1 = HealthColour(639)
+W.Check(b1[1] ~= a1[1], "62%+ is the next step")
+s.healthGradient = false
+local plain = HealthColour(300)
+W.Check(plain[1] == 0.40 and plain[2] == 0.73, "option off: plain green")
+s.healthGradient = true
+W.Check(_G.DruidBarResourceHealthGradient ~= nil, "option on the DruidFrame page")
+W.health, W.healthMax = savedH, savedM
+W.Fire("UNIT_HEALTH", "player")
+
 print("Incoming heals on the health bar")
 local savedHealth, savedMax = W.health, W.healthMax
 W.health, W.healthMax = 600, 1000
