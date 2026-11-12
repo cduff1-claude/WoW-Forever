@@ -356,6 +356,7 @@ function W.Fire(event, ...)
             f._scripts.OnEvent(f, event, ...)
         end
     end
+    if W.RunDrivers then W.RunDrivers() end
 end
 
 W.timers = {}
@@ -406,15 +407,63 @@ function Frame:SetPassThroughButtons(...)
 end
 function UnitAffectingCombat() return W.combat end
 function UnitClass() return W.class:sub(1, 1) .. W.class:sub(2):lower(), W.class end
-function UnitName(unit) return unit == "player" and "Roam" or unit end
+function UnitName(unit)
+    if unit == "player" then return "Roam" end
+    if unit == "targettarget" then return W.tot == "player" and "Roam" or W.tot end
+    return unit
+end
 function UnitPowerType() return W.powerType, ({ [0] = "MANA", [1] = "RAGE", [3] = "ENERGY" })[W.powerType] end
 function UnitPower(_, t) return W.power[t or W.powerType] end
 function UnitPowerMax(_, t) return W.powerMax[t or W.powerType] end
-function UnitIsUnit(a, b) return a == b end
+function UnitIsUnit(a, b)
+    if a == "targettarget" and b == "player" then return W.tot == "player" end
+    return a == b
+end
 W.health, W.healthMax = 989, 989
 W.target = false
 W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
-function UnitExists(unit) if unit == "target" then return W.target end return true end
+function UnitExists(unit)
+    if unit == "target" then return W.target end
+    if unit == "targettarget" then return W.target and W.tot ~= nil or false end
+    return true
+end
+-- Target of target: W.tot = "player", "party1" or an NPC name (nil: none).
+function UnitInParty(unit) return unit == "targettarget" and W.tot == "party1" or false end
+function UnitInRaid() return nil end
+function UnitPlayerOrPetInParty(unit) return UnitInParty(unit) end
+function UnitIsPlayer(unit) return unit == "player" or (unit == "targettarget" and (W.tot == "player" or W.tot == "party1")) end
+function UnitReaction() return W.enemy and 2 or 5 end
+
+-- Secure state drivers: only "visibility" with [combat] and [@targettarget,exists], re-checked
+-- on every event and tick. Registering in combat is blocked, as in the client.
+W.drivers = {}
+local function DriverShows(rule)
+    for clause in rule:gmatch("[^;]+") do
+        local cond, action = clause:match("^%s*(%b[])%s*(%a+)%s*$")
+        if not cond then
+            action = clause:match("^%s*(%a+)%s*$")
+            return action == "show"
+        end
+        local ok = true
+        if cond:find("combat", 1, true) and not W.combat then ok = false end
+        if cond:find("@targettarget,exists", 1, true) and not UnitExists("targettarget") then ok = false end
+        if ok then return action == "show" end
+    end
+    return false
+end
+function W.RunDrivers()
+    for frame, rule in pairs(W.drivers) do
+        if DriverShows(rule) then frame:Show() else frame:Hide() end
+    end
+end
+function RegisterStateDriver(frame, kind, rule)
+    if W.combat then error("ADDON_ACTION_BLOCKED: RegisterStateDriver in combat") end
+    if kind == "visibility" then W.drivers[frame] = rule; W.RunDrivers() end
+end
+function UnregisterStateDriver(frame, kind)
+    if W.combat then error("ADDON_ACTION_BLOCKED: UnregisterStateDriver in combat") end
+    if kind == "visibility" then W.drivers[frame] = nil end
+end
 function UnitHealth() return W.health end
 function UnitHealthMax() return W.healthMax end
 function UnitGetIncomingHeals() return W.incomingHeals end

@@ -1047,17 +1047,18 @@ do
         return curve or nil
     end
 
-    -- The colour for the current health, and how it was found.
-    function R.HealthGradient()
+    -- The colour for a unit's current health (default the player), and how it was found.
+    function R.HealthGradient(unit)
+        unit = unit or "player"
         local c = Curve()
         if c and UnitHealthPercent then
-            local ok, colour = pcall(UnitHealthPercent, "player", false, c)
+            local ok, colour = pcall(UnitHealthPercent, unit, false, c)
             if ok and colour and colour.GetRGB then
                 local r, g, b = colour:GetRGB()
                 return r, g, b, "colour curve"
             end
         end
-        local current, max = UnitHealth("player"), UnitHealthMax("player")
+        local current, max = UnitHealth(unit), UnitHealthMax(unit)
         if not IsSecret(current) and not IsSecret(max) and current and max and max > 0 then
             local r, g, b = R.GradientColour(current / max)
             return r, g, b, "readable health"

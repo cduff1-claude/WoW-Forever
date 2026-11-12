@@ -14,7 +14,7 @@ W.spellCosts["Claw"] = W.spellCosts[1082]
 W.power[4], W.powerMax[4] = 0, 5 -- combo points
 
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "ToT.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 local R = ns.Resource

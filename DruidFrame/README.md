@@ -9,6 +9,7 @@ options page under Esc > Options > AddOns > DruidFrame:
 | DruidFrame | `/druidframe` | the resource display itself |
 | DruidBar | `/druidbar` | shift-cost shading, Claw warning, 5-second rule, and optional Player Frame features |
 | DruidRange | `/druidrange` | the range bar |
+| Target of Target | `/druidtot` | the target-of-target frame |
 
 While any of the three pages is open, the display and the range bar are unlocked (highlighted) and left-drag moves
 them; closing the options locks them, and left clicks then pass through to the world. Right-click either one to
@@ -124,6 +125,19 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
   are open it shows (green) even with no target, so you can place it.
 - Width, height and opacity sliders.
 
+## Target of target (Target of Target page, `/druidtot`)
+
+A small frame of its own showing who your target is targeting, so it can sit by DruidFrame's bars and the
+Player and Target frames can go elsewhere. Left-click it to target them; right-click opens its page.
+- Health bar (with the health colour gradient if that's on) and the name: class-coloured for players,
+  reaction-coloured for NPCs, "You" when it's you.
+- Aggro border (option, on), when your target is an enemy: in Bear Form, green while it's on you and red when
+  it's on someone else in your group (you've lost it); in other forms, red while it's on you (you've pulled it).
+- Show: whenever your target has a target (default), or only in combat. Width and height sliders.
+- It starts just to the right of DruidFrame. While any DruidFrame options page is open it shows a preview and
+  left-drag moves it; "Put it next to DruidFrame" resets it. It's a secure (clickable) frame, so the game shows
+  and hides it, and its settings apply out of combat.
+
 ## Commands
 
 - `/druidframe`, `/druidbar`, `/druidrange`: open their options pages.
@@ -135,3 +149,4 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - `/druidbar testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/druidbar testtravel off` clears it.
 - `/druidbar formlog`: toggles a log of form-related readings with timings, for diagnosing shifts.
 - `/druidrange debug`: prints what the game answers for each range spell.
+- `/druidtot`: opens the Target of Target page; `/druidtot debug` shows what the game reports about it.

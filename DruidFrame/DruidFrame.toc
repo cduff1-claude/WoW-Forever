@@ -9,4 +9,5 @@ DruidBar.lua
 Resource.lua
 Buffs.lua
 DruidRange.lua
+ToT.lua
 Options.lua
