@@ -129,6 +129,7 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 
 A small frame of its own showing who your target is targeting, so it can sit by DruidFrame's bars and the
 Player and Target frames can go elsewhere. Left-click it to target them; right-click opens its page.
+- Their portrait, drawn by the game like Blizzard's, overhanging the bar's left end: Circle (default), Square or Off.
 - Health bar (with the health colour gradient if that's on) and the name: class-coloured for players,
   reaction-coloured for NPCs, "You" when it's you.
 - Aggro border (option, on), when your target is an enemy: in Bear Form, green while it's on you and red when

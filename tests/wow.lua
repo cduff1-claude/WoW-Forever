@@ -422,6 +422,11 @@ end
 W.health, W.healthMax = 989, 989
 W.target = false
 W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
+-- Portraits: remembered on the texture, so tests can see what was drawn.
+function SetPortraitTexture(texture, unit) texture._portrait = UnitName(unit); texture._texture = "portrait" end
+function Frame:CreateMaskTexture(...) return self:CreateTexture(...) end
+function Frame:AddMaskTexture(mask) self._masks = self._masks or {}; self._masks[mask] = true end
+function Frame:RemoveMaskTexture(mask) if self._masks then self._masks[mask] = nil end end
 function UnitExists(unit)
     if unit == "target" then return W.target end
     if unit == "targettarget" then return W.target and W.tot ~= nil or false end

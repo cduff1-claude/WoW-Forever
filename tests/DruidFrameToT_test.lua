@@ -29,7 +29,25 @@ W.Fire("PLAYER_TARGET_CHANGED")
 W.Advance(0.2)
 W.Check(f:IsShown(), "enemy targeting you: shown")
 W.Check(T.name._text == "You", "says You (got " .. tostring(T.name._text) .. ")")
-W.Check(f:GetLeft() > ns.Resource.health:GetRight(), "starts to the right of DruidFrame")
+W.Check(T.ring:GetLeft() > ns.Resource.health:GetRight(), "starts to the right of DruidFrame, portrait and all")
+
+print("Portrait")
+W.Check(s.totPortrait == "circle", "circle by default")
+W.Check(T.portrait._masks and next(T.portrait._masks) ~= nil, "cut to a circle")
+W.Check(T.portrait:IsShown() and T.portrait._portrait == "Roam", "your portrait while it's on you (got " .. tostring(T.portrait._portrait) .. ")")
+W.Check(T.ring:GetRight() > f:GetLeft() and T.ring:GetLeft() < f:GetLeft(), "round, overhanging the bar's left end")
+W.Near(T.ring:GetHeight(), s.totHeight + 14, "a bit taller than the bar")
+W.tot = "party1"
+W.Fire("UNIT_TARGET", "target")
+W.Check(T.portrait._portrait == "party1", "changes with the target of target")
+W.tot = "player"
+W.Fire("UNIT_TARGET", "target")
+_G.DruidFrameToTPortrait:Click()
+W.Check(s.totPortrait == "square" and T.portrait:IsShown() and not next(T.portrait._masks), "Square: shown, no round mask")
+_G.DruidFrameToTPortrait:Click()
+W.Check(s.totPortrait == "none" and not T.portrait:IsShown() and not T.ring:IsShown(), "Off: no portrait")
+_G.DruidFrameToTPortrait:Click()
+W.Check(s.totPortrait == "circle" and T.portrait:IsShown() and next(T.portrait._masks) ~= nil, "back to Circle")
 
 print("Aggro border")
 local function Border() return { f:GetBackdropBorderColor() } end
