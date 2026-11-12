@@ -92,6 +92,23 @@ W.Fire("PLAYER_REGEN_ENABLED")
 s.totShow = "always"
 T.ApplyVisibility()
 
+print("Only when in a group")
+W.Check(s.totGroup == false, "off by default")
+W.tot = "player"
+W.Fire("UNIT_TARGET", "target")
+_G.DruidFrameToTGroup:SetChecked(true)
+_G.DruidFrameToTGroup:Click()
+W.Check(s.totGroup and not f:IsShown(), "ticked, solo: hidden")
+W.grouped = true
+W.Fire("GROUP_ROSTER_UPDATE")
+W.Check(f:IsShown(), "in a group: shown")
+W.grouped = false
+W.Fire("GROUP_ROSTER_UPDATE")
+W.Check(not f:IsShown(), "left the group: hidden")
+_G.DruidFrameToTGroup:SetChecked(false)
+_G.DruidFrameToTGroup:Click()
+W.Check(f:IsShown(), "unticked: shown solo")
+
 print("Unlocked: preview and dragging")
 W.tot = nil
 W.Fire("UNIT_TARGET", "target")

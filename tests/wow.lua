@@ -451,6 +451,7 @@ local function DriverShows(rule)
         end
         local ok = true
         if cond:find("combat", 1, true) and not W.combat then ok = false end
+        if cond:find("group", 1, true) and not W.grouped then ok = false end
         if cond:find("@targettarget,exists", 1, true) and not UnitExists("targettarget") then ok = false end
         if ok then return action == "show" end
     end

@@ -136,7 +136,7 @@ Player and Target frames can go elsewhere. Left-click it to target them; right-c
   reaction-coloured for NPCs, "You" when it's you.
 - Aggro border (option, on), when your target is an enemy: in Bear Form, green while it's on you and red when
   it's on someone else in your group (you've lost it); in other forms, red while it's on you (you've pulled it).
-- Show: whenever your target has a target (default), or only in combat. Width and height sliders.
+- Show: whenever your target has a target (default), or only in combat; optionally only when in a group. Width and height sliders.
 - It starts just to the right of DruidFrame. While any DruidFrame options page is open it shows a preview and
   left-drag moves it; "Put it next to DruidFrame" resets it. It's a secure (clickable) frame, so the game shows
   and hides it, and its settings apply out of combat.

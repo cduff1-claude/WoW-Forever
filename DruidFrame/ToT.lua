@@ -23,6 +23,7 @@ local UPDATE_INTERVAL = 0.1
 T.DEFAULTS = {
     totEnabled = true,
     totShow = "always", -- "always" or "combat"
+    totGroup = false,   -- only while in a party or raid
     totAggro = true,
     totPortrait = "circle", -- their picture, left of the bar: "circle", "square" or "none"
     totWidth = 120,
@@ -220,10 +221,14 @@ function T.Driver()
     if not s.totEnabled then
         return "hide"
     end
+    local conditions = "@targettarget,exists"
     if s.totShow == "combat" then
-        return "[combat,@targettarget,exists] show; hide"
+        conditions = "combat," .. conditions
     end
-    return "[@targettarget,exists] show; hide"
+    if s.totGroup then
+        conditions = "group," .. conditions
+    end
+    return "[" .. conditions .. "] show; hide"
 end
 
 -- Visibility changes wait for the end of combat.
@@ -431,9 +436,11 @@ local aggroBox = Check("DruidFrameToTAggro", enabledBox,
     "Aggro border: green when it's on you in Bear Form, red when you lose it (Bear) or pull it (other forms)",
     "totAggro")
 
+local groupBox = Check("DruidFrameToTGroup", aggroBox, "Only when in a group (party or raid)", "totGroup")
+
 local portraitButton = CreateFrame("Button", "DruidFrameToTPortrait", panel, "UIPanelButtonTemplate")
 portraitButton:SetSize(300, 22)
-portraitButton:SetPoint("TOPLEFT", aggroBox, "BOTTOMLEFT", 4, -12)
+portraitButton:SetPoint("TOPLEFT", groupBox, "BOTTOMLEFT", 4, -12)
 local function PortraitLabel()
     for _, choice in ipairs(T.PORTRAIT) do
         if choice.key == T.Settings().totPortrait then
@@ -569,6 +576,7 @@ SlashCmdList.DRUIDTOT = function(msg)
     if msg == "debug" then
         local s = T.Settings()
         print("|cff55ff55DruidFrame target of target|r on:", tostring(s.totEnabled), "| show:", s.totShow,
+            "| only in a group:", tostring(s.totGroup), "| rule:", T.Driver(),
             "| frame shown:", tostring(T.frame and T.frame:IsShown()))
         print("  exists:", tostring(Ask(UnitExists, UNIT)), "| is you:", tostring(Ask(UnitIsUnit, UNIT, "player")),
             "| target hostile:", tostring(Ask(UnitCanAttack, "player", "target")),
