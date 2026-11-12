@@ -37,6 +37,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   with the older call as a fallback). `/druidframe debug` shows what the game reports for incoming heals.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
   bar, e.g. to watch Furor's energy regen.
+- While casting a spell that costs mana, the end of the mana fill that it will spend is drawn lighter, like
+  Blizzard's cost prediction on the Player Frame.
 - In Cat/Bear the cast bar shows (below the energy/rage bar) for anything with a cast time, like skinning,
   gathering or opening things, but not for instant abilities. Only spells that cost mana linger afterwards; the
   rest disappear as soon as they finish.

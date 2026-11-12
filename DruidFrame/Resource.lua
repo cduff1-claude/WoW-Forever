@@ -32,6 +32,8 @@ local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
 -- The range bar's purple (DruidRange's COLOR_PURPLE), bold and clear of the gold energy bar.
+-- Mana a cast will spend: a light blue over the end of the mana fill.
+local COST_COLOUR = { 0.60, 0.82, 1.00, 0.75 }
 -- The Player Frame's incoming-heal teal.
 local HEAL_COLOUR = { 0.0, 0.63, 0.56 }
 local CAST_COLOUR = { 0.6, 0.2, 0.9 }
@@ -230,6 +232,17 @@ function R.Build()
     heal:SetValue(0)
     R.heal = heal
     R.mana = NewBar()
+    -- Cost prediction, like Blizzard's: while casting, the end of the mana fill that the spell
+    -- will spend is drawn lighter. Its width comes from the (readable) cost and max mana; it sits
+    -- at the right end of the fill and is clipped to the fill, so it never needs the secret
+    -- current mana.
+    local costClip = CreateFrame("Frame", nil, R.mana)
+    costClip:SetClipsChildren(true)
+    costClip:SetFrameLevel(R.mana:GetFrameLevel() + 12)
+    local cost = costClip:CreateTexture(nil, "ARTWORK")
+    cost:SetColorTexture(COST_COLOUR[1], COST_COLOUR[2], COST_COLOUR[3], COST_COLOUR[4])
+    cost:Hide()
+    R.costClip, R.cost = costClip, cost
     R.power = NewBar()
     R.cast = NewBar()
     R.cast:SetStatusBarColor(CAST_COLOUR[1], CAST_COLOUR[2], CAST_COLOUR[3], 1)
@@ -420,6 +433,7 @@ function R.ApplyStyle()
         bar.gloss:SetShown(s.style == "flat")
     end
     R.AnchorHeal()
+    R.AnchorCost()
     -- The combo bar's segments follow the same style.
     for _, seg in ipairs(R.comboSegments or {}) do
         seg.fill:SetStatusBarTexture(texture)
@@ -705,6 +719,7 @@ function R.Layout()
     y = PlaceBar(R.health, y, s.healthHeight)
     R.AnchorHeal()
     y = PlaceBar(R.mana, y, s.powerHeight)
+    R.AnchorCost()
 
     R.power:Hide()
     R.cast:Hide()
@@ -1106,6 +1121,36 @@ function R.UpdateMana()
     R.mana:SetMinMaxValues(0, max)
     R.mana:SetValue(current)
     SetBarText(R.mana, current, max, "power", POWER.MANA, true)
+    R.UpdateCostPrediction()
+end
+
+function R.AnchorCost()
+    if not R.cost then
+        return
+    end
+    local fill = R.mana:GetStatusBarTexture()
+    R.costClip:ClearAllPoints()
+    R.costClip:SetPoint("TOPLEFT", R.mana, "TOPLEFT", 0, 0)
+    R.costClip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
+    R.cost:ClearAllPoints()
+    R.cost:SetPoint("TOPRIGHT", fill, "TOPRIGHT", 0, 0)
+    R.cost:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
+end
+
+-- Shown while a spell with a mana cost is being cast (not channels: they pay up front).
+function R.UpdateCostPrediction()
+    if not R.cost then
+        return
+    end
+    local c = R.casting
+    local cost = c and not c.channel and R.ManaCost(c.spellID)
+    local max = UnitPowerMax("player", POWER.MANA)
+    if cost and max and not IsSecret(max) and max > 0 then
+        R.cost:SetWidth(math.max(1, cost / max * R.mana:GetWidth()))
+        R.cost:Show()
+    else
+        R.cost:Hide()
+    end
 end
 
 function R.UpdatePower()
@@ -1185,6 +1230,9 @@ end
 
 -- A spell's mana cost, if it has a readable one.
 local function ManaCost(spellID)
+    return R.ManaCost(spellID)
+end
+function R.ManaCost(spellID)
     if spellID == nil or IsSecret(spellID) or not (C_Spell and C_Spell.GetSpellPowerCost) then
         return nil
     end
@@ -1250,6 +1298,7 @@ function R.ClearCast()
     R.UpdateIdleCast()
     R.UpdateSpark()
     R.Layout()
+    R.UpdateCostPrediction()
 end
 
 -- After a spell goes off (a finished cast or channel, or an instant): show it full, with
@@ -1257,6 +1306,7 @@ end
 function R.StartLinger(name, spellID)
     local s = R.Settings()
     R.casting = nil
+    R.UpdateCostPrediction()
     -- Only spells that cost mana linger: skinning, opening, gathering and the like just end.
     if not (s.castLinger and name and ManaCost(spellID)) then
         R.ClearCast()
@@ -1331,6 +1381,7 @@ function R.StartCast(channel, spellID)
     SetCastText(name, spellID)
     R.Layout()
     R.UpdateSpark()
+    R.UpdateCostPrediction()
 end
 
 -- A channel ended (finished or cut short): show it as gone off.

@@ -314,6 +314,10 @@ W.Advance(0.2)
 W.casting = { name = "Healing Touch", startMS = W.time * 1000, endMS = W.time * 1000 + 2000 }
 W.Fire("UNIT_SPELLCAST_START", "player", "cast-1", HEALING_TOUCH)
 W.Check(Shown(R.cast), "cast bar shown while casting")
+local manaMax = UnitPowerMax("player", 0)
+W.Check(R.cost:IsShown(), "mana bar: the cast's cost is marked")
+W.Near(R.cost:GetWidth(), 55 / manaMax * R.mana:GetWidth(), "as wide as 55 mana", 0.5)
+W.Near(R.cost:GetRight(), R.mana:GetStatusBarTexture():GetRight(), "at the end of the mana fill")
 W.Near(Top(R.cast), manaTop - s.powerHeight - s.padding, "cast bar where energy/rage go")
 W.Near(R.cast:GetWidth(), s.width, "cast bar is the full width")
 local cmin, cmax = R.cast:GetMinMaxValues()
@@ -361,6 +365,7 @@ print("Spell goes off: name and cost stay for 3 seconds, then fade")
 local plays = R.cast.flashAnim._plays
 W.casting = nil
 W.Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", HEALING_TOUCH)
+W.Check(not R.cost:IsShown(), "spell gone off: cost mark gone")
 W.Fire("UNIT_SPELLCAST_STOP", "player", "cast-1", HEALING_TOUCH)
 W.Check(Shown(R.cast) and R.cast.centre._text == "Healing Touch (55)", "name and cost still showing after the cast")
 W.Near(R.cast:GetStatusBarTexture():GetWidth(), s.width, "bar shown full")
