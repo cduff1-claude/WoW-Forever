@@ -1361,7 +1361,9 @@ end
 function R.UpdateSpark()
     local spark = R.cast.spark
     if R.casting then
-        local h = R.cast:GetHeight()
+        -- The setting, not GetHeight(): when the cast bar hangs from the energy spacer, its
+        -- geometry comes from secret energy and reads back as a secret number.
+        local h = R.Settings().powerHeight
         spark:SetSize(math.max(8, h * 0.9), h * 2.2)
         spark:ClearAllPoints()
         spark:SetPoint("CENTER", R.cast:GetStatusBarTexture(), "RIGHT", 0, 0)

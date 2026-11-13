@@ -54,6 +54,9 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
     `C_CurveUtil.CreateColorCurve()` (optionally `SetType(Enum.LuaCurveType.Step)`), `AddPoint(fraction, CreateColor(...))`,
     then `UnitHealthPercent("player", false, curve)` returns a colour whose `GetRGB()` goes straight into
     `SetStatusBarColor`. See `R.HealthGradient` in `DruidFrame/Resource.lua`.
+  - **Geometry inherits secrecy.** A frame anchored (directly or through others) to a fill texture whose value
+    is secret reports secret sizes and positions (`GetHeight()` etc.), even if its size was set explicitly. Use
+    the settings' sizes for anything drawn on such a frame, never its measured geometry.
   - `UnitAffectingCombat("player")` is readable.
   - Whether a friendly unit's health or combat state is readable is unconfirmed; guard it.
 - **Status bars keep values at single precision.** Feeding them the game clock in milliseconds (~10^8) makes
