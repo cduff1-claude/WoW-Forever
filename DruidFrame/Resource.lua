@@ -32,8 +32,6 @@ local GLOSS_ALPHA = 0.15
 local FONT = "Fonts\\FRIZQT__.TTF"
 local ART = "Interface\\AddOns\\DruidFrame\\"
 -- The range bar's purple (DruidRange's COLOR_PURPLE), bold and clear of the gold energy bar.
--- Energy Furor would add on shifting to Cat Form: a lighter gold after the energy fill.
-local FUROR_COLOUR = { 1.00, 0.90, 0.45, 0.55 }
 local GATE_MARGIN = 10 -- the power gate's reach past the display, so glows aren't cut off
 -- Mana a cast will spend: a light blue over the end of the mana fill.
 local COST_COLOUR = { 0.60, 0.82, 1.00, 0.75 }
@@ -248,8 +246,8 @@ function R.Build()
     R.costClip, R.cost = costClip, cost
     R.power = NewBar()
     -- The power bar sits in a clip frame ("gate"). Normally the gate covers the whole display.
-    -- For the caster-form Furor projection with secret energy, it's tied to a hidden switch bar
-    -- so the bar disappears, without comparing secret energy in Lua, once the projection is full.
+    -- For caster-form energy out of combat (with Furor) when energy is secret, it's tied to a
+    -- hidden switch bar, so the bar disappears at full energy without comparing it in Lua.
     local gate = CreateFrame("Frame", nil, R.frame)
     gate:SetClipsChildren(true)
     gate:SetFrameLevel(R.frame:GetFrameLevel() + 1)
@@ -263,16 +261,6 @@ function R.Build()
     switch:SetMinMaxValues(0, 1)
     switch:SetValue(0)
     R.powerGate, R.powerSwitch = gate, switch
-    -- Furor's energy, drawn on from the end of the energy fill in caster form: what you'd have
-    -- on shifting to Cat Form.
-    local furorClip = CreateFrame("Frame", nil, R.power)
-    furorClip:SetAllPoints(R.power)
-    furorClip:SetClipsChildren(true)
-    furorClip:SetFrameLevel(R.power:GetFrameLevel() + 1)
-    local furor = furorClip:CreateTexture(nil, "ARTWORK")
-    furor:SetColorTexture(FUROR_COLOUR[1], FUROR_COLOUR[2], FUROR_COLOUR[3], FUROR_COLOUR[4])
-    furor:Hide()
-    R.furor = furor
     R.cast = NewBar()
     R.cast:SetStatusBarColor(CAST_COLOUR[1], CAST_COLOUR[2], CAST_COLOUR[3], 1)
 
@@ -372,11 +360,9 @@ end
 -- The row under mana: the energy/rage bar in Cat/Bear, else the cast bar while casting.
 -- What the energy/rage bar (R.power) shows: the form's power in Cat/Bear, or energy in caster
 -- form when "Show energy in caster form" is on (Furor's regen). nil when it's not shown.
--- Furor: rank (0-5) from the talent's spells, and the energy it gives on entering Cat Form.
--- Classic's Furor: each rank is a 20% chance of 40 energy, so 5/5 always gives it; the projection
--- shows the 40 whatever the rank.
+-- Furor's rank (0-5), from the talent's spells. On Forever the energy you'd take into Cat Form
+-- is the energy value itself (it's kept and regenerates in caster form), so nothing is added.
 R.FUROR_RANKS = { 17061, 17060, 17059, 17058, 17056 } -- rank 5 first
-R.FUROR_ENERGY = 40
 function R.FurorRank()
     for i, spellID in ipairs(R.FUROR_RANKS) do
         for _, known in ipairs({ IsPlayerSpell, IsSpellKnown }) do
@@ -391,8 +377,8 @@ end
 
 -- What the energy/rage bar (R.power) shows: the form's power in Cat/Bear; in caster form energy
 -- per "Energy bar in caster form" (Never / In combat / Always). Out of combat with "In combat"
--- and points in Furor, it shows the energy you'd have on shifting to Cat Form until that's full:
--- the third return is then "projected". nil when it's not shown.
+-- and points in Furor, it shows while energy is below full: the third return is then "furor".
+-- nil when it's not shown.
 function R.BarPower()
     local powerType, token = PowerType()
     if powerType ~= nil and powerType ~= POWER.MANA then
@@ -411,40 +397,27 @@ function R.BarPower()
     end
     if when == "combat" and R.FurorRank() > 0 then
         local energy = UnitPower("player", POWER.ENERGY)
-        if not IsSecret(energy) and energy + R.FUROR_ENERGY >= max then
-            return nil, nil -- full once you shift: nothing to show
+        if not IsSecret(energy) and energy >= max then
+            return nil, nil -- full: nothing to show
         end
-        return POWER.ENERGY, "ENERGY", "projected"
+        return POWER.ENERGY, "ENERGY", "furor"
     end
     return nil, nil
 end
 
--- The Furor segment and, for a projection with secret energy, the gate that hides the bar once
--- the projection is full.
+-- With secret energy, the gate hides the out-of-combat Furor bar once energy is full.
 function R.UpdateFuror()
-    if not R.furor then
+    if not R.powerGate then
         return
     end
-    local powerType, _, mode = R.BarPower()
-    local caster = PowerType() == POWER.MANA and powerType == POWER.ENERGY
+    local _, _, mode = R.BarPower()
     local max = UnitPowerMax("player", POWER.ENERGY)
+    local energy = UnitPower("player", POWER.ENERGY)
     local gated = false
-    if caster and R.FurorRank() > 0 and not IsSecret(max) and max and max > 0 then
-        local fill = R.power:GetStatusBarTexture()
-        R.furor:ClearAllPoints()
-        R.furor:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
-        R.furor:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
-        R.furor:SetWidth(math.max(1, R.FUROR_ENERGY / max * R.power:GetWidth()))
-        R.furor:Show()
-        local energy = UnitPower("player", POWER.ENERGY)
-        if mode == "projected" and IsSecret(energy) then
-            local threshold = max - R.FUROR_ENERGY
-            R.powerSwitch:SetMinMaxValues(threshold - 1, threshold)
-            R.powerSwitch:SetValue(energy)
-            gated = true
-        end
-    else
-        R.furor:Hide()
+    if mode == "furor" and IsSecret(energy) and not IsSecret(max) and max and max > 0 then
+        R.powerSwitch:SetMinMaxValues(max - 1, max)
+        R.powerSwitch:SetValue(energy)
+        gated = true
     end
     local gate = R.powerGate
     gate:ClearAllPoints()
@@ -822,17 +795,17 @@ function R.Layout()
 
     R.power:Hide()
     R.cast:Hide()
-    -- A Furor projection goes at the bottom, under the cast bar's row: if it's hidden by the gate
-    -- (secret energy), the empty space is at the bottom where it can't be seen.
+    -- Out-of-combat Furor energy goes at the bottom, under the cast bar's row: if it's hidden by
+    -- the gate (secret energy), the empty space is at the bottom where it can't be seen.
     local barPower, _, barMode = R.BarPower()
     R.barMode = barPower and (barMode or "shown") or "none"
-    if barPower and barMode ~= "projected" then
+    if barPower and barMode ~= "furor" then
         y = PlaceBar(R.power, y, s.powerHeight)
     end
     if R.CastRowShown() then
         y = PlaceBar(R.cast, y, s.powerHeight)
     end
-    if barPower and barMode == "projected" then
+    if barPower and barMode == "furor" then
         y = PlaceBar(R.power, y, s.powerHeight)
     end
     R.UpdateFuror()
@@ -1264,7 +1237,7 @@ function R.UpdatePower()
     if not R.frame then
         return
     end
-    -- The caster-form projection can come and go as energy changes (when energy is readable).
+    -- The out-of-combat Furor bar comes and goes as energy changes (when energy is readable).
     local powerType, _, mode = R.BarPower()
     local barMode = powerType and (mode or "shown") or "none"
     if R.barMode and barMode ~= R.barMode then
@@ -1700,7 +1673,7 @@ function R.Debug()
     print("  incoming heals:", IsSecret(incoming) and "(secret)" or tostring(incoming), "from", source)
     local _, _, barMode = R.BarPower()
     print("  Furor rank:", R.FurorRank(), "| caster energy:", R.Settings().casterEnergy, "| bar:", tostring(R.barMode),
-        "| energy secret:", tostring(IsSecret(UnitPower("player", POWER.ENERGY))), "| projected:", tostring(barMode == "projected"))
+        "| energy secret:", tostring(IsSecret(UnitPower("player", POWER.ENERGY))), "| out-of-combat Furor bar:", tostring(barMode == "furor"))
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",
         "| combo points:", s.comboStyle, tostring(R.ShowsCombo()), "| casting:", tostring(R.casting ~= nil),

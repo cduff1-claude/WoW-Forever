@@ -17,7 +17,11 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   - Druids have an out-of-combat resurrection called **Revive**, 30 yd.
   - Growl has the same range as Bash (melee).
   
-  Check with the user before relying on any other Classic value that matters.
+  - Druids keep their energy out of Cat Form and it regenerates there; with Furor, that energy is what you
+    take into Cat Form. Don't add Classic's Furor bonus on top.
+  
+  Never assume a Classic value (talent effects, costs, ranges, durations) is the same on Forever. Do a web search
+  for Forever's value, and if it's still unclear or ambiguous, ask the user before relying on it.
 
 ## Addon behaviour learned on Forever
 

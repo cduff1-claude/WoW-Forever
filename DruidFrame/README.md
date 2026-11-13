@@ -36,9 +36,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
 - Incoming heals: a teal bar on the health bar after your current health, like the Player Frame's (Midnight's heal prediction,
   with the older call as a fallback). `/druidframe debug` shows what the game reports for incoming heals.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
-  bar, e.g. to watch Furor's energy regen. With points in Furor, Furor's 40 energy is drawn on from the end of the
-  energy fill in a lighter gold: what you'd have on shifting to Cat Form. With "In combat", out of combat it still
-  shows (at the bottom) while that would be under 100, and hides once it reaches 100.
+  bar, e.g. to watch Furor's energy regen. With "In combat" and points in Furor, out of combat it still shows (at
+  the bottom) while energy is below full, and hides once it's full.
 - While casting a spell that costs mana, the end of the mana fill that it will spend is drawn lighter, like
   Blizzard's cost prediction on the Player Frame.
 - In Cat/Bear the cast bar shows (below the energy/rage bar) for anything with a cast time, like skinning,
