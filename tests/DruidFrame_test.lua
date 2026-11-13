@@ -332,6 +332,52 @@ W.Near(R.cast:GetValue(), 1, "value is the seconds into the cast", 0.02)
 local sx = R.cast.spark:GetCenter()
 W.Near(sx, R.cast:GetLeft() + 0.5 * s.width, "spark rides the fill's edge", 1)
 
+print("Caster form, out of combat, with Furor: the energy you'd shift into Cat Form with")
+W.Check(not Shown(R.power), "no Furor: no energy bar out of combat")
+W.furorRank = 5
+W.power[3], W.powerMax[3] = 30, 100
+W.Fire("SPELLS_CHANGED")
+R.Refresh()
+W.Check(Shown(R.power) and R.barMode == "projected", "Furor 5/5, 30 energy (70 after shifting): shown")
+W.Check(R.furor:IsShown(), "Furor's 40 drawn after the energy fill")
+W.Near(R.furor:GetWidth(), 0.40 * s.width, "40 energy wide", 0.5)
+W.Near(R.furor:GetLeft(), R.power:GetLeft() + 0.30 * s.width, "starting where energy ends", 0.5)
+W.Check(R.power:GetTop() <= R.cast:GetBottom() or not Shown(R.cast), "at the bottom, under the cast row")
+W.power[3] = 60
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Check(not Shown(R.power), "60 energy (100 after shifting): hidden")
+W.power[3] = 50
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Check(Shown(R.power), "50 energy: back")
+W.furorRank = 2
+W.Fire("SPELLS_CHANGED")
+R.Refresh()
+W.Check(Shown(R.power) and R.FurorRank() == 2, "any points in Furor count")
+
+print("  ... with secret energy: hidden by the gate instead")
+local secretLow, secretHigh = 30.001, 70.001
+W.secret[secretLow], W.secret[secretHigh] = true, true
+W.power[3] = secretLow
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Check(Shown(R.power), "row kept (can't compare secret energy in Lua)")
+W.Near(R.powerGate:GetWidth(), R.powerSwitch:GetWidth(), "30 energy: the gate is open")
+W.power[3] = secretHigh
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Near(R.powerGate:GetWidth(), 0, "70 energy: the gate closes, the bar can't be seen")
+W.power[3] = 30
+W.secret = {}
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Near(R.powerGate:GetWidth(), R.frame:GetWidth() + 20, "readable again: gate fully open")
+W.combat = true
+W.Fire("PLAYER_REGEN_DISABLED")
+W.Check(Shown(R.power) and R.barMode == "shown", "in combat: the normal energy bar")
+W.combat = false
+W.Fire("PLAYER_REGEN_ENABLED")
+W.furorRank = 0
+W.Fire("SPELLS_CHANGED")
+R.Refresh()
+W.Check(not Shown(R.power) and not R.furor:IsShown(), "no Furor again: hidden")
+
 print("Energy in caster form (Never / In combat / Always)")
 W.Check(s.casterEnergy == "combat", "default: in combat")
 W.Check(not Shown(R.power), "caster form, out of combat: no energy bar")

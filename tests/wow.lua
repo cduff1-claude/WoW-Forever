@@ -492,8 +492,14 @@ function GetMinimapShape() return "ROUND" end
 function GetBuildInfo() return "1.60.1", "70009", "", 16001 end
 function GetRealmName() return "Test Realm" end
 function IsStealthed() return false end
-function IsPlayerSpell() return true end
-function IsSpellKnown() return true end
+-- Every spell is known, except talents listed here (Furor's ranks; a test sets W.furorRank).
+W.furorRank = 0
+local FUROR = { [17056] = 1, [17058] = 2, [17059] = 3, [17060] = 4, [17061] = 5 }
+function IsPlayerSpell(id)
+    if FUROR[id] then return FUROR[id] == W.furorRank end
+    return true
+end
+IsSpellKnown = IsPlayerSpell
 function GetCVar() return "0" end
 function GetCVarBool() return false end
 function hooksecurefunc(a, b, c)
@@ -506,7 +512,9 @@ function hooksecurefunc(a, b, c)
         return unpack(r)
     end
 end
-issecretvalue = function() return false end
+-- A test can mark particular numbers as secret: W.secret[30.001] = true.
+W.secret = {}
+issecretvalue = function(v) return v ~= nil and W.secret[v] == true end
 
 Enum = { PowerType = { Mana = 0, Rage = 1, Energy = 3 },
     StatusBarInterpolation = { Immediate = 0, ExponentialEaseOut = 1 } }
