@@ -795,18 +795,13 @@ function R.Layout()
 
     R.power:Hide()
     R.cast:Hide()
-    -- Out-of-combat Furor energy goes at the bottom, under the cast bar's row: if it's hidden by
-    -- the gate (secret energy), the empty space is at the bottom where it can't be seen.
     local barPower, _, barMode = R.BarPower()
     R.barMode = barPower and (barMode or "shown") or "none"
-    if barPower and barMode ~= "furor" then
+    if barPower then
         y = PlaceBar(R.power, y, s.powerHeight)
     end
     if R.CastRowShown() then
         y = PlaceBar(R.cast, y, s.powerHeight)
-    end
-    if barPower and barMode == "furor" then
-        y = PlaceBar(R.power, y, s.powerHeight)
     end
     R.UpdateFuror()
 

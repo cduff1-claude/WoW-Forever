@@ -340,7 +340,7 @@ W.Fire("SPELLS_CHANGED")
 R.Refresh()
 W.Check(Shown(R.power) and R.barMode == "furor", "Furor, 30 energy: shown")
 W.Check(R.power:GetValue() == 30, "the energy itself, nothing added")
-W.Check(R.power:GetTop() <= R.cast:GetBottom() or not Shown(R.cast), "at the bottom, under the cast row")
+W.Check(not Shown(R.cast) or R.power:GetBottom() >= R.cast:GetTop(), "in its usual place, above the cast row")
 W.power[3] = 99
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 W.Check(Shown(R.power), "99 energy: still shown")
