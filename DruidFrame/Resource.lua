@@ -261,6 +261,17 @@ function R.Build()
     switch:SetMinMaxValues(0, 1)
     switch:SetValue(0)
     R.powerGate, R.powerSwitch = gate, switch
+    -- When the gate hides the energy bar, the cast bar moves up into its place: it hangs from the
+    -- top of a hidden vertical switch bar spanning the energy row. Below full energy the switch
+    -- is empty (its fill's top is the row's bottom: the cast bar sits under the energy bar); at
+    -- full it's full (its top is the row's top: the cast bar takes the energy bar's place).
+    local spacer = CreateFrame("StatusBar", nil, R.frame)
+    spacer:SetStatusBarTexture(STYLE_TEXTURE.flat)
+    spacer:SetOrientation("VERTICAL")
+    spacer:SetAlpha(0)
+    spacer:SetMinMaxValues(0, 1)
+    spacer:SetValue(0)
+    R.powerSpacer = spacer
     R.cast = NewBar()
     R.cast:SetStatusBarColor(CAST_COLOUR[1], CAST_COLOUR[2], CAST_COLOUR[3], 1)
 
@@ -417,6 +428,8 @@ function R.UpdateFuror()
     if mode == "furor" and IsSecret(energy) and not IsSecret(max) and max and max > 0 then
         R.powerSwitch:SetMinMaxValues(max - 1, max)
         R.powerSwitch:SetValue(energy)
+        R.powerSpacer:SetMinMaxValues(max - 1, max)
+        R.powerSpacer:SetValue(energy)
         gated = true
     end
     local gate = R.powerGate
@@ -797,11 +810,23 @@ function R.Layout()
     R.cast:Hide()
     local barPower, _, barMode = R.BarPower()
     R.barMode = barPower and (barMode or "shown") or "none"
+    R.energySecret = IsSecret(UnitPower("player", POWER.ENERGY))
+    local powerY = y
     if barPower then
         y = PlaceBar(R.power, y, s.powerHeight)
     end
+    R.castFloats = false
     if R.CastRowShown() then
         y = PlaceBar(R.cast, y, s.powerHeight)
+        if barMode == "furor" and IsSecret(UnitPower("player", POWER.ENERGY)) then
+            -- See R.powerSpacer: the cast bar closes the gap when the energy bar is hidden.
+            R.powerSpacer:ClearAllPoints()
+            R.powerSpacer:SetPoint("TOPLEFT", R.frame, "TOPLEFT", 0, -powerY)
+            R.powerSpacer:SetSize(1, s.powerHeight + s.padding)
+            R.cast:ClearAllPoints()
+            R.cast:SetPoint("TOPLEFT", R.powerSpacer:GetStatusBarTexture(), "TOPLEFT", 0, 0)
+            R.castFloats = true
+        end
     end
     R.UpdateFuror()
 
@@ -1235,7 +1260,9 @@ function R.UpdatePower()
     -- The out-of-combat Furor bar comes and goes as energy changes (when energy is readable).
     local powerType, _, mode = R.BarPower()
     local barMode = powerType and (mode or "shown") or "none"
-    if R.barMode and barMode ~= R.barMode then
+    -- Energy turning secret (or readable) changes how the hidden-at-full bar is laid out.
+    local secret = IsSecret(UnitPower("player", POWER.ENERGY))
+    if R.barMode and (barMode ~= R.barMode or (barMode == "furor" and secret ~= R.energySecret)) then
         R.Layout()
         R.ApplyColours()
     end

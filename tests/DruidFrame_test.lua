@@ -362,9 +362,11 @@ W.power[3] = secretLow
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 W.Check(Shown(R.power), "row kept (can't compare secret energy in Lua)")
 W.Near(R.powerGate:GetWidth(), R.powerSwitch:GetWidth(), "30 energy: the gate is open")
+W.Near(R.cast:GetTop(), R.power:GetBottom() - s.padding, "cast bar under the energy bar as usual")
 W.power[3] = secretFull
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
 W.Near(R.powerGate:GetWidth(), 0, "full: the gate closes, the bar can't be seen")
+W.Near(R.cast:GetTop(), R.mana:GetBottom() - s.padding, "and the cast bar moves up into its place (no gap)")
 W.power[3] = 30
 W.secret = {}
 W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")

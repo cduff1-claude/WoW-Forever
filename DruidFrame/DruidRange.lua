@@ -89,8 +89,10 @@ local function InitDefaults()
     local db = DruidRangeDB
     if db.enabled == nil then db.enabled = true end
     db.unlocked = nil -- old setting: now unlocked while DruidFrame's options are open
-    -- Position: "top"/"bottom" of DruidFrame's display, or "free" (placed by dragging).
-    if db.anchor ~= "top" and db.anchor ~= "bottom" and db.anchor ~= "free" then
+    -- Position: "top" (attached above DruidFrame's display) or "free" (placed by dragging).
+    if db.anchor == "bottom" then
+        db.anchor = "top" -- "below" was removed: attached is always on top
+    elseif db.anchor ~= "top" and db.anchor ~= "free" then
         db.anchor = "free" -- where it was before DruidFrame
     end
     if db.keepCentred == nil then db.keepCentred = true end
@@ -525,9 +527,8 @@ posLabel:SetPoint("TOPLEFT", enableCB, "BOTTOMLEFT", 0, -10)
 posLabel:SetText("Position")
 local posButtons = {}
 local POSITIONS = {
-    { anchor = "top", label = "Above DruidFrame" },
-    { anchor = "bottom", label = "Below DruidFrame" },
-    { anchor = "free", label = "Free (drag it while the options are open)" },
+    { anchor = "top", label = "Attached (on top of DruidFrame)", name = "DruidRangePosition1" },
+    { anchor = "free", label = "Free (drag it while the options are open)", name = "DruidRangePosition3" },
 }
 local centredCB
 local function RefreshPositionButtons()
@@ -542,7 +543,7 @@ local function RefreshPositionButtons()
 end
 local lastPos = posLabel
 for i, opt in ipairs(POSITIONS) do
-    local b = CreateCheck("DruidRangePosition" .. i, opt.label, true)
+    local b = CreateCheck(opt.name, opt.label, true)
     b:SetPoint("TOPLEFT", lastPos, "BOTTOMLEFT", 0, -4)
     b.anchor = opt.anchor
     b:SetScript("OnClick", function(self)

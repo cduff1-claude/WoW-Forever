@@ -48,16 +48,12 @@ W.Near(bar:GetBottom(), f:GetTop() + s.padding + 1, "sits just above the display
 W.Near(bar:GetWidth(), f:GetWidth(), "as wide as the display's bars")
 W.Near(select(1, bar:GetCenter()), select(1, f:GetCenter()), "centred over it")
 
-print("Below DruidFrame, following it as it grows")
-db.anchor = "bottom"
-R.Refresh()
-W.Near(bar:GetTop(), f:GetBottom() - s.padding - 1, "sits just below the display")
+print("Attached, following the display as it changes")
 W.powerType, W.formID = 3, 1
 W.power[3], W.powerMax[3] = 100, 100
 W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
-W.Near(bar:GetTop(), f:GetBottom() - s.padding - 1, "Cat Form: still just below (energy and combo rows added)")
-W.Check(R.power:IsShown() and bar:GetTop() < R.power:GetBottom(), "below the energy bar")
+W.Near(bar:GetBottom(), f:GetTop() + s.padding + 1, "Cat Form: still just above the display")
 _G.DruidBarResourceWidth:GetScript("OnValueChanged")(_G.DruidBarResourceWidth, 300)
 W.Near(bar:GetWidth(), 300, "follows the display's width setting")
 db.width = 50
@@ -84,7 +80,7 @@ f:GetScript("OnMouseDown")(f, "LeftButton")
 W.cursor = { fx, f:GetTop() - 52 }
 W.Advance(0.05)
 f:GetScript("OnMouseUp")(f, "LeftButton")
-W.Near(bar:GetTop(), f:GetBottom() - s.padding - 1, "dragging the display takes the bar with it")
+W.Near(bar:GetBottom(), f:GetTop() + s.padding + 1, "dragging the display takes the bar with it")
 ns.panels.frame:GetScript("OnHide")(ns.panels.frame)
 
 print("Free, with Keep centred")
@@ -195,8 +191,9 @@ print("Position buttons on the DruidRange page")
 ns.panels.range:GetScript("OnShow")(ns.panels.range)
 _G.DruidRangePosition1:SetChecked(true)
 _G.DruidRangePosition1:Click()
-W.Check(db.anchor == "top", "Above DruidFrame")
+W.Check(db.anchor == "top", "Attached")
 W.Check(_G.DruidRangePosition1:GetChecked() and not _G.DruidRangePosition3:GetChecked(), "only that one ticked")
+W.Check(_G.DruidRangePosition2 == nil, "no Below option")
 _G.DruidRangePosition3:Click()
 W.Check(db.anchor == "free", "Free")
 ns.panels.range:GetScript("OnHide")(ns.panels.range)

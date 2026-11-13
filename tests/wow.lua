@@ -164,12 +164,13 @@ local function Edge(f, axis, side)
     f._busy = nil
     if not a or not next(a) then return nil end
     local size = axis == "x" and f._w or f._h
-    if f._fillOf and axis == "x" then
-        -- A status bar's fill texture: as wide as the bar times how full it is.
+    local vertical = f._fillOf and f._fillOf._orientation == "VERTICAL"
+    if f._fillOf and axis == (vertical and "y" or "x") then
+        -- A status bar's fill texture: as wide (tall, if vertical) as the bar times how full it is.
         local bar = f._fillOf
         local lo, hi, v = bar._min or 0, bar._max or 1, bar._value or 0
         local fraction = hi > lo and (v - lo) / (hi - lo) or 0
-        size = math.max(0, math.min(1, fraction)) * bar:GetWidth()
+        size = math.max(0, math.min(1, fraction)) * (vertical and bar:GetHeight() or bar:GetWidth())
     end
     local minName = axis == "x" and "LEFT" or "BOTTOM"
     local maxName = axis == "x" and "RIGHT" or "TOP"
@@ -252,14 +253,29 @@ function Frame:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
 function Frame:GetMinMaxValues() return self._min or 0, self._max or 1 end
 function Frame:SetValue(v, interpolation) self._value, self._interp = v, interpolation end
 function Frame:GetValue() return self._value end
+local function AnchorFill(bar)
+    local tex = bar._barTexture
+    tex:ClearAllPoints()
+    if bar._orientation == "VERTICAL" then
+        -- Fills from the bottom up.
+        tex:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT")
+        tex:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT")
+    else
+        tex:SetPoint("TOPLEFT", bar, "TOPLEFT")
+        tex:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT")
+    end
+end
 function Frame:GetStatusBarTexture()
     if not self._barTexture then
         self._barTexture = self:CreateTexture()
         self._barTexture._fillOf = self
-        self._barTexture:SetPoint("TOPLEFT", self, "TOPLEFT")
-        self._barTexture:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT")
+        AnchorFill(self)
     end
     return self._barTexture
+end
+function Frame:SetOrientation(o)
+    self._orientation = o
+    if self._barTexture then AnchorFill(self) end
 end
 function Frame:SetStatusBarTexture(t)
     local tex = self:GetStatusBarTexture()

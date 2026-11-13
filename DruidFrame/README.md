@@ -37,7 +37,8 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   with the older call as a fallback). `/druidframe debug` shows what the game reports for incoming heals.
 - Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
   bar, e.g. to watch Furor's energy regen. With "In combat" and points in Furor, out of combat it still shows (in
-  the same place) while energy is below full, and hides once it's full.
+  the same place) while energy is below full, and hides once it's full. Energy is secret to addons even out of combat, so at
+  full the bar is hidden by drawing tricks and the cast bar moves up into its place.
 - While casting a spell that costs mana, the end of the mana fill that it will spend is drawn lighter, like
   Blizzard's cost prediction on the Player Frame.
 - In Cat/Bear the cast bar shows (below the energy/rage bar) for anything with a cast time, like skinning,
@@ -122,10 +123,10 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
 - "Hide based on what?": None, Melee (5yd) or Charge (8yd, needs Feral Charge learned; melee only until then).
   Checked before the colour, so the bar never flashes before hiding. Applies in every form, except while stealthed
   if "Don't hide while stealthed" is ticked (default).
-- Position: **Above DruidFrame** or **Below DruidFrame** (it moves with the display, follows its width, and its
-  width slider is a percentage of that), or **Free** (the default when upgrading, so it stays where you had it).
-  Free has "Keep centred" (on: dragging only moves it up and down, with the red centre line). While its options
-  are open it shows (green) even with no target, so you can place it.
+- Position: **Attached** (on top of DruidFrame: it moves with the display, follows its width, and its width slider
+  is a percentage of that) or **Free** (the default when upgrading, so it stays where you had it). Free has "Keep
+  centred" (on: dragging only moves it up and down, with the red centre line). While its options are open it shows
+  (green) even with no target, so you can place it. (A "Below DruidFrame" setting from before becomes Attached.)
 - Width, height and opacity sliders.
 
 ## Target of target (Target of Target page, `/druidtot`)
