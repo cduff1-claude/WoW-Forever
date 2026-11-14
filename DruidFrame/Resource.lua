@@ -390,12 +390,18 @@ end
 -- per "Energy bar in caster form" (Never / In combat / Always). Out of combat with "In combat"
 -- and points in Furor, it shows while energy is below full: the third return is then "furor".
 -- nil when it's not shown.
+-- Travel and Aquatic Form count as caster form here, whatever power type the client reports
+-- for them: the energy bar follows the caster-form setting there too.
+R.TRAVEL_FORMS = { [3] = true, [4] = true }
+
 function R.BarPower()
     local powerType, token = PowerType()
-    if powerType ~= nil and powerType ~= POWER.MANA then
-        return powerType, token
-    end
-    if powerType ~= POWER.MANA then
+    local form = GetShapeshiftFormID and GetShapeshiftFormID()
+    local casterLike = powerType == POWER.MANA or (form and R.TRAVEL_FORMS[form]) or false
+    if not casterLike then
+        if powerType ~= nil then
+            return powerType, token
+        end
         return nil, nil
     end
     local when = R.Settings().casterEnergy
@@ -1696,7 +1702,7 @@ function R.Debug()
     local incoming, source = R.IncomingHeals()
     print("  incoming heals:", IsSecret(incoming) and "(secret)" or tostring(incoming), "from", source)
     local _, _, barMode = R.BarPower()
-    print("  Furor rank:", R.FurorRank(), "| caster energy:", R.Settings().casterEnergy, "| bar:", tostring(R.barMode),
+    print("  form:", tostring(GetShapeshiftFormID()), "| Furor rank:", R.FurorRank(), "| caster energy:", R.Settings().casterEnergy, "| bar:", tostring(R.barMode),
         "| energy secret:", tostring(IsSecret(UnitPower("player", POWER.ENERGY))), "| out-of-combat Furor bar:", tostring(barMode == "furor"))
     print("  power:", tostring(powerType), tostring(token), "| third row:",
         R.ThirdRow() == R.power and "energy/rage" or R.ThirdRow() == R.cast and "cast bar" or "none",

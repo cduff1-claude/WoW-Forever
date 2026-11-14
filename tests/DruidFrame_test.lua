@@ -765,6 +765,29 @@ W.Fire("UPDATE_SHAPESHIFT_FORM")
 W.Advance(0.2)
 
 Combat(false)
+print("Travel and Aquatic Form: energy shown until full, like caster form (with Furor)")
+W.furorRank = 5
+W.power[3], W.powerMax[3] = 50, 100
+W.Fire("SPELLS_CHANGED")
+W.formID = 3
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Shown(R.power) and R.barMode == "furor", "Travel Form: the same")
+W.powerType, W.formID = 3, 4 -- even if the client reports energy for the form
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.Check(Shown(R.power) and R.barMode == "furor", "Aquatic Form: the same")
+W.power[3] = 100
+W.Fire("UNIT_POWER_FREQUENT", "player", "ENERGY")
+W.Check(not Shown(R.power), "and hidden at full")
+W.power[3] = 50
+W.powerType, W.formID = 0, nil
+W.Fire("UPDATE_SHAPESHIFT_FORM")
+W.Advance(0.2)
+W.furorRank = 0
+W.Fire("SPELLS_CHANGED")
+R.Refresh()
+
 print("Upgrading old settings")
 DruidForeverManabarPlusDB.resource = { padding = 1, style = "shaded", comboPoints = false, text = "values" }
 local up = R.Settings()

@@ -35,7 +35,7 @@ gone. Disable or delete the old DruidBar and DruidRange folders.
   falling back to reading health directly when that's possible. `/druidframe debug` shows which.
 - Incoming heals: a teal bar on the health bar after your current health, like the Player Frame's (Midnight's heal prediction,
   with the older call as a fallback). `/druidframe debug` shows what the game reports for incoming heals.
-- Energy bar in caster form: Never, In combat (default) or Always. Shown under the mana bar, above the cast
+- Energy bar in caster form (and Travel / Aquatic Form): Never, In combat (default) or Always. Shown under the mana bar, above the cast
   bar, e.g. to watch Furor's energy regen. With "In combat" and points in Furor, out of combat it still shows (in
   the same place) while energy is below full, and hides once it's full. Energy is secret to addons even out of combat, so at
   full the bar is hidden by drawing tricks and the cast bar moves up into its place.
