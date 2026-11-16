@@ -136,7 +136,8 @@ can go elsewhere:
 - **Target** (`/druidtarget`): your target.
 - **Target of Target** (`/druidtot`): who your target is targeting.
 - **Tank's Target** (`/druidtank`): what the group member with the Tank role is targeting. Only in a group, not when
-  you're the tank or no one has the Tank role, and it goes transparent while you're targeting the same thing.
+  you're the tank or no one has the Tank role, and it goes transparent while you're targeting the same thing or the tank
+  (Target of Target shows it then).
 
 Each one:
 - Shows their portrait, round, overhanging the bar's left end (option, on), a health bar (with the health colour

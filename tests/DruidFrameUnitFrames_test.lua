@@ -56,6 +56,11 @@ W.Check(tank:GetAlpha() == 0, "you're targeting the same mob: transparent")
 W.targetName = "Other"
 W.Advance(0.2)
 W.Check(tank:GetAlpha() == 1, "different again: back")
+W.targetName = "Warrior"
+W.Advance(0.2)
+W.Check(tank:GetAlpha() == 0, "targeting the tank: transparent (Target of Target shows it)")
+W.targetName = "Other"
+W.Advance(0.2)
 W.roles.player = "TANK"
 W.Fire("PLAYER_ROLES_ASSIGNED")
 W.Check(not tank:IsShown(), "you're the tank: hidden")

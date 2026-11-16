@@ -436,6 +436,7 @@ function UnitIsUnit(a, b)
     -- A group member's target is your target when the names match (W.targetName).
     local member = a:match("^(party%d)target$")
     if member and b == "target" then return W.partyTargets[member] ~= nil and W.partyTargets[member] == W.targetName end
+    if a == "target" and b:match("^party%d$") then return W.target and W.targetName == W.party[b] or false end
     return a == b
 end
 W.health, W.healthMax = 989, 989

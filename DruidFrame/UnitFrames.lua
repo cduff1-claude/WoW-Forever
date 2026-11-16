@@ -436,7 +436,7 @@ local function NewUnitFrame(def)
         ShowMarks(unit)
         -- Frames that would only repeat your target (Tank's Target, when you're on the same mob)
         -- go transparent: the game won't let them be hidden in combat.
-        local same = def.hideWhenTargeted and Ask(UnitIsUnit, unit, "target")
+        local same = def.hideWhenTargeted and (Ask(UnitIsUnit, unit, "target") or def.SameAsToT())
         f:SetAlpha(same and 0 or 1)
         local border = T.AggroColour()
         if border then
@@ -667,10 +667,15 @@ local Tank = NewUnitFrame({
     frameName = "DruidFrameTankTarget", widgetPrefix = "DruidFrameTankTarget", slash = "/druidtank",
     showAlways = "Whenever the tank has a target",
     about = "What your group's tank (the member with the Tank role) is targeting. Not shown when you're the tank, "
-        .. "when no one has the Tank role, or while you're targeting the same thing.",
+        .. "when no one has the Tank role, while you're targeting the same thing, or while you're targeting the tank.",
     aggroLabel = "Aggro border: green while it's on the tank, red when it's on someone else (the tank has lost it)",
     groupOnly = true,
     hideWhenTargeted = true,
+    -- Targeting the tank: Target of Target already shows what they're targeting.
+    SameAsToT = function()
+        local tank = ns.TankUnit()
+        return tank and Ask(UnitIsUnit, "target", tank) or false
+    end,
     Unit = function()
         local tank = ns.TankUnit()
         return tank and (tank .. "target") or nil
