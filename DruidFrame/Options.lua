@@ -11,7 +11,8 @@ if Settings and Settings.RegisterCanvasLayoutCategory and ns.panels and ns.panel
     Settings.RegisterAddOnCategory(main)
     ns.categories.frame = main
     for _, page in ipairs({ { key = "bar", name = "DruidBar" }, { key = "range", name = "DruidRange" },
-        { key = "tot", name = "Target of Target" } }) do
+        { key = "target", name = "Target" }, { key = "tot", name = "Target of Target" },
+        { key = "tank", name = "Tank's Target" } }) do
         local panel = ns.panels[page.key]
         if panel then
             if Settings.RegisterCanvasLayoutSubcategory then
@@ -25,7 +26,7 @@ if Settings and Settings.RegisterCanvasLayoutCategory and ns.panels and ns.panel
     end
 end
 
--- which: "frame", "bar", "range" or "tot".
+-- which: "frame", "bar", "range", "target", "tot" or "tank".
 function ns.OpenOptions(which)
     -- The client blocks opening the settings in combat.
     if InCombatLockdown and InCombatLockdown() then
@@ -54,8 +55,8 @@ function ns.PageShown(shown)
     if ns.Range and ns.Range.SetUnlocked then
         ns.Range.SetUnlocked(unlocked)
     end
-    if ns.ToT and ns.ToT.SetUnlocked then
-        ns.ToT.SetUnlocked(unlocked)
+    for _, unitFrame in ipairs(ns.UnitFrames or {}) do
+        unitFrame.SetUnlocked(unlocked)
     end
 end
 

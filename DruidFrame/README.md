@@ -9,7 +9,7 @@ options page under Esc > Options > AddOns > DruidFrame:
 | DruidFrame | `/druidframe` | the resource display itself |
 | DruidBar | `/druidbar` | shift-cost shading, Claw warning, 5-second rule, and optional Player Frame features |
 | DruidRange | `/druidrange` | the range bar |
-| Target of Target | `/druidtot` | the target-of-target frame |
+| Target / Target of Target / Tank's Target | `/druidtarget` `/druidtot` `/druidtank` | the target frames |
 
 While any of the three pages is open, the display and the range bar are unlocked (highlighted) and left-drag moves
 them; closing the options locks them, and left clicks then pass through to the world. Right-click either one to
@@ -129,19 +129,29 @@ yes/no answer for a spell, and unlearned spells give no answer, so each rule sta
   (green) even with no target, so you can place it. (A "Below DruidFrame" setting from before becomes Attached.)
 - Width, height and opacity sliders.
 
-## Target of target (Target of Target page, `/druidtot`)
+## Target frames (Target, Target of Target and Tank's Target pages)
 
-A small frame of its own showing who your target is targeting, so it can sit by DruidFrame's bars and the
-Player and Target frames can go elsewhere. Left-click it to target them; right-click opens its page.
-- Their portrait, drawn by the game like Blizzard's, round, overhanging the bar's left end (option, on).
-- Health bar (with the health colour gradient if that's on) and the name: class-coloured for players,
-  reaction-coloured for NPCs, "You" when it's you.
-- Aggro border (option, on), when your target is an enemy: in Bear Form, green while it's on you and red when
-  it's on someone else in your group (you've lost it); in other forms, red while it's on you (you've pulled it).
-- Show: whenever your target has a target (default), or only in combat; optionally only when in a group. Width and height sliders.
-- It starts just to the right of DruidFrame. While any DruidFrame options page is open it shows a preview and
-  left-drag moves it; "Put it next to DruidFrame" resets it. It's a secure (clickable) frame, so the game shows
-  and hides it, and its settings apply out of combat.
+Small frames of DruidFrame's own, in one style, so they can sit by its bars and Blizzard's Player and Target frames
+can go elsewhere:
+- **Target** (`/druidtarget`): your target.
+- **Target of Target** (`/druidtot`): who your target is targeting.
+- **Tank's Target** (`/druidtank`): what the group member with the Tank role is targeting. Only in a group, not when
+  you're the tank or no one has the Tank role, and it goes transparent while you're targeting the same thing.
+
+Each one:
+- Shows their portrait, round, overhanging the bar's left end (option, on), a health bar (with the health colour
+  gradient if that's on) and the name: class-coloured for players, reaction-coloured for NPCs, "You" when it's you.
+- Shows the raid target icon if one's been put on them, and Blizzard's elite dragon (gold for elites and bosses,
+  silver for rares) just past the bar's right end.
+- Has an aggro border (option, on), when an enemy is involved. Target and Target of Target: in Bear Form, green
+  while it's on you and red when it's on someone else in your group (you've lost it); in other forms, red while it's
+  on you (you've pulled it). Tank's Target: green while it's on the tank, red when it's on someone else.
+- Show: whenever there's something to show (default), or only in combat; Target and Target of Target can also be
+  limited to when you're in a group. Width and height sliders.
+- Left-click targets them; right-click opens their page. They start stacked to the right of DruidFrame (Target, then
+  Target of Target, then Tank's Target). While any DruidFrame options page is open they show a preview and left-drag
+  moves them; "Put it next to DruidFrame" resets one. They're secure (clickable) frames, so the game shows and hides
+  them, and their settings apply out of combat.
 
 ## Commands
 
@@ -154,4 +164,5 @@ Player and Target frames can go elsewhere. Left-click it to target them; right-c
 - `/druidbar testtravel <cost>` pretends Travel Form costs that much (for testing before level 30); `/druidbar testtravel off` clears it.
 - `/druidbar formlog`: toggles a log of form-related readings with timings, for diagnosing shifts.
 - `/druidrange debug`: prints what the game answers for each range spell.
-- `/druidtot`: opens the Target of Target page; `/druidtot debug` shows what the game reports about it.
+- `/druidtarget`, `/druidtot`, `/druidtank`: open those pages; add `debug` to see what the game reports (the tank
+  frame's also lists your party's roles).

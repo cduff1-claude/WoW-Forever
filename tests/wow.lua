@@ -433,6 +433,9 @@ function UnitPower(_, t) return W.power[t or W.powerType] end
 function UnitPowerMax(_, t) return W.powerMax[t or W.powerType] end
 function UnitIsUnit(a, b)
     if a == "targettarget" and b == "player" then return W.tot == "player" end
+    -- A group member's target is your target when the names match (W.targetName).
+    local member = a:match("^(party%d)target$")
+    if member and b == "target" then return W.partyTargets[member] ~= nil and W.partyTargets[member] == W.targetName end
     return a == b
 end
 W.health, W.healthMax = 989, 989
@@ -446,8 +449,19 @@ function Frame:RemoveMaskTexture(mask) if self._masks then self._masks[mask] = n
 function UnitExists(unit)
     if unit == "target" then return W.target end
     if unit == "targettarget" then return W.target and W.tot ~= nil or false end
+    -- Group members (W.party = { "party1", ... }) and what they target (W.partyTargets[unit] = name).
+    local member = unit:match("^(party%d)target$")
+    if member then return W.partyTargets[member] ~= nil end
+    if unit:match("^party%d$") then return W.party[unit] ~= nil end
+    if unit:match("^raid%d+") then return false end
     return true
 end
+W.party, W.partyTargets, W.roles, W.raidIcons, W.classification = {}, {}, {}, {}, {}
+function UnitGroupRolesAssigned(unit) return W.roles[unit] or "NONE" end
+function IsInRaid() return false end
+function GetRaidTargetIndex(unit) return W.raidIcons[unit] end
+function SetRaidTargetIconTexture(texture, index) texture._raidIcon = index end
+function UnitClassification(unit) return W.classification[unit] or "normal" end
 -- Target of target: W.tot = "player", "party1" or an NPC name (nil: none).
 function UnitInParty(unit) return unit == "targettarget" and W.tot == "party1" or false end
 function UnitInRaid() return nil end
@@ -455,7 +469,7 @@ function UnitPlayerOrPetInParty(unit) return UnitInParty(unit) end
 function UnitIsPlayer(unit) return unit == "player" or (unit == "targettarget" and (W.tot == "player" or W.tot == "party1")) end
 function UnitReaction() return W.enemy and 2 or 5 end
 
--- Secure state drivers: only "visibility" with [combat] and [@targettarget,exists], re-checked
+-- Secure state drivers: only "visibility" with [combat], [group] and [@unit,exists], re-checked
 -- on every event and tick. Registering in combat is blocked, as in the client.
 W.drivers = {}
 local function DriverShows(rule)
@@ -468,7 +482,8 @@ local function DriverShows(rule)
         local ok = true
         if cond:find("combat", 1, true) and not W.combat then ok = false end
         if cond:find("group", 1, true) and not W.grouped then ok = false end
-        if cond:find("@targettarget,exists", 1, true) and not UnitExists("targettarget") then ok = false end
+        local unit = cond:match("@([%w]+),exists")
+        if unit and not UnitExists(unit) then ok = false end
         if ok then return action == "show" end
     end
     return false

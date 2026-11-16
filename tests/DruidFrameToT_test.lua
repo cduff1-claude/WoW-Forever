@@ -7,7 +7,7 @@ local W = require("wow")
 
 W.spellCosts[768] = { { type = 0, name = "MANA", cost = 100 } }
 local ns = {}
-for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "ToT.lua", "Options.lua" }) do
+for _, file in ipairs({ "DruidBar.lua", "Resource.lua", "Buffs.lua", "DruidRange.lua", "UnitFrames.lua", "Options.lua" }) do
     W.Load("DruidFrame/" .. file, "DruidFrame", ns)
 end
 W.class, W.powerType, W.formID = "DRUID", 0, nil
@@ -113,7 +113,7 @@ print("Unlocked: preview and dragging")
 W.tot = nil
 W.Fire("UNIT_TARGET", "target")
 ns.panels.tot:GetScript("OnShow")(ns.panels.tot)
-W.Check(f:IsShown() and T.name._text == "Target of target", "options open: a preview shows")
+W.Check(f:IsShown() and T.name._text == "Target of Target", "options open: a preview shows")
 W.Check(f:GetAttribute("type1") == nil, "and clicks don't target while unlocked")
 local x, y = f:GetCenter()
 W.cursor = { x, y }
