@@ -50,6 +50,7 @@ W.Fire("GROUP_ROSTER_UPDATE")
 W.Advance(0.2)
 W.Check(tank:GetAttribute("unit") == "party2target", "follows the member with the Tank role (got " .. tostring(tank:GetAttribute("unit")) .. ")")
 W.Check(tank:IsShown() and tank:GetAlpha() == 1, "shown while it targets something else")
+W.Check(tank:GetAttribute("type1") == "target", "clicking it (or /click DruidFrameTankTarget) targets it")
 W.targetName = "Gnoll"
 W.Advance(0.2)
 W.Check(tank:GetAlpha() == 0, "you're targeting the same mob: transparent")
@@ -68,6 +69,7 @@ W.roles.player = nil
 W.roles.party2 = "DAMAGER"
 W.Fire("PLAYER_ROLES_ASSIGNED")
 W.Check(not tank:IsShown(), "no one has the Tank role: hidden")
+W.Check(tank:GetAttribute("type1") == nil, "and /click or its key does nothing then")
 W.roles.party2 = "TANK"
 W.Fire("PLAYER_ROLES_ASSIGNED")
 W.combat = true

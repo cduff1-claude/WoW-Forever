@@ -149,6 +149,9 @@ Each one:
   on you (you've pulled it). Tank's Target: green while it's on the tank, red when it's on someone else.
 - Show: whenever there's something to show (default), or only in combat; Target and Target of Target can also be
   limited to when you're in a group. Width and height sliders.
+- Macros and keys: `/click DruidFrameTankTarget` targets the tank's target (and `/click DruidFrameTargetOfTarget`
+  your target's target), even while the frame is transparent; with no tank it does nothing. Both also have key
+  bindings under Esc > Options > Keybindings > AddOns > DruidFrame.
 - Left-click targets them; right-click opens their page. They start stacked to the right of DruidFrame (Target, then
   Target of Target, then Tank's Target). While any DruidFrame options page is open they show a preview and left-drag
   moves them; "Put it next to DruidFrame" resets one. They're secure (clickable) frames, so the game shows and hides

@@ -1,0 +1,4 @@
+<Bindings>
+    <Binding name="CLICK DruidFrameTankTarget:LeftButton" header="DRUIDFRAME" category="ADDONS"/>
+    <Binding name="CLICK DruidFrameTargetOfTarget:LeftButton" category="ADDONS"/>
+</Bindings>

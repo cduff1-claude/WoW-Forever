@@ -128,7 +128,9 @@ local function NewUnitFrame(def)
         T.unitAttribute = T.Unit() or def.fallbackUnit
         f:SetAttribute("unit", T.unitAttribute)
         f:SetAttribute("type1", "target")
-        f:RegisterForClicks("AnyUp")
+        -- Up and down, so /click macros and key bindings work whichever way the client's
+        -- "cast on key down" setting is (a mouse click then targets twice: harmless).
+        f:RegisterForClicks("AnyUp", "AnyDown")
         f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
         f:SetBackdropColor(0, 0, 0, 0.6)
         f:SetBackdropBorderColor(0, 0, 0, 1)
@@ -320,7 +322,9 @@ local function NewUnitFrame(def)
             f:SetAttribute("type1", nil) -- dragging, not targeting
             f:Show()
         else
-            f:SetAttribute("type1", "target")
+            -- With nothing to show (e.g. no tank), a click (or /click, or its key) does nothing,
+            -- rather than targeting the placeholder unit.
+            f:SetAttribute("type1", T.Unit() and "target" or nil)
             RegisterStateDriver(f, "visibility", T.Driver())
         end
         T.label:SetShown(T.unlocked and Get("Enabled") or false)
@@ -698,6 +702,12 @@ local Tank = NewUnitFrame({
 })
 
 ns.Target, ns.ToT, ns.TankTarget = Target, ToT, Tank
+
+-- Key bindings (Esc > Options > Keybindings > AddOns > DruidFrame; see Bindings.xml) click the
+-- frames, the same as /click DruidFrameTankTarget in a macro.
+BINDING_HEADER_DRUIDFRAME = "DruidFrame"
+_G["BINDING_NAME_CLICK DruidFrameTankTarget:LeftButton"] = "Target the tank's target"
+_G["BINDING_NAME_CLICK DruidFrameTargetOfTarget:LeftButton"] = "Target your target's target"
 
 -------------------------------------------------------------------------------
 -- Events
