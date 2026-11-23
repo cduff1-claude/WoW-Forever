@@ -631,6 +631,12 @@ SlashCmdList.CUSTOMWEAPONSWAP = function(msg)
         print(PREFIX, "set:", addon.CurrentSet(), "| last set:", tostring(db.lastSet), "| swaps:", db.count,
             "| bar shown:", tostring(bar.frame and bar.frame:IsShown()), "| in combat:", tostring(InCombatLockdown()))
         print("  equipped: main", tostring(Equipped(MAIN)), "off", tostring(Equipped(OFF)))
+        print("  cast on key down (ActionButtonUseKeyDown):", tostring(GetCVar and GetCVar("ActionButtonUseKeyDown")))
+        for i = 1, db.count do
+            local m, o = bar.mainClick and bar.mainClick[i], bar.offClick and bar.offClick[i]
+            print("  WS" .. i .. ":", tostring(m and m:GetAttribute("type")), tostring(m and m:GetAttribute("item")),
+                "| WO" .. i .. ":", tostring(o and o:GetAttribute("type")), tostring(o and o:GetAttribute("item")))
+        end
         for i = 1, db.count do
             local swap = addon.Swaps()[i] or {}
             print("  " .. i .. ":", "main", tostring(swap.main), "off", tostring(swap.off),
