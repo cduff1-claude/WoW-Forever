@@ -310,7 +310,8 @@ function addon.BuildBar()
     label:Hide()
     bar.frame, bar.label, bar.buttons = f, label, {}
     for i = 1, MAX_SWAPS do
-        local b = CreateFrame("Button", "CustomWeaponSwapButton" .. i, f, "SecureActionButtonTemplate,BackdropTemplate")
+        -- Short global names (WS1, WS2...) so "/click WS1" fits in a crowded macro.
+        local b = CreateFrame("Button", "WS" .. i, f, "SecureActionButtonTemplate,BackdropTemplate")
         b:SetSize(36, 36)
         b:SetBackdrop(BACKDROP)
         b:SetBackdropColor(0, 0, 0, 0.6)

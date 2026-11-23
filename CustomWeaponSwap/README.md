@@ -13,8 +13,8 @@ staff on its own, or a mace and an off hand, are each one swap.
   have equipped in gold. Click one to equip it. Or use `/ws 1`, `/ws 2`... in a macro. A swap that's already
   equipped does nothing.
 - **In combat:** the bar's buttons equip through `/equipslot`, which works in combat. `/ws` equips from addon code;
-  if the game blocks that in combat, use `/click CustomWeaponSwapButton1` (2, 3...) in the macro instead, which
-  presses the bar's button (it works even with the bar hidden).
+  if the game blocks that in combat, use `/click WS1` (`WS2`, `WS3`...) in the macro instead, which presses
+  the bar's button (it works even with the bar hidden).
 - **Options** (Esc > Options > AddOns > CustomWeaponSwap, or `/ws`): show the bar, swaps per set (1-6), bar size.
   While the options are open, drag the bar to move it (clicks don't swap then).
 - `/ws debug` prints the current set, what's equipped, and each swap with its macro.

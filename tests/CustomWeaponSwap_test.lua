@@ -52,7 +52,7 @@ local function Drop(slot, id)
 end
 local main1, off1 = _G.CustomWeaponSwapSetup1Main, _G.CustomWeaponSwapSetup1Off
 local main2, off2 = _G.CustomWeaponSwapSetup2Main, _G.CustomWeaponSwapSetup2Off
-local b1, b2, b3 = _G.CustomWeaponSwapButton1, _G.CustomWeaponSwapButton2, _G.CustomWeaponSwapButton3
+local b1, b2, b3 = _G.WS1, _G.WS2, _G.WS3
 
 print("Setup under the character screen")
 W.Check(A.CurrentSet() == "Healing", "the equipped set: Healing")
@@ -139,7 +139,7 @@ bar:GetScript("OnUpdate")(bar, 0.05)
 b1:GetScript("OnMouseUp")(b1, "LeftButton")
 W.Near(select(1, bar:GetCenter()), bx + 100, "dragged")
 _G.CustomWeaponSwapCount:GetScript("OnValueChanged")(_G.CustomWeaponSwapCount, 5)
-W.Check(_G.CustomWeaponSwapButton5:IsShown() and not _G.CustomWeaponSwapButton6:IsShown(), "5 swaps")
+W.Check(_G.WS5:IsShown() and not _G.WS6:IsShown(), "5 swaps")
 _G.CustomWeaponSwapBarShown:SetChecked(false)
 _G.CustomWeaponSwapBarShown:Click()
 A.panel:GetScript("OnHide")(A.panel)
