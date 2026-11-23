@@ -80,6 +80,7 @@ W.Check(_G.CustomWeaponSwapBar:IsShown(), "shown by default")
 W.Check(b1:GetAttribute("type") == "macro" and b1:GetAttribute("macrotext") == "/equipslot 16 item:101", "swap 1's button: a secure macro")
 W.Check(b2:GetAttribute("macrotext") == "/equipslot 16 item:102\n/equipslot 17 item:103", "swap 2's: main and off hand")
 W.Check(b3:GetAttribute("type") == nil, "an empty swap does nothing")
+W.Check(b1:GetAttribute("typerelease") == "macro", "acts on release too, so /click WS1 works with cast-on-key-down")
 local function Gold(b) local r, g = b:GetBackdropBorderColor(); return r == 1 and g == 0.82 end
 W.Check(Gold(b1) and not Gold(b2), "the staff is on: swap 1 highlighted")
 

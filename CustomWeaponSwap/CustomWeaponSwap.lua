@@ -453,8 +453,13 @@ function addon.Refresh()
         local text = addon.MacroText(i)
         if addon.unlocked or not text then
             b:SetAttribute("type", nil) -- dragging (or nothing to equip), not swapping
+            b:SetAttribute("typerelease", nil)
         else
             b:SetAttribute("type", "macro")
+            -- With "cast on key down" on, secure buttons only act on the press, but /click only
+            -- sends a release: "typerelease" makes the release act too (a second equip of the
+            -- same weapons does nothing).
+            b:SetAttribute("typerelease", "macro")
             b:SetAttribute("macrotext", text)
         end
     end

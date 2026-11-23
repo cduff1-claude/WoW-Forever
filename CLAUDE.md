@@ -99,6 +99,9 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   on change. The default action bar suffers the same bug. The user runs CustomFormBars (in this repo) for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
+- **`/click` and "cast on key down":** with the `ActionButtonUseKeyDown` setting on, secure action buttons act only on
+  the press, but `/click` sends only a release, so `/click` does nothing. Set `typerelease` to the same action as
+  `type` (and register `"AnyUp", "AnyDown"`) on any secure button meant for `/click` or key bindings.
 - **Blocked in combat** (ADDON_ACTION_BLOCKED): `Frame:SetPassThroughButtons` (even on the addon's own frames),
   and opening the settings (`Settings.OpenToCategory`). Only call them when the value changes, and defer to
   `PLAYER_REGEN_ENABLED`; see `ns.SetPassThrough` in `DruidFrame/Resource.lua`. `tests/wow.lua` errors on

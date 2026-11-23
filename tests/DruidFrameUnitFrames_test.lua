@@ -51,6 +51,7 @@ W.Advance(0.2)
 W.Check(tank:GetAttribute("unit") == "party2target", "follows the member with the Tank role (got " .. tostring(tank:GetAttribute("unit")) .. ")")
 W.Check(tank:IsShown() and tank:GetAlpha() == 1, "shown while it targets something else")
 W.Check(tank:GetAttribute("type1") == "target", "clicking it (or /click DruidFrameTankTarget) targets it")
+W.Check(tank:GetAttribute("typerelease") == "target", "on release too (/click with cast-on-key-down)")
 W.targetName = "Gnoll"
 W.Advance(0.2)
 W.Check(tank:GetAlpha() == 0, "you're targeting the same mob: transparent")
