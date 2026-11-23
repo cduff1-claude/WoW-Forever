@@ -2,7 +2,8 @@
 ## Title: CustomWeaponSwap
 ## Notes: Weapon swaps per equipment set: set them up under the character screen, swap from a movable bar or with /ws 1, /ws 2...
 ## Author: modified for personal use
-## Version: 1.0.0
+## Version: 1.1.0
+## OptionalDeps: LibSoundIndex
 ## SavedVariables: CustomWeaponSwapDB
 
 CustomWeaponSwap.lua

@@ -27,6 +27,7 @@ local DEFAULTS = {
     count = 3,        -- swaps per set
     barShown = true,  -- the swap bar (for when the character screen is closed)
     barScale = 1,
+    muteSounds = true, -- silence the equip sounds of a swap (needs the LibSoundIndex addon)
     -- barX / barY: the bar's centre in UIParent coordinates
     -- sets[setName][i] = { main = itemID, off = itemID }
     -- lastSet: the equipment set last equipped
@@ -143,6 +144,32 @@ local function EquipByID(itemID, slot)
     pcall(fn, itemID, slot)
 end
 
+-- Equip sounds: LibSoundIndex (a separate addon, optional) knows each item's sound files on
+-- Forever and mutes them briefly, as ItemRack does. Called just before an equip; "which" is
+-- "main", "off" or nil (both). The mute covers the incoming and the displaced weapons.
+local MUTE_SECONDS = 1
+function addon.SoundLib()
+    local lsi = LibStub and LibStub("LibSoundIndex-1.0", true)
+    if lsi and lsi.CanMuteItemSounds and lsi:CanMuteItemSounds() then return lsi end
+end
+function addon.MuteSwapSounds(i, which)
+    if not (db and db.muteSounds) then return 0 end
+    local lsi = addon.SoundLib()
+    local swap = addon.Swaps()[i]
+    if not (lsi and swap) then return 0 end
+    local n = 0
+    if which ~= "off" and swap.main then
+        n = n + (pcall(lsi.MuteItemSwapSounds, lsi, swap.main, Equipped(MAIN), MUTE_SECONDS) and 1 or 0)
+    end
+    if which ~= "main" and swap.off then
+        n = n + (pcall(lsi.MuteItemSwapSounds, lsi, swap.off, Equipped(OFF), MUTE_SECONDS) and 1 or 0)
+    elseif which ~= "off" and not swap.off and Equipped(OFF) then
+        -- A two-hander takes the off hand off too.
+        n = n + (pcall(lsi.MuteItemSwapSounds, lsi, Equipped(OFF), nil, MUTE_SECONDS) and 1 or 0)
+    end
+    return n
+end
+
 -- /ws N: equip swap N of the current set, unless it's already on.
 function addon.DoSwap(i)
     local swap = addon.Swaps()[i]
@@ -158,6 +185,7 @@ function addon.DoSwap(i)
             .. (swap.off and (" and /click WO" .. i .. " X 1") or "") .. ", or click the bar.")
         return
     end
+    addon.MuteSwapSounds(i)
     if Equipped(MAIN) ~= swap.main then
         EquipByID(swap.main, MAIN)
     end
@@ -336,6 +364,10 @@ function addon.BuildBar()
         b.number:SetPoint("TOPLEFT", 3, -3)
         b.number:SetText(i)
         b.i = i
+        -- PreClick runs (insecure, allowed in combat) just before the secure equip.
+        b:HookScript("PreClick", function(self)
+            if not addon.unlocked then addon.MuteSwapSounds(self.i) end
+        end)
         -- Dragging the bar while its options are open.
         b:HookScript("OnMouseDown", function(_, button)
             if button == "LeftButton" and addon.unlocked and not InCombatLockdown() then
@@ -375,6 +407,7 @@ function addon.BuildBar()
             local c = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
             c:RegisterForClicks("AnyUp", "AnyDown")
             c:Hide()
+            c:HookScript("PreClick", function() addon.MuteSwapSounds(i, kind) end)
             if kind == "main" then bar.mainClick[i] = c else bar.offClick[i] = c end
         end
     end
@@ -534,6 +567,18 @@ do
     end)
     widgets[#widgets + 1] = function() shown:SetChecked(db.barShown) end
 
+    local mute = CreateFrame("CheckButton", "CustomWeaponSwapMute", panel, "UICheckButtonTemplate")
+    mute:SetPoint("TOPLEFT", shown, "BOTTOMLEFT", 0, -4)
+    local muteText = mute.Text or _G["CustomWeaponSwapMuteText"]
+    mute:SetScript("OnClick", function(self) db.muteSounds = self:GetChecked() and true or false end)
+    widgets[#widgets + 1] = function()
+        mute:SetChecked(db.muteSounds)
+        if muteText then
+            muteText:SetText("Mute equip sounds when swapping"
+                .. (addon.SoundLib() and "" or " (install the LibSoundIndex addon for this)"))
+        end
+    end
+
     local function Slider(name, anchor, label, key, low, high, step, fmt)
         local s = CreateFrame("Slider", name, panel, "OptionsSliderTemplate")
         s:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 4, -30)
@@ -554,7 +599,7 @@ do
         end
         return s
     end
-    local countSlider = Slider("CustomWeaponSwapCount", shown, "Swaps per set", "count", 1, MAX_SWAPS, 1, "%d")
+    local countSlider = Slider("CustomWeaponSwapCount", mute, "Swaps per set", "count", 1, MAX_SWAPS, 1, "%d")
     Slider("CustomWeaponSwapScale", countSlider, "Bar size", "barScale", 0.5, 2, 0.05, "%.2f")
 
     panel:SetScript("OnShow", function()
@@ -653,6 +698,9 @@ SlashCmdList.CUSTOMWEAPONSWAP = function(msg)
         print(PREFIX, "set:", addon.CurrentSet(), "| last set:", tostring(db.lastSet), "| swaps:", db.count,
             "| bar shown:", tostring(bar.frame and bar.frame:IsShown()), "| in combat:", tostring(InCombatLockdown()))
         print("  equipped: main", tostring(Equipped(MAIN)), "off", tostring(Equipped(OFF)))
+        local lsi = addon.SoundLib()
+        print("  mute sounds:", tostring(db.muteSounds), "| LibSoundIndex:",
+            lsi and ("found (" .. tostring(lsi.GetClientKey and lsi:GetClientKey()) .. ")") or "not installed")
         print("  cast on key down (ActionButtonUseKeyDown):", tostring(GetCVar and GetCVar("ActionButtonUseKeyDown")))
         for i = 1, db.count do
             local m, o = bar.mainClick and bar.mainClick[i], bar.offClick and bar.offClick[i]
@@ -661,7 +709,11 @@ SlashCmdList.CUSTOMWEAPONSWAP = function(msg)
         end
         for i = 1, db.count do
             local swap = addon.Swaps()[i] or {}
-            print("  " .. i .. ":", "main", tostring(swap.main), "off", tostring(swap.off),
+            local files = 0
+            if lsi then
+                for _, id in ipairs({ swap.main, swap.off }) do files = files + #lsi:GetItemSoundFileDataIDs(id) end
+            end
+            print("  " .. i .. ":", "main", tostring(swap.main), "off", tostring(swap.off), "| sound files:", files,
                 "| equipped:", tostring(addon.IsEquipped(i)), "| macro:", (addon.MacroText(i) or "none"):gsub("\n", " / "))
         end
         return

@@ -19,6 +19,11 @@ staff on its own, or a mace and an off hand, are each one swap.
   since patch 11.0.2, a `/click` from a macro is ignored if the button would run a macro, so these use the game's
   plain "use item" action (using a weapon equips it), which does one item per click. Using a one-handed weapon
   that can go in either hand puts it in the main hand.
+- **Equip sounds:** with the free [LibSoundIndex](https://www.curseforge.com/wow/addons/libsoundindex) addon
+  installed (it supports Forever), a swap silences the weapons' equip and sheathe sounds for a second, the way
+  ItemRack does. It mutes those sound files for the whole game for that second, so the same sound from anything
+  else is muted then too. Turn it off with "Mute equip sounds when swapping" in the options. Without the library,
+  swaps sound as normal.
 - **Options** (Esc > Options > AddOns > CustomWeaponSwap, or `/ws`): show the bar, swaps per set (1-6), bar size.
   While the options or Blizzard's Edit Mode (Esc > Edit Mode) are open, drag the bar to move it (clicks
   don't swap then).

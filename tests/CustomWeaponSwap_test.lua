@@ -42,6 +42,16 @@ CharacterFrame:SetSize(340, 420)
 CharacterFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -80)
 GameTooltip.SetItemByID = function() end
 
+-- LibSoundIndex (optional addon): records what it's asked to mute.
+local mutes = {}
+local LSI = {
+    CanMuteItemSounds = function() return true end,
+    GetClientKey = function() return "Forever" end,
+    GetItemSoundFileDataIDs = function(_, id) return id and { id * 10 } or {} end,
+    MuteItemSwapSounds = function(_, incoming, displaced, secs) mutes[#mutes + 1] = { incoming, displaced, secs } end,
+}
+local lsiInstalled = false
+LibStub = function(name) if lsiInstalled and name == "LibSoundIndex-1.0" then return LSI end end
 W.Load("CustomWeaponSwap/CustomWeaponSwap.lua", "CustomWeaponSwap")
 W.Fire("PLAYER_LOGIN")
 local A = CustomWeaponSwap
@@ -130,6 +140,29 @@ W.Check(okCombat and b1:GetAttribute("macrotext") == "/equipslot 16 item:101", "
 W.combat = false
 W.Fire("PLAYER_REGEN_ENABLED")
 W.Check(b1:GetAttribute("macrotext") == "/equipslot 16 item:104", "they catch up after")
+
+print("Equip sounds")
+W.Check(A.MuteSwapSounds(2) == 0, "no LibSoundIndex: nothing muted, no error")
+lsiInstalled = true
+worn[16], worn[17] = STAFF, nil
+local sw = A.Swaps(); sw[1], sw[2] = { main = STAFF }, { main = MACE, off = SHIELD }
+_G.WS2:Click("X", true)
+W.Check(#mutes == 1 and mutes[1][1] == MACE and mutes[1][2] == STAFF, "/click WS2 X 1: mace's and staff's sounds muted first")
+_G.WO2:Click("X", true)
+W.Check(#mutes == 2 and mutes[2][1] == SHIELD and mutes[2][2] == nil, "/click WO2 X 1: shield's muted")
+worn[16], worn[17] = MACE, SHIELD
+mutes = {}
+b1:Click()
+W.Check(#mutes == 2 and mutes[1][1] == STAFF and mutes[1][2] == MACE and mutes[2][1] == SHIELD,
+    "bar click to the staff: staff, mace and the displaced shield muted")
+mutes = {}
+db = CustomWeaponSwapDB
+db.muteSounds = false
+_G.WS1:Click("X", true)
+W.Check(#mutes == 0, "option off: nothing muted")
+db.muteSounds = true
+W.Check(pcall(W.Slash, "/ws debug"), "/ws debug with LibSoundIndex runs")
+worn[16], worn[17] = STAFF, nil
 
 print("Edit Mode")
 local b1e = _G.CustomWeaponSwapButton1
