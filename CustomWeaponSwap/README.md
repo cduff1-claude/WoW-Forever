@@ -20,5 +20,6 @@ staff on its own, or a mace and an off hand, are each one swap.
   plain "use item" action (using a weapon equips it), which does one item per click. Using a one-handed weapon
   that can go in either hand puts it in the main hand.
 - **Options** (Esc > Options > AddOns > CustomWeaponSwap, or `/ws`): show the bar, swaps per set (1-6), bar size.
-  While the options are open, drag the bar to move it (clicks don't swap then).
+  While the options or Blizzard's Edit Mode (Esc > Edit Mode) are open, drag the bar to move it (clicks
+  don't swap then).
 - `/ws debug` prints the current set, what's equipped, and each swap with its macro.

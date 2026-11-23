@@ -521,7 +521,7 @@ do
     about:SetText("Set up swaps under the character screen: drag weapons onto the slots (main hand, then an "
         .. "optional off hand), right-click to clear. Each equipment set has its own swaps. Swap with the bar or "
         .. "/ws 1, /ws 2... (out of combat). In combat macros use /click WS1 X 1 (main hand) and /click WO1 X 1 "
-        .. "(off hand). A swap that's already on does nothing. While this page is open, drag the bar to move it.")
+        .. "(off hand). A swap that's already on does nothing. While this page or Edit Mode is open, drag the bar to move it.")
 
     local widgets = {}
     local shown = CreateFrame("CheckButton", "CustomWeaponSwapBarShown", panel, "UICheckButtonTemplate")
@@ -559,15 +559,34 @@ do
 
     panel:SetScript("OnShow", function()
         for _, w in ipairs(widgets) do w() end
-        addon.SetUnlocked(true)
+        addon.SetUnlocked(true, "options")
     end)
-    panel:SetScript("OnHide", function() addon.SetUnlocked(false) end)
+    panel:SetScript("OnHide", function() addon.SetUnlocked(false, "options") end)
 end
 
-function addon.SetUnlocked(on)
-    addon.unlocked = on and true or false
-    if not on then addon.StopDrag() end
+-- The bar unlocks (drag to move, clicks don't swap) while the options page or Blizzard's
+-- Edit Mode is open.
+addon.unlockedBy = {}
+function addon.SetUnlocked(on, why)
+    addon.unlockedBy[why or "options"] = on and true or nil
+    addon.unlocked = next(addon.unlockedBy) ~= nil
+    if not addon.unlocked then addon.StopDrag() end
     addon.Refresh()
+end
+
+-- Edit Mode: Retail's EventRegistry callbacks, or hooks on the manager as a fallback.
+function addon.WatchEditMode()
+    if addon.watchingEditMode then return end
+    addon.watchingEditMode = true
+    local function Enter() addon.SetUnlocked(true, "editmode") end
+    local function Exit() addon.SetUnlocked(false, "editmode") end
+    if EventRegistry and EventRegistry.RegisterCallback then
+        EventRegistry:RegisterCallback("EditMode.Enter", Enter, addon)
+        EventRegistry:RegisterCallback("EditMode.Exit", Exit, addon)
+    elseif EditModeManagerFrame and hooksecurefunc then
+        hooksecurefunc(EditModeManagerFrame, "EnterEditMode", Enter)
+        hooksecurefunc(EditModeManagerFrame, "ExitEditMode", Exit)
+    end
 end
 
 function addon.OpenOptions()
@@ -600,6 +619,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2)
             addon.category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
             Settings.RegisterAddOnCategory(addon.category)
         end
+        addon.WatchEditMode()
         addon.Refresh()
         return
     end

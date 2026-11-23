@@ -420,6 +420,15 @@ C_Timer = {
         return t
     end,
 }
+-- Blizzard's callback registry (Edit Mode etc.). W.TriggerCallback(name, ...) fires one.
+EventRegistry = { _cb = {} }
+function EventRegistry:RegisterCallback(name, fn, owner)
+    self._cb[name] = self._cb[name] or {}
+    table.insert(self._cb[name], { fn = fn, owner = owner })
+end
+function W.TriggerCallback(name, ...)
+    for _, c in ipairs(EventRegistry._cb[name] or {}) do c.fn(c.owner, ...) end
+end
 C_Texture = { GetAtlasInfo = function(name) return { file = name } end }
 
 local function RunTimers()

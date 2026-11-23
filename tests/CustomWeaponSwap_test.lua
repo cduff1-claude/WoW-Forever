@@ -131,6 +131,13 @@ W.combat = false
 W.Fire("PLAYER_REGEN_ENABLED")
 W.Check(b1:GetAttribute("macrotext") == "/equipslot 16 item:104", "they catch up after")
 
+print("Edit Mode")
+local b1e = _G.CustomWeaponSwapButton1
+W.TriggerCallback("EditMode.Enter")
+W.Check(b1e:GetAttribute("type") == nil and _G.CustomWeaponSwapBar:IsShown(), "Edit Mode: bar unlocked (drag, not swap)")
+W.TriggerCallback("EditMode.Exit")
+W.Check(b1e:GetAttribute("type") == "macro", "Edit Mode closed: swapping again")
+
 print("Options")
 local opened
 Settings.OpenToCategory = function(id) opened = id end
@@ -138,6 +145,8 @@ W.Slash("/ws")
 W.Check(opened == "CustomWeaponSwap", "/ws opens the options")
 A.panel:GetScript("OnShow")(A.panel)
 W.Check(b1:GetAttribute("type") == nil, "options open: clicks drag, not swap")
+W.TriggerCallback("EditMode.Enter"); W.TriggerCallback("EditMode.Exit")
+W.Check(b1:GetAttribute("type") == nil, "leaving Edit Mode with the options still open: still unlocked")
 local bar = _G.CustomWeaponSwapBar
 local bx, by = bar:GetCenter()
 W.cursor = { bx, by }
