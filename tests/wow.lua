@@ -445,6 +445,8 @@ W.casting, W.channel = nil, nil -- { name=, startMS=, endMS= }
 -- Portraits: remembered on the texture, so tests can see what was drawn.
 function SetPortraitTexture(texture, unit) texture._portrait = UnitName(unit); texture._texture = "portrait" end
 function Frame:CreateMaskTexture(...) return self:CreateTexture(...) end
+function Frame:SetBackdropBorderColor(r, g, b, a) self._border = { r, g, b, a } end
+function Frame:GetBackdropBorderColor() if self._border then return unpack(self._border) end end
 function Frame:AddMaskTexture(mask) self._masks = self._masks or {}; self._masks[mask] = true end
 function Frame:RemoveMaskTexture(mask) if self._masks then self._masks[mask] = nil end end
 function UnitExists(unit)
