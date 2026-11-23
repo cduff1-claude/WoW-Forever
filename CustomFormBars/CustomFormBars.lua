@@ -1,4 +1,4 @@
--- FormBars: pin the main action bar (ActionButton1-12) to a chosen page per form.
+-- CustomFormBars: pin the main action bar (ActionButton1-12) to a chosen page per form.
 --
 -- Blizzard's main bar picks its page from GetBonusBarOffset(), which can go stale
 -- (caster bar while in cat/bear). Instead, a secure state driver keyed on the actual
@@ -28,18 +28,18 @@ for _, f in ipairs(FORMS) do
 	for _, id in ipairs(f.ids or {}) do formBySpell[id] = f end
 end
 
-local db -- FormBarsDB: { enabled = bool, pages = { [formKey] = page } }
+local db -- CustomFormBarsDB: { enabled = bool, pages = { [formKey] = page } }
 
 local function PageFor(key)
 	return db.pages[key] or formByKey[key].page or 1
 end
 
-local function Print(...) print("|cff66ccffFormBars|r:", ...) end
+local function Print(...) print("|cff66ccffCustomFormBars|r:", ...) end
 
 ------------------------------------------------------------------------------
 -- Secure header: owns the state driver and sets the page on the main bar.
 ------------------------------------------------------------------------------
-local header = CreateFrame("Frame", "FormBarsHeader", UIParent, "SecureHandlerStateTemplate")
+local header = CreateFrame("Frame", "CustomFormBarsHeader", UIParent, "SecureHandlerStateTemplate")
 local buttons = {}
 for i = 1, 12 do
 	buttons[i] = _G["ActionButton" .. i]
@@ -99,18 +99,31 @@ local function ClearHoldLater()
 	end)
 end
 
--- Macro /click targets: FormBarsCat, FormBarsBear, FormBarsMoonkin, ...
-local clickButtons = {}
-for _, f in ipairs(FORMS) do
-	if not f.stealthOf then -- no button for Prowl: it isn't a form and switches quickly
-		local btn = CreateFrame("Button", "FormBars" .. f.key:gsub("^%l", strupper), UIParent, "SecureActionButtonTemplate")
+-- Macro /click targets, each with shorter aliases to save macro characters:
+--   FormBarsCat (FBCat, FBC), FormBarsBear (FBBear, FBB), FormBarsMoonkin (FBMoonkin, FBM),
+--   FormBarsTravel (FBTravel, FBT), FormBarsAquatic (FBAquatic, FBA),
+--   FormBarsDruid (FBDruid, FBD = caster, page 1)
+-- No button for Prowl: it isn't a form and switches quickly.
+local CLICK_TARGETS = {
+	{ key = "cat",     name = "FormBarsCat",     mid = "FBCat",     short = "FBC" },
+	{ key = "bear",    name = "FormBarsBear",    mid = "FBBear",    short = "FBB" },
+	{ key = "moonkin", name = "FormBarsMoonkin", mid = "FBMoonkin", short = "FBM" },
+	{ key = "travel",  name = "FormBarsTravel",  mid = "FBTravel",  short = "FBT" },
+	{ key = "aquatic", name = "FormBarsAquatic", mid = "FBAquatic", short = "FBA" },
+	{ key = "druid",   name = "FormBarsDruid",   mid = "FBDruid",   short = "FBD", page = 1 }, -- caster bar, fixed
+}
+
+local clickButtons = {} -- { btn = Button, target = CLICK_TARGETS entry }
+for _, t in ipairs(CLICK_TARGETS) do
+	for _, name in ipairs({ t.name, t.mid, t.short }) do
+		local btn = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
 		btn:RegisterForClicks("AnyUp", "AnyDown")
 		header:WrapScript(btn, "OnClick", [[
 			local page = self:GetAttribute("fbpage")
 			if page then owner:RunAttribute("instant", page) end
 		]])
 		btn:HookScript("OnClick", ClearHoldLater)
-		clickButtons[f.key] = btn
+		clickButtons[#clickButtons + 1] = { btn = btn, target = t }
 	end
 end
 
@@ -159,8 +172,9 @@ local function Apply()
 	pending = false
 	UnregisterStateDriver(header, "page")
 	header:Execute([[ optState = nil ]])
-	for key, btn in pairs(clickButtons) do
-		btn:SetAttribute("fbpage", db.enabled and PageFor(key) or nil)
+	for _, c in ipairs(clickButtons) do
+		local page = c.target.page or PageFor(c.target.key)
+		c.btn:SetAttribute("fbpage", db.enabled and page or nil)
 	end
 	if db.enabled then
 		-- Clear the old state so registering always counts as a change and the page
@@ -182,8 +196,8 @@ header:RegisterEvent("PLAYER_REGEN_ENABLED")
 header:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" then
 		if arg1 ~= ADDON then return end
-		FormBarsDB = FormBarsDB or {}
-		db = FormBarsDB
+		CustomFormBarsDB = CustomFormBarsDB or {}
+		db = CustomFormBarsDB
 		db.pages = db.pages or {}
 		if db.enabled == nil then db.enabled = true end
 	elseif event == "PLAYER_REGEN_ENABLED" then

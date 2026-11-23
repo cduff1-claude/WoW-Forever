@@ -234,7 +234,41 @@ function Frame:SetFrameStrata(s) self._strata = s end
 function Frame:IsMovable() return self._movable end
 function Frame:SetMovable(v) self._movable = v end
 
-function Frame:SetAttribute(k, v) self._attrs[k] = v end
+function Frame:SetAttribute(k, v)
+    self._attrs[k] = v
+    -- Secure state headers: setting "state-X" runs the "_onstate-X" snippet.
+    local state = type(k) == "string" and k:match("^state%-(.+)$")
+    if state and v ~= nil and self._attrs["_onstate-" .. state] then
+        W.RunSnippet(self, self._attrs["_onstate-" .. state], { self = self, stateid = state, newstate = tostring(v) })
+    end
+end
+
+-- Restricted snippets (SecureHandler templates): Lua source run in the header's own environment,
+-- which keeps its globals between runs. Frame handles are the frames themselves here.
+function W.RunSnippet(header, code, vars, ...)
+    if not header._snipEnv then
+        header._snipEnv = setmetatable({ newtable = function(...) return { ... } end },
+            { __index = { tonumber = tonumber, tostring = tostring, type = type, pairs = pairs, ipairs = ipairs,
+                math = math, string = string, table = table, print = print } })
+    end
+    local env = header._snipEnv
+    for k, v in pairs(vars or {}) do env[k] = v end
+    local fn = assert(loadstring(code))
+    setfenv(fn, env)
+    return fn(...)
+end
+function Frame:SetFrameRef(name, f) self._refs = self._refs or {}; self._refs[name] = f end
+function Frame:GetFrameRef(name) return self._refs and self._refs[name] end
+function Frame:Execute(code) return W.RunSnippet(self, code, { self = self }) end
+function Frame:RunAttribute(name, ...) return W.RunSnippet(self, self._attrs[name], { self = self }, ...) end
+-- WrapScript: the snippet runs before the frame's own script, with self = the frame, owner = header.
+function Frame:WrapScript(frame, script, pre)
+    local header, old = self, frame._scripts[script]
+    frame._scripts[script] = function(f, button, down)
+        W.RunSnippet(header, pre, { self = f, owner = header, button = button, down = down })
+        if old then old(f, button, down) end
+    end
+end
 function Frame:GetAttribute(k) return self._attrs[k] end
 
 function Frame:SetChecked(v) self._checked = v and true or false end
@@ -378,6 +412,13 @@ end
 W.timers = {}
 C_Timer = {
     After = function(delay, fn) table.insert(W.timers, { due = W.time + delay, fn = fn }) end,
+    -- A cancellable one-shot timer.
+    NewTimer = function(delay, fn)
+        local t = {}
+        t.Cancel = function() t.cancelled = true end
+        C_Timer.After(delay, function() if not t.cancelled then fn(t) end end)
+        return t
+    end,
 }
 C_Texture = { GetAtlasInfo = function(name) return { file = name } end }
 

@@ -97,7 +97,7 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   `UPDATE_SHAPESHIFT_FORM` may fire while it still reports caster, with no event when it settles. Don't rely
   on form events alone: also poll `GetShapeshiftFormID()` / `UnitPowerType("player")` (~0.1s) and refresh
   on change. The default action bar suffers the same bug. The user runs CustomFormBars (in this repo) for that, with a
-  `/click FormBars<Form>` line before the cast in their shift macros.
+  `/click FormBars<Form>` line (or the short `FB<Form>` / `FBC`, `FBB`, `FBD`...) before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
 - **`/click` from a macro can't trigger a macro** (since 11.0.2, confirmed on Forever): a button with
   `type = "macro"` / `macrotext` works with the mouse but does nothing from `/click` in a user's macro. Give

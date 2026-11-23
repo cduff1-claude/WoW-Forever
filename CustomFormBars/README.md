@@ -4,7 +4,7 @@ A small druid addon for **WoW Forever**. It keeps your main action bar on the ri
 
 ## Why
 
-The default UI decides which bar to show from the game's "bonus bar" value, and sometimes that value goes stale: you shift into Cat and your caster bar stays up. FormBars picks the bar from the form you're actually in instead, so a stale bonus bar value no longer matters. It sets the bar every time your form changes, including in combat.
+The default UI decides which bar to show from the game's "bonus bar" value, and sometimes that value goes stale: you shift into Cat and your caster bar stays up. CustomFormBars picks the bar from the form you're actually in instead, so a stale bonus bar value no longer matters. It sets the bar every time your form changes, including in combat.
 
 It can also switch the bar **the instant you press your shift macro**, instead of waiting for the server to confirm the shift (which can take a second or more). This keeps powershifting smooth.
 
@@ -13,6 +13,8 @@ It can also switch the bar **the instant you press your shift macro**, instead o
 1. Copy the `CustomFormBars` folder into `World of Warcraft\<your Forever folder>\Interface\AddOns\`.
 2. Restart the game (or `/reload` if it was already running when you copied it in).
 3. Make sure **CustomFormBars** is enabled in the AddOns list on the character select screen.
+
+Upgrading from the old **FormBars** addon: delete its `FormBars` folder first, or both will try to control the bar. Your macros keep working, because the button names haven't changed. Any custom pages you set with `/fb` start fresh, so set them again.
 
 It only loads on druids. Your existing bars stay where they are, because the defaults match Blizzard's layout:
 
@@ -31,17 +33,41 @@ Shift+number and the bar arrows still page your bar like normal.
 
 ## Instant bar switching (powershift macro)
 
-Add a `/click` line **above** your shift line. For example, a one-button powershift for Bear and Cat:
+Add a `/click` line as the **first line** of your shift macro, before any `/cancelform`. For example, a Cat powershift:
 
 ```
-#showtooltip
-/click [form:1] FormBarsBear; [form:3] FormBarsCat
-/cast [form:1] !Bear Form; [form:3] !Cat Form
+#showtooltip Cat Form
+/click FBC
+/cancelform
+/cast Cat Form
 ```
 
-Give the `/click` line the **same conditions as the `/cast` line**, so it clicks the button for the form you're about to shift into.
+`!Cat Form` on its own doesn't powershift: the `!` only stops the cast from toggling you out of a form you're already in, so you still need `/cancelform`.
 
-Buttons available: `FormBarsCat`, `FormBarsBear`, `FormBarsMoonkin`, `FormBarsTravel`, `FormBarsAquatic`.
+If your macro can end in different forms, give the `/click` line the same conditions as the `/cast` line, so it clicks the button for the form you're about to land in. For example, Alt for Travel/Aquatic and Cat otherwise:
+
+```
+/click [mod:alt,swimming]FBA;[mod:alt]FBT;FBC
+/cast [mod:alt,swimming]Aquatic Form;[mod:alt]Travel Form;!Cat Form
+```
+
+To leave a form and get your caster bar back straight away:
+
+```
+/click FBD
+/cancelform
+```
+
+| Button            | Shorter     | Shortest | Shows               |
+|-------------------|-------------|----------|---------------------|
+| `FormBarsCat`     | `FBCat`     | `FBC`    | Cat page            |
+| `FormBarsBear`    | `FBBear`    | `FBB`    | Bear page           |
+| `FormBarsMoonkin` | `FBMoonkin` | `FBM`    | Moonkin page        |
+| `FormBarsTravel`  | `FBTravel`  | `FBT`    | Travel page         |
+| `FormBarsAquatic` | `FBAquatic` | `FBA`    | Aquatic page        |
+| `FormBarsDruid`   | `FBDruid`   | `FBD`    | Caster bar (page 1) |
+
+The short names do the same thing and save characters (macros are limited to 255). Only click a button in a macro that actually shifts you; if no shift happens, see Limitations below.
 
 ### Finding your form numbers
 
@@ -64,15 +90,15 @@ If you learn a new form, the numbers can shift, so update your macro. The addon 
 | `/fb`                  | Show your current form → page settings                |
 | `/fb <form> <page>`    | Put a form on a different bar page (1–10), e.g. `/fb bear 8`. `prowl` is also accepted here |
 | `/fb <form> default`   | Reset that form to its default page                   |
-| `/fb on` / `/fb off`   | Turn FormBars on or off (off = normal Blizzard behaviour) |
+| `/fb on` / `/fb off`   | Turn CustomFormBars on or off (off = normal Blizzard behaviour) |
 | `/fb status`           | Show your current form, the game's bonus bar value, and the page being shown |
 
 `/formbars` works too. Settings are saved per character. Changes made in combat apply as soon as combat ends.
 
 ## Limitations
 
-- **Blizzard's main bar only.** If you use Bartender, Dominos, ElvUI, or MoveAny's option that replaces the action bars, FormBars won't affect those bars. Those addons handle form paging themselves.
-- **A failed shift in combat.** If you press the macro but the shift doesn't happen at all (on cooldown, out of mana), FormBars still expects a drop to caster. If you really do drop to caster during that fight, the bar may stay on your Cat/Bear page until your form changes again. It always clears 5 seconds after your last macro press, or 5 seconds after combat ends.
+- **Blizzard's main bar only.** If you use Bartender, Dominos, ElvUI, or MoveAny's option that replaces the action bars, CustomFormBars won't affect those bars. Those addons handle form paging themselves.
+- **A failed shift in combat.** If you press the macro but the shift doesn't happen at all (on cooldown, out of mana), CustomFormBars still expects a drop to caster. If you really do drop to caster during that fight, the bar may stay on the clicked page until your form changes again. It always clears 5 seconds after your last macro press, or 5 seconds after combat ends.
 
 ## Troubleshooting
 
