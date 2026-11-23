@@ -460,6 +460,8 @@ function addon.Refresh()
             -- sends a release: "typerelease" makes the release act too (a second equip of the
             -- same weapons does nothing).
             b:SetAttribute("typerelease", "macro")
+            -- And ask the button itself to act on release whatever the setting (newer clients).
+            b:SetAttribute("useOnKeyDown", false)
             b:SetAttribute("macrotext", text)
         end
     end
