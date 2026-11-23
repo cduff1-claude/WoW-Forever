@@ -99,10 +99,11 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
   on change. The default action bar suffers the same bug. The user runs CustomFormBars (in this repo) for that, with a
   `/click FormBars<Form>` line before the cast in their shift macros.
 - **Stealth / combat:** `IsStealthed()` and `PLAYER_REGEN_ENABLED` / `PLAYER_REGEN_DISABLED` are available.
-- **`/click` and "cast on key down":** with the `ActionButtonUseKeyDown` setting on, secure action buttons act only on
-  the press, but `/click` sends only a release, so `/click` can do nothing even though mouse clicks work.
-  Setting `typerelease` alone did **not** fix it on Forever; `useOnKeyDown = false` is being tried
-  (CustomWeaponSwap). Workaround that should always work: `/click Button LeftButton 1` (sends a press).
+- **`/click` from a macro can't trigger a macro** (since 11.0.2, confirmed on Forever): a button with
+  `type = "macro"` / `macrotext` works with the mouse but does nothing from `/click` in a user's macro. Give
+  `/click` targets a non-macro action (`item`, `spell`, `target`, ...). `C_Item.EquipItemByName` is blocked in
+  combat; the `item` action on a weapon equips it in combat. For key-down setups also set `typerelease` and
+  register `"AnyUp", "AnyDown"`. See `CustomWeaponSwap` (WS1/WO1).
 - **Blocked in combat** (ADDON_ACTION_BLOCKED): `Frame:SetPassThroughButtons` (even on the addon's own frames),
   and opening the settings (`Settings.OpenToCategory`). Only call them when the value changes, and defer to
   `PLAYER_REGEN_ENABLED`; see `ns.SetPassThrough` in `DruidFrame/Resource.lua`. `tests/wow.lua` errors on

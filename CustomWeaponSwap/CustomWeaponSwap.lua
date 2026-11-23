@@ -10,8 +10,10 @@
 --   * Swap: a movable bar (option), click a swap; or /ws 1, /ws 2... in a macro. A swap that's
 --     already equipped does nothing. The equipped swap is highlighted.
 --
--- The bar's buttons are secure (they use /equipslot, so they work in combat). Their setup only
--- changes out of combat. /ws runs the same equips from Lua.
+-- The bar's buttons are secure (they use /equipslot, so they work in combat when clicked). For
+-- macros, hidden buttons WS1.. (main hand) and WO1.. (off hand) equip with the "item" action:
+-- /click WS1, /click WO1. Their setup only changes out of combat. /ws equips from Lua, which the
+-- game only allows out of combat.
 
 local ADDON = ...
 
@@ -148,6 +150,11 @@ function addon.DoSwap(i)
         return
     end
     if addon.IsEquipped(i) then
+        return
+    end
+    if InCombatLockdown() then
+        print(PREFIX, "the game doesn't let addons equip in combat. In a macro use /click WS" .. i
+            .. (swap.off and (" and /click WO" .. i) or "") .. ", or click the bar.")
         return
     end
     if Equipped(MAIN) ~= swap.main then
@@ -310,8 +317,7 @@ function addon.BuildBar()
     label:Hide()
     bar.frame, bar.label, bar.buttons = f, label, {}
     for i = 1, MAX_SWAPS do
-        -- Short global names (WS1, WS2...) so "/click WS1" fits in a crowded macro.
-        local b = CreateFrame("Button", "WS" .. i, f, "SecureActionButtonTemplate,BackdropTemplate")
+        local b = CreateFrame("Button", "CustomWeaponSwapButton" .. i, f, "SecureActionButtonTemplate,BackdropTemplate")
         b:SetSize(36, 36)
         b:SetBackdrop(BACKDROP)
         b:SetBackdropColor(0, 0, 0, 0.6)
@@ -356,6 +362,20 @@ function addon.BuildBar()
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         bar.buttons[i] = b
+    end
+    -- For macros: hidden buttons WS1, WS2... (main hand) and WO1, WO2... (off hand). Since 11.0.2 a
+    -- /click from a macro is ignored if the button would run a macro, so these use the plain "item"
+    -- action (using a weapon equips it) instead of the bar's /equipslot macro. One action each,
+    -- hence two buttons for a swap with an off hand: /click WS1 then /click WO1.
+    bar.mainClick, bar.offClick = {}, {}
+    for i = 1, MAX_SWAPS do
+        for _, kind in ipairs({ "main", "off" }) do
+            local name = (kind == "main" and "WS" or "WO") .. i
+            local c = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
+            c:RegisterForClicks("AnyUp", "AnyDown")
+            c:Hide()
+            if kind == "main" then bar.mainClick[i] = c else bar.offClick[i] = c end
+        end
     end
 end
 
@@ -463,6 +483,16 @@ function addon.Refresh()
             -- And ask the button itself to act on release whatever the setting (newer clients).
             b:SetAttribute("useOnKeyDown", false)
             b:SetAttribute("macrotext", text)
+        end
+    end
+    for i = 1, MAX_SWAPS do
+        local swap = i <= count and addon.Swaps()[i] or {}
+        for kind, buttons in pairs({ main = bar.mainClick, off = bar.offClick }) do
+            local c, id = buttons[i], swap[kind]
+            -- "typerelease" too: with "cast on key down" a /click may arrive as a release.
+            c:SetAttribute("type", id and "item" or nil)
+            c:SetAttribute("typerelease", id and "item" or nil)
+            c:SetAttribute("item", id and ("item:" .. id) or nil)
         end
     end
     bar.frame:SetWidth(math.max(40, count * 40 - 4))

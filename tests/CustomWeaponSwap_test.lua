@@ -52,7 +52,7 @@ local function Drop(slot, id)
 end
 local main1, off1 = _G.CustomWeaponSwapSetup1Main, _G.CustomWeaponSwapSetup1Off
 local main2, off2 = _G.CustomWeaponSwapSetup2Main, _G.CustomWeaponSwapSetup2Off
-local b1, b2, b3 = _G.WS1, _G.WS2, _G.WS3
+local b1, b2, b3 = _G.CustomWeaponSwapButton1, _G.CustomWeaponSwapButton2, _G.CustomWeaponSwapButton3
 
 print("Setup under the character screen")
 W.Check(A.CurrentSet() == "Healing", "the equipped set: Healing")
@@ -80,7 +80,9 @@ W.Check(_G.CustomWeaponSwapBar:IsShown(), "shown by default")
 W.Check(b1:GetAttribute("type") == "macro" and b1:GetAttribute("macrotext") == "/equipslot 16 item:101", "swap 1's button: a secure macro")
 W.Check(b2:GetAttribute("macrotext") == "/equipslot 16 item:102\n/equipslot 17 item:103", "swap 2's: main and off hand")
 W.Check(b3:GetAttribute("type") == nil, "an empty swap does nothing")
-W.Check(b1:GetAttribute("typerelease") == "macro", "acts on release too, so /click WS1 works with cast-on-key-down")
+W.Check(_G.WS1:GetAttribute("type") == "item" and _G.WS1:GetAttribute("item") == "item:101", "/click WS1: equips the staff (item action, not a macro)")
+W.Check(_G.WS2:GetAttribute("item") == "item:102" and _G.WO2:GetAttribute("item") == "item:103", "/click WS2 and WO2: mace and shield")
+W.Check(_G.WO1:GetAttribute("type") == nil, "/click WO1: nothing (no off hand)")
 local function Gold(b) local r, g = b:GetBackdropBorderColor(); return r == 1 and g == 0.82 end
 W.Check(Gold(b1) and not Gold(b2), "the staff is on: swap 1 highlighted")
 
@@ -97,6 +99,11 @@ W.Slash("/ws 1")
 W.Check(worn[16] == STAFF and worn[17] == nil, "/ws 1: back to the staff")
 local okEmpty = pcall(W.Slash, "/ws 3")
 W.Check(okEmpty, "/ws 3 (empty): just a message")
+W.combat = true
+local before = #equips
+W.Slash("/ws 2")
+W.Check(#equips == before, "/ws in combat: doesn't try (the game blocks it), points to /click")
+W.combat = false
 
 print("Equipment sets")
 sets[2].equipped, sets[1].equipped = false, true
@@ -140,7 +147,7 @@ bar:GetScript("OnUpdate")(bar, 0.05)
 b1:GetScript("OnMouseUp")(b1, "LeftButton")
 W.Near(select(1, bar:GetCenter()), bx + 100, "dragged")
 _G.CustomWeaponSwapCount:GetScript("OnValueChanged")(_G.CustomWeaponSwapCount, 5)
-W.Check(_G.WS5:IsShown() and not _G.WS6:IsShown(), "5 swaps")
+W.Check(_G.CustomWeaponSwapButton5:IsShown() and not _G.CustomWeaponSwapButton6:IsShown(), "5 swaps")
 _G.CustomWeaponSwapBarShown:SetChecked(false)
 _G.CustomWeaponSwapBarShown:Click()
 A.panel:GetScript("OnHide")(A.panel)
