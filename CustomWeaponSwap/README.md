@@ -13,8 +13,9 @@ staff on its own, or a mace and an off hand, are each one swap.
   have equipped in gold. Click one to equip it. Or use `/ws 1`, `/ws 2`... in a macro. A swap that's already
   equipped does nothing.
 - **In combat:** clicking the bar works in combat. `/ws` only works out of combat (the game doesn't let addons
-  equip in combat). For macros in combat use `/click WS1` (main hand) and, if the swap has an off hand,
-  `/click WO1` too (`WS2`/`WO2` for swap 2, and so on). They work with the bar hidden. They're separate because,
+  equip in combat). For macros in combat use `/click WS1 X 1` (main hand) and, if the swap has an off hand,
+  `/click WO1 X 1` too (`WS2`/`WO2` for swap 2, and so on). Keep the `X 1`: it sends a key press, and with
+  "cast on key down" on (the default) a plain `/click WS1` does nothing. They work with the bar hidden. They're separate because,
   since patch 11.0.2, a `/click` from a macro is ignored if the button would run a macro, so these use the game's
   plain "use item" action (using a weapon equips it), which does one item per click. Using a one-handed weapon
   that can go in either hand puts it in the main hand.

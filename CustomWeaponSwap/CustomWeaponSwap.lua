@@ -12,7 +12,8 @@
 --
 -- The bar's buttons are secure (they use /equipslot, so they work in combat when clicked). For
 -- macros, hidden buttons WS1.. (main hand) and WO1.. (off hand) equip with the "item" action:
--- /click WS1, /click WO1. Their setup only changes out of combat. /ws equips from Lua, which the
+-- /click WS1 X 1, /click WO1 X 1 (the "X 1" sends a key press; with "cast on key down" on, a
+-- plain /click does nothing, confirmed on Forever). Their setup only changes out of combat. /ws equips from Lua, which the
 -- game only allows out of combat.
 
 local ADDON = ...
@@ -153,8 +154,8 @@ function addon.DoSwap(i)
         return
     end
     if InCombatLockdown() then
-        print(PREFIX, "the game doesn't let addons equip in combat. In a macro use /click WS" .. i
-            .. (swap.off and (" and /click WO" .. i) or "") .. ", or click the bar.")
+        print(PREFIX, "the game doesn't let addons equip in combat. In a macro use /click WS" .. i .. " X 1"
+            .. (swap.off and (" and /click WO" .. i .. " X 1") or "") .. ", or click the bar.")
         return
     end
     if Equipped(MAIN) ~= swap.main then
@@ -366,7 +367,7 @@ function addon.BuildBar()
     -- For macros: hidden buttons WS1, WS2... (main hand) and WO1, WO2... (off hand). Since 11.0.2 a
     -- /click from a macro is ignored if the button would run a macro, so these use the plain "item"
     -- action (using a weapon equips it) instead of the bar's /equipslot macro. One action each,
-    -- hence two buttons for a swap with an off hand: /click WS1 then /click WO1.
+    -- hence two buttons for a swap with an off hand: /click WS1 X 1 then /click WO1 X 1.
     bar.mainClick, bar.offClick = {}, {}
     for i = 1, MAX_SWAPS do
         for _, kind in ipairs({ "main", "off" }) do
@@ -519,7 +520,8 @@ do
     about:SetJustifyH("LEFT")
     about:SetText("Set up swaps under the character screen: drag weapons onto the slots (main hand, then an "
         .. "optional off hand), right-click to clear. Each equipment set has its own swaps. Swap with the bar or "
-        .. "/ws 1, /ws 2...; a swap that's already on does nothing. While this page is open, drag the bar to move it.")
+        .. "/ws 1, /ws 2... (out of combat). In combat macros use /click WS1 X 1 (main hand) and /click WO1 X 1 "
+        .. "(off hand). A swap that's already on does nothing. While this page is open, drag the bar to move it.")
 
     local widgets = {}
     local shown = CreateFrame("CheckButton", "CustomWeaponSwapBarShown", panel, "UICheckButtonTemplate")

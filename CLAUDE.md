@@ -102,8 +102,9 @@ Work on one addon at a time: only read the folder you're working on. Addon-speci
 - **`/click` from a macro can't trigger a macro** (since 11.0.2, confirmed on Forever): a button with
   `type = "macro"` / `macrotext` works with the mouse but does nothing from `/click` in a user's macro. Give
   `/click` targets a non-macro action (`item`, `spell`, `target`, ...). `C_Item.EquipItemByName` is blocked in
-  combat; the `item` action on a weapon equips it in combat. For key-down setups also set `typerelease` and
-  register `"AnyUp", "AnyDown"`. See `CustomWeaponSwap` (WS1/WO1).
+  combat; the `item` action on a weapon equips it in combat. Register `"AnyUp", "AnyDown"`. With
+  `ActionButtonUseKeyDown` on (the default), a plain `/click Btn` does nothing on a secure button; the macro
+  line has to be `/click Btn X 1` (sends a press; confirmed on Forever). See `CustomWeaponSwap` (WS1/WO1).
 - **Blocked in combat** (ADDON_ACTION_BLOCKED): `Frame:SetPassThroughButtons` (even on the addon's own frames),
   and opening the settings (`Settings.OpenToCategory`). Only call them when the value changes, and defer to
   `PLAYER_REGEN_ENABLED`; see `ns.SetPassThrough` in `DruidFrame/Resource.lua`. `tests/wow.lua` errors on
