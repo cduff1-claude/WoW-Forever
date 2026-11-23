@@ -134,6 +134,14 @@ local function NewUnitFrame(def)
         -- Up and down, so /click macros and key bindings work whichever way the client's
         -- "cast on key down" setting is (a mouse click then targets twice: harmless).
         f:RegisterForClicks("AnyUp", "AnyDown")
+        -- A short hidden twin for macros (DFTank, DFToT): "/click DFTank X 1". The "X 1" sends a press,
+        -- which "cast on key down" needs; "type" without a button suffix answers that "X" button.
+        if def.clickName then
+            local c = CreateFrame("Button", def.clickName, UIParent, "SecureActionButtonTemplate")
+            c:RegisterForClicks("AnyUp", "AnyDown")
+            c:Hide()
+            T.click = c
+        end
         f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
         f:SetBackdropColor(0, 0, 0, 0.6)
         f:SetBackdropBorderColor(0, 0, 0, 1)
@@ -319,6 +327,12 @@ local function NewUnitFrame(def)
         if unit ~= T.unitAttribute then
             T.unitAttribute = unit
             f:SetAttribute("unit", unit)
+        end
+        if T.click then
+            local action = T.Unit() and "target" or nil -- no tank: does nothing
+            T.click:SetAttribute("unit", unit)
+            T.click:SetAttribute("type", action)
+            T.click:SetAttribute("typerelease", action)
         end
         UnregisterStateDriver(f, "visibility")
         if T.unlocked and Get("Enabled") then
@@ -663,6 +677,7 @@ local Target = NewUnitFrame({
 local ToT = NewUnitFrame({
     key = "tot", prefix = "tot", order = 2, title = "Target of Target",
     frameName = "DruidFrameTargetOfTarget", widgetPrefix = "DruidFrameToT", slash = "/druidtot",
+    clickName = "DFToT",
     showAlways = "Whenever your target has a target",
     about = "Who your target is targeting, as a small frame of its own.",
     aggroLabel = "Aggro border: green when it's on you in Bear Form, red when you lose it (Bear) or pull it (other forms)",
@@ -674,6 +689,7 @@ local ToT = NewUnitFrame({
 local Tank = NewUnitFrame({
     key = "tank", prefix = "tank", order = 3, title = "Tank's Target",
     frameName = "DruidFrameTankTarget", widgetPrefix = "DruidFrameTankTarget", slash = "/druidtank",
+    clickName = "DFTank",
     showAlways = "Whenever the tank has a target",
     about = "What your group's tank (the member with the Tank role) is targeting. Not shown when you're the tank, "
         .. "when no one has the Tank role, while you're targeting the same thing, or while you're targeting the tank.",
