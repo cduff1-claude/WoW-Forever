@@ -614,7 +614,23 @@ C_Spell = {
     GetSpellInfo = function(spell) return { name = spell, spellID = 1 } end,
 }
 C_UnitAuras = {}
-C_AddOns = { GetAddOnMetadata = function() return nil end }
+C_AddOns = {
+    GetAddOnMetadata = function() return nil end,
+    IsAddOnLoaded = function(name) return W.loadedAddons[name] or false end,
+}
+W.loadedAddons = {} -- name -> true, for C_AddOns.IsAddOnLoaded
+W.instance = false   -- IsInInstance()
+function IsInInstance() return W.instance, W.instance and "pvp" or "none" end
+W.errors = {}
+function geterrorhandler() return function(e) table.insert(W.errors, e) end end
+-- Every frame, in creation order: EnumerateFrames() gives the first, EnumerateFrames(f) the next.
+function EnumerateFrames(after)
+    local start = 1
+    if after then
+        for i, f in ipairs(W.frames) do if f == after then start = i + 1; break end end
+    end
+    return W.frames[start]
+end
 
 Settings = {
     RegisterCanvasLayoutCategory = function(_, name) return { GetID = function() return name end } end,

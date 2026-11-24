@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: CustomAddonFixes
+## Notes: Fixes for other addons' errors on Forever (secret values, blocked actions), kept outside their files so updates don't undo them.
+## Author: modified for personal use
+## Version: 1.0.0
+## OptionalDeps: ExperiencePlus, ForeverForge, AccWideUILayoutSelection
+
+CustomAddonFixes.lua
