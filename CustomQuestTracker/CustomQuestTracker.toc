@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: CustomQuestTracker
+## Notes: Click the "Quests" line of Blizzard's quest tracker to minimise the tracker to that line; click again to restore it.
+## Author: modified for personal use
+## Version: 1.0.0
+## SavedVariables: CustomQuestTrackerDB
+
+CustomQuestTracker.lua

@@ -212,6 +212,8 @@ function Frame:IsVisible()
 end
 
 function Frame:SetScript(name, fn) self._scripts[name] = fn end
+function Frame:EnableMouse(on) self._mouse = on and true or false end
+function Frame:IsMouseEnabled() return self._mouse or false end
 function Frame:GetScript(name) return self._scripts[name] end
 function Frame:HookScript(name, fn)
     local old = self._scripts[name]
