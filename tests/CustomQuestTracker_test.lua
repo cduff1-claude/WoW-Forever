@@ -1,78 +1,79 @@
--- CustomQuestTracker: clicking the Quests header minimises every tracker section and a second
--- click restores each to how it was; combat defers; the state survives a reload.
+-- CustomQuestTracker: clicking EnhancedQuestTracker's title minimises its window to the title line,
+-- keeps it there when the tracker refits itself, and a second click restores the full height.
 -- Run from the repo root: lua5.1 tests/CustomQuestTracker_test.lua
 
 package.path = "tests/?.lua;" .. package.path
 local W = require("wow")
 
--- Blizzard's objective tracker: modules with a header and a collapsed state.
+-- A stand-in for EnhancedQuestTracker's window: title, Blizzard-look header, scroll list, and an
+-- OnSizeChanged that re-lays out (refits the height) when the width it laid out for changes.
+local CONTENT = 300
+local f = CreateFrame("Frame", "EnhancedQuestTrackerFrame", UIParent)
+f:SetSize(250, CONTENT)
+f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -50, -200)
+f.title = f:CreateFontString()
+f.title:SetPoint("TOPLEFT", 8, -8)
+f.title:SetText("Quests (16)")
+f.header = CreateFrame("Frame", nil, f)
+f.header:SetHeight(26)
+f.header:Hide()
+f.scroll = CreateFrame("ScrollFrame", nil, f)
 local layouts = 0
-local function Module(name, title, collapsed)
-    local m = CreateFrame("Frame", name, UIParent)
-    m.Header = CreateFrame("Frame", nil, m)
-    m.Header.Text = m.Header:CreateFontString()
-    m.Header.Text:SetText(title)
-    m.collapsed = collapsed
-    function m:IsCollapsed() return self.collapsed end
-    function m:SetCollapsed(on) self.collapsed = on; layouts = layouts + 1 end
-    return m
-end
-local quests = Module("QuestObjectiveTracker", "Quests", false)
-local achievements = Module("AchievementObjectiveTracker", "Achievements", true)
-local bonus = Module("BonusObjectiveTracker", "Bonus Objectives", false)
-ObjectiveTrackerFrame = CreateFrame("Frame", "ObjectiveTrackerFrame", UIParent)
-ObjectiveTrackerFrame.modules = { quests, achievements, bonus }
+local layoutWidth = 250
+local function Layout() layouts = layouts + 1; layoutWidth = f:GetWidth(); f:SetHeight(CONTENT) end
+f:SetScript("OnSizeChanged", function(self, width) if width ~= layoutWidth then Layout() end end)
 
 local function Load()
     W.Load("CustomQuestTracker/CustomQuestTracker.lua", "CustomQuestTracker")
     W.Fire("ADDON_LOADED", "CustomQuestTracker")
     W.Fire("PLAYER_LOGIN")
-    W.Fire("PLAYER_ENTERING_WORLD")
 end
 Load()
-local function Click(button) quests.Header:GetScript("OnMouseUp")(quests.Header, button or "LeftButton") end
+local A = CustomQuestTracker
+local function H() return math.floor(f:GetHeight() + 0.5) end
 
-print("Click to minimise")
-W.Check(quests.Header:IsMouseEnabled(), "Quests line takes clicks")
-Click()
-W.Check(quests.collapsed and achievements.collapsed and bonus.collapsed, "all sections collapsed to the Quests line")
-Click()
-W.Check(not quests.collapsed and achievements.collapsed and not bonus.collapsed,
-    "restored: Quests and Bonus open, Achievements still collapsed as before")
-Click("RightButton")
-W.Check(not quests.collapsed, "right-click does nothing")
+print("Click the title")
+local btn = _G.CustomQuestTrackerTitleButton
+W.Check(btn and btn:IsShown(), "a click button sits over the title")
+btn:Click()
+W.Check(H() == 28 and not f.scroll:IsShown(), "minimised to the title line (got " .. H() .. ")")
+
+print("The tracker refits itself while minimised")
+Layout()
+W.Check(H() == 28, "still minimised after a quest update")
+
+print("Click again")
+btn:Click()
+W.Check(H() == CONTENT and f.scroll:IsShown(), "restored to the full list (got " .. H() .. ")")
+Layout()
+W.Check(H() == CONTENT, "and refits normally afterwards")
 
 print("Combat")
 W.combat = true
-local before = layouts
-Click()
-W.Check(layouts == before and not quests.collapsed, "in combat: nothing changes yet")
+btn:Click()
+W.Check(H() == 28, "minimising works in combat (the window isn't protected)")
+btn:Click()
 W.combat = false
-W.Fire("PLAYER_REGEN_ENABLED")
-W.Check(quests.collapsed and bonus.collapsed, "after combat: minimised")
-W.combat = true
-Click(); Click()
-W.combat = false
-W.Fire("PLAYER_REGEN_ENABLED")
-W.Check(quests.collapsed, "two clicks in combat cancel out")
+W.Check(H() == CONTENT, "and restoring")
+
+print("Blizzard look")
+f.header:Show()
+f.header:GetScript("OnMouseUp")(f.header, "LeftButton")
+W.Check(H() == 26, "header bar click: minimised to the header (got " .. H() .. ")")
+W.Check(not btn:IsShown(), "title button hidden in this look")
+f.header:GetScript("OnMouseUp")(f.header, "RightButton")
+W.Check(H() == 26, "right-click on the bar does nothing")
+W.Slash("/cqt")
+W.Check(H() == CONTENT, "/cqt restores")
+f.header:Hide()
 
 print("Reload while minimised")
--- Blizzard may reopen sections on reload; we keep it minimised and still restore correctly.
-quests.collapsed, bonus.collapsed = false, false
+btn:Click()
+f.scroll:Show(); f:SetHeight(CONTENT) -- a fresh UI
+A.hooked = nil
 Load()
-W.Check(quests.collapsed and bonus.collapsed, "still minimised after reload")
-W.Slash("/cqt")
-W.Check(not quests.collapsed and achievements.collapsed and not bonus.collapsed, "/cqt restores the old states")
+W.Check(H() == 28 and not f.scroll:IsShown(), "still minimised after reload")
 W.Check(pcall(W.Slash, "/cqt debug"), "/cqt debug runs")
-
-print("No tracker yet at login")
-ObjectiveTrackerFrame, QuestObjectiveTracker = nil, nil
-W.Load("CustomQuestTracker/CustomQuestTracker.lua", "CustomQuestTracker")
-W.Fire("ADDON_LOADED", "CustomQuestTracker")
-W.Check(pcall(W.Fire, "PLAYER_LOGIN"), "no tracker: no error")
-QuestObjectiveTracker = quests
-ObjectiveTrackerFrame = CreateFrame("Frame", nil, UIParent); ObjectiveTrackerFrame.modules = { quests }
-W.Advance(3)
-W.Check(CustomQuestTracker.hooked == quests.Header, "hooks the header once the tracker exists")
+W.Check(pcall(W.Slash, "/cqt mouse"), "/cqt mouse runs")
 
 W.Done()
