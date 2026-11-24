@@ -128,6 +128,28 @@ end)
 SLASH_CUSTOMQUESTTRACKER1 = "/cqt"
 SlashCmdList.CUSTOMQUESTTRACKER = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
+    if msg == "mouse" then
+        -- What's under the pointer: each frame and its parents, with any text on it.
+        local foci = GetMouseFoci and GetMouseFoci() or { GetMouseFocus and GetMouseFocus() }
+        if #foci == 0 then print(PREFIX, "nothing under the mouse") end
+        for i, f in ipairs(foci) do
+            local chain, cur, depth = {}, f, 0
+            while cur and depth < 8 do
+                local name = (cur.GetDebugName and cur:GetDebugName()) or (cur.GetName and cur:GetName()) or "?"
+                chain[#chain + 1] = name .. " [" .. (cur.GetObjectType and cur:GetObjectType() or "?") .. "]"
+                cur = cur.GetParent and cur:GetParent()
+                depth = depth + 1
+            end
+            print(PREFIX, "under mouse " .. i .. ":", table.concat(chain, " < "))
+            local texts = {}
+            for _, r in ipairs({ f.GetRegions and f:GetRegions() }) do
+                if r.GetText and r:GetText() then texts[#texts + 1] = r:GetText() end
+            end
+            print("  text:", table.concat(texts, " | "), "| scripts: click", tostring(f.GetScript and f:HasScript("OnClick") and f:GetScript("OnClick") ~= nil),
+                "mouseup", tostring(f.HasScript and f:HasScript("OnMouseUp") and f:GetScript("OnMouseUp") ~= nil))
+        end
+        return
+    end
     if msg == "debug" then
         local t = Tracker()
         print(PREFIX, "tracker:", tostring(t ~= nil), "| tracker collapsed:",
@@ -158,6 +180,17 @@ SlashCmdList.CUSTOMQUESTTRACKER = function(msg)
                 kids[#kids + 1] = (name or "?") .. (c:IsShown() and "" or "(hidden)")
             end
             print("  tracker children:", table.concat(kids, ", "))
+            for i, c in ipairs({ t:GetChildren() }) do
+                if not (c.GetName and c:GetName()) then
+                    local texts = {}
+                    for _, r in ipairs({ c:GetRegions() }) do
+                        if r.GetText and r:GetText() then texts[#texts + 1] = r:GetText() end
+                    end
+                    print("  child " .. i .. ":", tostring(c.GetDebugName and c:GetDebugName()), c:GetObjectType(),
+                        c:IsShown() and "shown" or "hidden", "| children:", select("#", c:GetChildren()),
+                        "| text:", table.concat(texts, " | "))
+                end
+            end
         end
         for i, m in ipairs(addon.Modules()) do
             local h = m.Header

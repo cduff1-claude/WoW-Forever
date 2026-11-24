@@ -13,3 +13,4 @@ Click it again to put it back the way it was.
 
 - `/cqt`: toggle, same as clicking the line.
 - `/cqt debug`: prints the tracker's sections, their headers and collapsed states.
+- `/cqt mouse`: names the frame under the mouse pointer (and its parents). Hover something, then type it.
