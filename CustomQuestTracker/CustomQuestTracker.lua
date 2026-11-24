@@ -133,6 +133,32 @@ SlashCmdList.CUSTOMQUESTTRACKER = function(msg)
         print(PREFIX, "tracker:", tostring(t ~= nil), "| tracker collapsed:",
             tostring(t and t.IsCollapsed and t:IsCollapsed()), "| minimised:", tostring(db and db.minimised),
             "| hooked:", tostring(addon.hooked ~= nil), "| in combat:", tostring(InCombatLockdown()))
+        -- Which tracker the client has, and what the clicked line belongs to.
+        local found = {}
+        for _, n in ipairs({ "ObjectiveTrackerFrame", "ObjectiveTrackerManager", "QuestObjectiveTracker",
+            "CampaignQuestObjectiveTracker", "QuestWatchFrame", "WatchFrame", "ObjectiveTrackerBlocksFrame" }) do
+            if _G[n] ~= nil then found[#found + 1] = n end
+        end
+        print("  globals:", table.concat(found, ", "))
+        local h = addon.hooked
+        if h then
+            local p = h.GetParent and h:GetParent()
+            print("  hooked header:", tostring(h.GetName and h:GetName()), "| parent:", tostring(p and p.GetName and p:GetName()),
+                "| text:", tostring(h.Text and h.Text.GetText and h.Text:GetText()),
+                "| minimise button:", tostring(h.MinimizeButton ~= nil))
+        end
+        if t then
+            local th = t.Header
+            print("  tracker header:", tostring(th ~= nil), "| text:", tostring(th and th.Text and th.Text.GetText and th.Text:GetText()),
+                "| SetCollapsed:", tostring(t.SetCollapsed ~= nil), "| ToggleCollapsed:", tostring(t.ToggleCollapsed ~= nil),
+                "| modules:", tostring(type(t.modules) == "table" and #t.modules or "none"))
+            local kids = {}
+            for _, c in ipairs({ t:GetChildren() }) do
+                local name = c.GetName and c:GetName()
+                kids[#kids + 1] = (name or "?") .. (c:IsShown() and "" or "(hidden)")
+            end
+            print("  tracker children:", table.concat(kids, ", "))
+        end
         for i, m in ipairs(addon.Modules()) do
             local h = m.Header
             local text = h and h.Text and h.Text.GetText and h.Text:GetText()
